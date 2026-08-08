@@ -1,0 +1,191 @@
+{
+  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+  "target_name": "dim_customers",
+  "target_domain": "Analytics",
+  "field": "customer_email",
+  "field_type": "STRING",
+  "upstream_assets": [
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,sales.customers_raw,PROD)",
+      "name": "customers_raw",
+      "entity_type": "dataset",
+      "domain": "Sales",
+      "field": "email",
+      "lineage_path": []
+    },
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.stg_customers,PROD)",
+      "name": "stg_customers",
+      "entity_type": "dataset",
+      "domain": "Analytics",
+      "field": "customer_email",
+      "lineage_path": []
+    }
+  ],
+  "downstream_assets": [
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
+      "name": "customer_360",
+      "entity_type": "dataset",
+      "domain": "Analytics",
+      "field": "customer_email",
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)"
+      ]
+    },
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
+      "name": "campaign_audiences",
+      "entity_type": "dataset",
+      "domain": "Marketing",
+      "field": "customer_email",
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)"
+      ]
+    },
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
+      "name": "customer_contact_queue",
+      "entity_type": "dataset",
+      "domain": "Support",
+      "field": "customer_email",
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)"
+      ]
+    },
+    {
+      "urn": "urn:li:dashboard:(looker,customer_retention_dashboard)",
+      "name": "customer_retention_dashboard",
+      "entity_type": "dashboard",
+      "domain": "Executive Reporting",
+      "field": "customer_email",
+      "is_executive": true,
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
+        "urn:li:dashboard:(looker,customer_retention_dashboard)"
+      ]
+    }
+  ],
+  "owners": [
+    {
+      "urn": "urn:li:corpuser:data-platform",
+      "name": "Data Platform",
+      "ownership_type": "TECHNICAL_OWNER"
+    },
+    {
+      "urn": "urn:li:corpuser:customer-analytics",
+      "name": "Customer Analytics",
+      "ownership_type": "DATA_OWNER"
+    }
+  ],
+  "field_tags": ["urn:li:tag:PII"],
+  "glossary_terms": ["urn:li:glossaryTerm:CustomerEmail"],
+  "structured_properties": {
+    "urn:li:structuredProperty:io.acryl.common.usageTier": ["HIGH"]
+  },
+  "usage_tier": "high",
+  "queries": [
+    "select customer_email from analytics.dim_customers where customer_status = 'active'",
+    "select count(distinct customer_email) from analytics.dim_customers"
+  ],
+  "evidence": [
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+      "kind": "schema",
+      "label": "customer_email STRING"
+    },
+    {
+      "urn": "urn:li:tag:PII",
+      "kind": "governance",
+      "label": "PII"
+    },
+    {
+      "urn": "urn:li:glossaryTerm:CustomerEmail",
+      "kind": "governance",
+      "label": "Customer Email"
+    },
+    {
+      "urn": "urn:li:query:customer-email-usage",
+      "kind": "usage",
+      "label": "High query usage"
+    },
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
+      "kind": "lineage",
+      "label": "customer_360"
+    },
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
+      "kind": "lineage",
+      "label": "campaign_audiences"
+    },
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
+      "kind": "lineage",
+      "label": "customer_contact_queue"
+    },
+    {
+      "urn": "urn:li:dashboard:(looker,customer_retention_dashboard)",
+      "kind": "lineage",
+      "label": "customer_retention_dashboard"
+    }
+  ],
+  "tool_evidence": [
+    {
+      "tool": "get_entities",
+      "parameters": {
+        "urns": ["urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"]
+      },
+      "duration_ms": 118,
+      "result_count": 1,
+      "referenced_urns": ["urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"]
+    },
+    {
+      "tool": "list_schema_fields",
+      "parameters": {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "keywords": ["customer_email"]
+      },
+      "duration_ms": 96,
+      "result_count": 1,
+      "referenced_urns": ["urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"]
+    },
+    {
+      "tool": "get_lineage",
+      "parameters": {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "column": "customer_email",
+        "upstream": false,
+        "max_hops": 3
+      },
+      "duration_ms": 164,
+      "result_count": 4,
+      "referenced_urns": [
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
+        "urn:li:dashboard:(looker,customer_retention_dashboard)"
+      ]
+    },
+    {
+      "tool": "get_dataset_queries",
+      "parameters": {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "column": "customer_email",
+        "count": 10
+      },
+      "duration_ms": 132,
+      "result_count": 2,
+      "referenced_urns": ["urn:li:query:customer-email-usage"]
+    }
+  ],
+  "provenance": {
+    "mode": "snapshot",
+    "retrieved_at": "2026-08-06T18:42:00Z",
+    "adapter_version": "datahub-agent-context/1.7.0"
+  }
+}
