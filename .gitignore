@@ -9,6 +9,7 @@ data/
 node_modules/
 .pnpm-store/
 .venv/
+.venv-dbt/
 __pycache__/
 *.egg-info/
 .pytest_cache/
@@ -20,3 +21,6 @@ build/
 *.tsbuildinfo
 playwright-report/
 test-results/
+fixtures/dbt_project/logs/
+fixtures/dbt_project/target/
+fixtures/dbt_project/.user.yml

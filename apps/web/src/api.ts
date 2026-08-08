@@ -80,6 +80,15 @@ export class BrowserChangeSafeApi implements ChangeSafeApi {
     );
   }
 
+  async continueWithSnapshot(runId: string): Promise<RunView> {
+    return responseJson<RunView>(
+      await fetch(
+        `${this.baseUrl}/api/runs/${encodeURIComponent(runId)}/continue-with-snapshot`,
+        { method: "POST" },
+      ),
+    );
+  }
+
   subscribe(
     runId: string,
     afterSequence: number,

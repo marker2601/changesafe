@@ -1,6 +1,6 @@
-# ChangeSafe: migrate `customer_email` to `primary_email`
+# ChangeSafe: rename `customer_email` to `primary_email`
 
-This phase-one migration preserves the existing interface, adds the new contracted field, and includes deterministic validation and rollback evidence.
+This phase-one migration preserves the existing interface and includes deterministic validation, deprecation evidence, and rollback steps.
 
 ## Deterministic risk: 90/100 — Critical
 

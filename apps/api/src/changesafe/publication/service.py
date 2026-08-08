@@ -8,7 +8,14 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from changesafe.config import Settings
-from changesafe.context.base import DataHubContextPort, DecisionWriteback
+from changesafe.context.base import (
+    ContextAuthorizationError,
+    ContextLoadError,
+    ContextTimeoutError,
+    ContextTransportError,
+    DataHubContextPort,
+    DecisionWriteback,
+)
 from changesafe.domain import (
     DataHubReceipt,
     PublicationLedgerEntry,
@@ -20,7 +27,9 @@ from changesafe.domain import (
 from changesafe.publication.base import GitHubPublisherPort, publication_key
 from changesafe.publication.github import GitHubPublicationError, GitHubPublisher
 from changesafe.publication.preview import build_unified_patch
+from changesafe.risk import score_change
 from changesafe.store import RunStore
+from changesafe.verification import verify_artifacts
 
 
 class ApprovalDenied(PermissionError):
@@ -68,6 +77,30 @@ class PublicationService:
             base_branch=self.settings.github_base_branch,
         )
 
+    @staticmethod
+    def _require_current_policy(run: RunView) -> None:
+        assert run.analysis is not None
+        try:
+            current_risk = score_change(run.request, run.analysis.context)
+            current_validation = verify_artifacts(
+                run.analysis.artifacts,
+                run.request,
+                run.analysis.context,
+            )
+        except Exception as exc:
+            raise PublicationStateError(
+                "Run does not satisfy the current safety policy; submit a new analysis."
+            ) from exc
+        if (
+            not current_validation.passed
+            or current_risk != run.analysis.risk
+            or current_validation != run.analysis.validation
+            or run.analysis.publication_eligible != current_validation.passed
+        ):
+            raise PublicationStateError(
+                "Run does not satisfy the current safety policy; submit a new analysis."
+            )
+
     @property
     def _external_publication_configured(self) -> bool:
         return (
@@ -75,15 +108,100 @@ class PublicationService:
             or self.settings.datahub_writeback_enabled
         )
 
-    def _live_enabled(self, run: RunView) -> bool:
-        return bool(
+    def _configured_intent(self, run: RunView) -> dict[str, object]:
+        live = bool(
             run.analysis is not None
             and run.analysis.context.provenance.mode.value == "live"
             and self._external_publication_configured
         )
+        github_required = live and self.settings.github_publication_enabled
+        datahub_required = live and self.settings.datahub_writeback_enabled
+        return {
+            "publication_mode": "live" if live else "preview",
+            "github_required": github_required,
+            "datahub_required": datahub_required,
+            "github_repository": (
+                self.settings.github_repository if github_required else None
+            ),
+            "github_base_branch": (
+                self.settings.github_base_branch if github_required else None
+            ),
+            "datahub_server": (
+                str(self.settings.datahub_gms_url).rstrip("/")
+                if datahub_required and self.settings.datahub_gms_url is not None
+                else None
+            ),
+            "datahub_target_urn": run.request.asset_urn if datahub_required else None,
+        }
 
-    def _authorize(self, supplied_admin_token: str | None, run: RunView) -> None:
-        if not self._live_enabled(run):
+    def _bind_intent(
+        self, run: RunView, entry: PublicationLedgerEntry
+    ) -> PublicationLedgerEntry:
+        if entry.publication_mode is not None:
+            return entry
+        if entry.receipt is not None:
+            receipt = entry.receipt
+            return entry.model_copy(
+                update={
+                    **self._configured_intent(run),
+                    "publication_mode": receipt.mode,
+                    "github_required": bool(
+                        entry.branch or entry.pull_request_url
+                    ),
+                    "datahub_required": receipt.writeback.mode == "live",
+                }
+            )
+        has_side_effect_checkpoint = bool(
+            entry.branch or entry.pull_request_url or entry.writeback
+        )
+        if has_side_effect_checkpoint or run.state is not RunState.AWAITING_APPROVAL:
+            raise PublicationStateError(
+                "Publication ledger is missing its durable publication intent."
+            )
+        return entry.model_copy(update=self._configured_intent(run))
+
+    def _destination_mismatch(
+        self, run: RunView, entry: PublicationLedgerEntry
+    ) -> bool:
+        if entry.github_required and entry.pull_request_url is None and (
+            entry.github_repository != self.settings.github_repository
+            or entry.github_base_branch != self.settings.github_base_branch
+        ):
+            return True
+        configured_datahub = (
+            str(self.settings.datahub_gms_url).rstrip("/")
+            if self.settings.datahub_gms_url is not None
+            else None
+        )
+        return bool(
+            entry.datahub_required
+            and (
+                entry.writeback is None
+                or entry.writeback.label != "WRITTEN TO DATAHUB"
+            )
+            and (
+                entry.datahub_server != configured_datahub
+                or entry.datahub_target_urn != run.request.asset_urn
+            )
+        )
+
+    def _intent_matches_current_configuration(
+        self, run: RunView, entry: PublicationLedgerEntry
+    ) -> bool:
+        configured = self._configured_intent(run)
+        return all(
+            getattr(entry, field) == value
+            for field, value in configured.items()
+        )
+
+    def _authorize(
+        self,
+        supplied_admin_token: str | None,
+        run: RunView,
+        *,
+        live_required: bool,
+    ) -> None:
+        if not live_required:
             return
         configured = self.settings.changesafe_admin_token
         token_matches = (
@@ -120,22 +238,22 @@ class PublicationService:
             run = await self.store.get(run_id)
             if run is None:
                 raise KeyError(str(run_id))
-            self._authorize(supplied_admin_token, run)
-            if run.analysis is None or not run.analysis.publication_eligible:
+            if run.analysis is None:
                 raise PublicationStateError(
                     "Run has no verified publication artifacts."
                 )
+            self._require_current_policy(run)
             artifact_hash = run.analysis.artifacts.manifest_hash
             if artifact_hash is None:
                 raise PublicationStateError("Verified artifact manifest is missing.")
             key = publication_key(run.request, run.request.source_commit, artifact_hash)
             existing = await self.store.get_publication(key)
-            if existing is not None and existing.completed and existing.receipt:
-                return await self._reuse_completed_receipt(run, existing.receipt)
 
             if run.state not in {
                 RunState.AWAITING_APPROVAL,
                 RunState.PUBLICATION_FAILED,
+                RunState.PREPARING_PREVIEW,
+                RunState.PUBLISHING,
                 RunState.COMPLETED,
             }:
                 raise PublicationStateError(
@@ -143,17 +261,52 @@ class PublicationService:
                 )
 
             now = _now()
-            entry = existing or PublicationLedgerEntry(
-                idempotency_key=key,
-                run_id=run.run_id,
-                artifact_hash=artifact_hash,
-                approved_at=now,
-                created_at=now,
-                updated_at=now,
+            entry = existing
+            if (
+                entry is not None
+                and not entry.completed
+                and entry.run_id != run.run_id
+            ):
+                raise PublicationStateError(
+                    "Incomplete publication must be resumed from its original run."
+                )
+            if entry is None:
+                entry = PublicationLedgerEntry(
+                    idempotency_key=key,
+                    run_id=run.run_id,
+                    artifact_hash=artifact_hash,
+                    approved_at=now,
+                    created_at=now,
+                    updated_at=now,
+                ).model_copy(update=self._configured_intent(run))
+            entry = self._bind_intent(run, entry)
+            if (
+                run.state is RunState.PUBLISHING
+                and entry.publication_mode != "live"
+            ) or (
+                run.state is RunState.PREPARING_PREVIEW
+                and entry.publication_mode != "preview"
+            ):
+                raise PublicationStateError(
+                    "Run state conflicts with persisted publication intent."
+                )
+            self._authorize(
+                supplied_admin_token,
+                run,
+                live_required=entry.publication_mode == "live",
             )
+            if existing is not None and existing.completed and existing.receipt:
+                if (
+                    entry.run_id != run.run_id
+                    and not self._intent_matches_current_configuration(run, entry)
+                ):
+                    raise PublicationStateError(
+                        "Completed receipt is bound to a different publication intent."
+                    )
+                return await self._reuse_completed_receipt(run, existing.receipt)
             entry = await self.store.save_publication(entry)
             patch = build_unified_patch(run.analysis.artifacts)
-            if not self._live_enabled(run):
+            if entry.publication_mode == "preview":
                 return await self._approve_preview(run, entry, patch)
             return await self._approve_live(run, entry, patch)
 
@@ -196,14 +349,22 @@ class PublicationService:
     ) -> PublicationReceipt:
         if run.state is RunState.COMPLETED and run.publication is not None:
             return run.publication
-        await self.store.transition(
-            run.run_id,
-            RunState.PREPARING_PREVIEW,
-            public_message="Preparing credential-free publication preview",
-        )
+        if run.state is not RunState.PREPARING_PREVIEW:
+            await self.store.transition(
+                run.run_id,
+                RunState.PREPARING_PREVIEW,
+                public_message="Preparing credential-free publication preview",
+                clear_error=run.state is RunState.PUBLICATION_FAILED,
+            )
+        assert run.analysis is not None
+        snapshot = run.analysis.context.provenance.mode.value == "snapshot"
         writeback = DataHubReceipt(
             mode="preview",
-            label="NOT WRITTEN — SNAPSHOT MODE",
+            label=(
+                "NOT WRITTEN — SNAPSHOT MODE"
+                if snapshot
+                else "NOT WRITTEN — PUBLICATION DISABLED"
+            ),
             updated_urns=[run.request.asset_urn],
         )
         receipt = PublicationReceipt(
@@ -229,14 +390,31 @@ class PublicationService:
         self, run: RunView, entry: PublicationLedgerEntry, patch: str
     ) -> PublicationReceipt:
         assert run.analysis is not None
-        await self.store.transition(
-            run.run_id,
-            RunState.PUBLISHING,
-            public_message="Publishing verified artifacts",
-        )
+        if run.state is not RunState.PUBLISHING:
+            await self.store.transition(
+                run.run_id,
+                RunState.PUBLISHING,
+                public_message="Publishing verified artifacts",
+                clear_error=run.state is RunState.PUBLICATION_FAILED,
+            )
 
-        if self.settings.github_publication_enabled and entry.pull_request_url is None:
-            if self.github_publisher is None:
+        if self._destination_mismatch(run, entry):
+            return await self._fail(
+                run,
+                entry,
+                patch,
+                code="PUBLICATION_DESTINATION_MISMATCH",
+                message=(
+                    "The configured publication destination changed after approval."
+                ),
+                retryable=False,
+            )
+
+        if entry.github_required and entry.pull_request_url is None:
+            if (
+                not self.settings.github_publication_enabled
+                or self.github_publisher is None
+            ):
                 return await self._fail(
                     run,
                     entry,
@@ -281,10 +459,19 @@ class PublicationService:
             entry = entry.model_copy(update={"pull_request_url": pull_request_url})
             entry = await self.store.save_publication(entry)
 
-        if self.settings.datahub_writeback_enabled and (
+        if entry.datahub_required and (
             entry.writeback is None
             or entry.writeback.label != "WRITTEN TO DATAHUB"
         ):
+            if not self.settings.datahub_writeback_enabled:
+                return await self._fail(
+                    run,
+                    entry,
+                    patch,
+                    code="DATAHUB_NOT_CONFIGURED",
+                    message="DataHub writeback is unavailable.",
+                    retryable=False,
+                )
             decision = DecisionWriteback(
                 run_id=str(run.run_id),
                 change=run.request,
@@ -294,6 +481,17 @@ class PublicationService:
                 approved_at=entry.approved_at,
                 pull_request_url=entry.pull_request_url,
                 idempotency_key=entry.idempotency_key,
+                risk_factors=run.analysis.risk.factors,
+                evidence=run.analysis.context.evidence,
+                validation_checks=run.analysis.validation.checks,
+                migration_summary=next(
+                    artifact.content
+                    for path, artifact in run.analysis.artifacts.files.items()
+                    if path.startswith("migrations/")
+                ),
+                rollback_summary=run.analysis.artifacts.files[
+                    "ROLLBACK.md"
+                ].content,
             )
 
             async def persist_writeback(progress: DataHubReceipt) -> None:
@@ -307,6 +505,33 @@ class PublicationService:
                     decision,
                     progress=entry.writeback,
                     on_progress=persist_writeback,
+                )
+            except ContextAuthorizationError:
+                return await self._fail(
+                    run,
+                    entry,
+                    patch,
+                    code="DATAHUB_AUTHORIZATION_FAILED",
+                    message="DataHub rejected the writeback credential.",
+                    retryable=False,
+                )
+            except (ContextTimeoutError, ContextTransportError):
+                return await self._fail(
+                    run,
+                    entry,
+                    patch,
+                    code="DATAHUB_WRITEBACK_FAILED",
+                    message="DataHub writeback did not complete.",
+                    retryable=True,
+                )
+            except ContextLoadError:
+                return await self._fail(
+                    run,
+                    entry,
+                    patch,
+                    code="DATAHUB_WRITEBACK_REJECTED",
+                    message="DataHub returned an invalid writeback acknowledgement.",
+                    retryable=False,
                 )
             except Exception:
                 return await self._fail(

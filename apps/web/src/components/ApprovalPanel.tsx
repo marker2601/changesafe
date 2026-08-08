@@ -29,7 +29,10 @@ export function ApprovalPanel({
 }: ApprovalPanelProps) {
   const [adminToken, setAdminToken] = useState("");
   const livePublishing = Boolean(
-    config?.github_publication_available || config?.datahub_writeback_available,
+    run.publication?.mode === "live" ||
+      (run.analysis?.context.provenance.mode === "live" &&
+        (config?.github_publication_available ||
+          config?.datahub_writeback_available)),
   );
 
   if (run.state === "completed" && run.publication) {
@@ -77,12 +80,60 @@ export function ApprovalPanel({
   }
 
   if (run.state === "publication_failed") {
+    const retryable = run.error?.retryable ?? false;
     return (
       <section className="approval-panel failure-panel" aria-live="assertive">
         <h2>Publication needs attention</h2>
         <p>{run.error?.message ?? "A partial publication is ready to retry."}</p>
         {run.publication?.pull_request_url ? (
           <a href={run.publication.pull_request_url}>The pull request was created</a>
+        ) : null}
+        {livePublishing && retryable ? (
+          <label>
+            Owner token
+            <input
+              autoComplete="off"
+              onChange={(event) => setAdminToken(event.target.value)}
+              type="password"
+              value={adminToken}
+            />
+          </label>
+        ) : null}
+        <button
+          className="button button-primary"
+          disabled={busy || !retryable}
+          onClick={() => void onApprove(adminToken || undefined)}
+          type="button"
+        >
+          <RotateCcw aria-hidden="true" />
+          {retryable ? "Retry missing step" : "Operator action required"}
+        </button>
+        {!retryable ? (
+          <p>Retry is disabled until the configuration or conflict is resolved.</p>
+        ) : null}
+      </section>
+    );
+  }
+
+  if (run.state === "publishing" || run.state === "preparing_preview") {
+    const resumingLive = run.state === "publishing";
+    return (
+      <section className="approval-panel" aria-live="polite">
+        <h2>Durable publication checkpoint</h2>
+        <p>
+          ChangeSafe can resume the saved publication without repeating completed
+          steps.
+        </p>
+        {resumingLive ? (
+          <label>
+            Owner token
+            <input
+              autoComplete="off"
+              onChange={(event) => setAdminToken(event.target.value)}
+              type="password"
+              value={adminToken}
+            />
+          </label>
         ) : null}
         <button
           className="button button-primary"
@@ -91,7 +142,7 @@ export function ApprovalPanel({
           type="button"
         >
           <RotateCcw aria-hidden="true" />
-          Retry missing step
+          {resumingLive ? "Resume publication" : "Resume preview"}
         </button>
       </section>
     );

@@ -2,6 +2,7 @@ export type ChangeOperation = "rename" | "remove" | "type_change";
 export type RunState =
   | "created"
   | "loading_context"
+  | "context_fallback_required"
   | "scoring_risk"
   | "generating"
   | "validating"
@@ -47,6 +48,11 @@ export interface ContextBundle {
   target_domain: string | null;
   field: string;
   field_type: string;
+  schema_fields: Array<{
+    name: string;
+    data_type: string;
+    nullable: boolean;
+  }>;
   upstream_assets: AffectedAsset[];
   downstream_assets: AffectedAsset[];
   owners: Array<{ urn: string; name: string; ownership_type: string }>;
@@ -179,6 +185,7 @@ export interface ChangeSafeApi {
   createRun(change: ChangeRequest): Promise<RunView>;
   getRun(runId: string): Promise<RunView>;
   approve(runId: string, adminToken?: string): Promise<PublicationReceipt>;
+  continueWithSnapshot(runId: string): Promise<RunView>;
   subscribe(
     runId: string,
     afterSequence: number,

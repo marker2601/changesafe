@@ -14,7 +14,7 @@ Small schema edits cause disproportionate outages because code review rarely inc
 
 ## What it does
 
-ChangeSafe accepts one proposed column rename, removal, or type change. It retrieves normalized context through a DataHub adapter, computes an immutable risk score, generates a conservative seven-file dbt/SQL migration package, and runs ten blocking validations. A reviewer can inspect evidence, lineage, exact artifact bytes, and rollback guidance before approval.
+ChangeSafe accepts one proposed column rename, removal, or type change. It retrieves normalized context through a DataHub adapter, computes an immutable risk score, generates a conservative seven-file dbt/SQL migration package, and runs twelve blocking validations. A reviewer can inspect evidence, lineage, exact artifact bytes, and rollback guidance before approval.
 
 The credential-free mode replays a checksummed snapshot through the same scoring, generation, verification, persistence, SSE, and approval pipeline. It labels its output `NOT WRITTEN - SNAPSHOT MODE` and produces a downloadable patch. Owner-enabled live mode can create a GitHub pull request and write an idempotent decision record, structured properties, and a deprecation tag back to an allowlisted DataHub target.
 
@@ -54,7 +54,7 @@ Metadata becomes far more useful when it is treated as executable decision conte
 - Validate the live seed against the final DataHub environment and capture the public proof receipt.
 - Publish a representative ChangeSafe-created pull request.
 - Move background analysis and persistence to a shared queue/database for multi-replica hosting.
-- Add edge rate limiting, organization authentication, and policy profiles for additional change classes.
+- Add distributed edge rate limiting, organization authentication, and policy profiles for additional change classes.
 
 ## Technologies
 
@@ -65,7 +65,7 @@ DataHub Agent Context Kit, OpenAI Responses API, Python, FastAPI, Pydantic, SQLi
 1. Run `docker compose up --build` from a clean clone.
 2. Open `http://localhost:8000`.
 3. Click **Analyze change**.
-4. Confirm 90/Critical, four affected assets, seven files, and 10/10 validations.
+4. Confirm 90/Critical, four affected assets, seven files, and 12/12 validations.
 5. Click **Approve preview**.
 6. Confirm `NOT WRITTEN - SNAPSHOT MODE` and download the patch.
 

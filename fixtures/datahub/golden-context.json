@@ -4,6 +4,13 @@
   "target_domain": "Analytics",
   "field": "customer_email",
   "field_type": "STRING",
+  "schema_fields": [
+    {"name": "customer_id", "data_type": "STRING", "nullable": false},
+    {"name": "customer_name", "data_type": "STRING", "nullable": true},
+    {"name": "customer_email", "data_type": "STRING", "nullable": false},
+    {"name": "customer_status", "data_type": "STRING", "nullable": true},
+    {"name": "created_at", "data_type": "TIMESTAMP", "nullable": true}
+  ],
   "upstream_assets": [
     {
       "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,sales.customers_raw,PROD)",
@@ -148,10 +155,12 @@
       "tool": "list_schema_fields",
       "parameters": {
         "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "keywords": ["customer_email"]
+        "keywords": null,
+        "limit": 200,
+        "offset": 0
       },
       "duration_ms": 96,
-      "result_count": 1,
+      "result_count": 5,
       "referenced_urns": ["urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"]
     },
     {
@@ -159,10 +168,47 @@
       "parameters": {
         "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
         "column": "customer_email",
+        "upstream": true,
+        "max_hops": 3,
+        "max_results": 30,
+        "offset": 0
+      },
+      "duration_ms": 141,
+      "result_count": 2,
+      "referenced_urns": [
+        "urn:li:dataset:(urn:li:dataPlatform:postgres,sales.customers_raw,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.stg_customers,PROD)"
+      ]
+    },
+    {
+      "tool": "get_lineage",
+      "parameters": {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "column": "customer_email",
         "upstream": false,
-        "max_hops": 3
+        "max_hops": 3,
+        "max_results": 30,
+        "offset": 0
       },
       "duration_ms": 164,
+      "result_count": 3,
+      "referenced_urns": [
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)"
+      ]
+    },
+    {
+      "tool": "get_lineage",
+      "parameters": {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+        "column": null,
+        "upstream": false,
+        "max_hops": 3,
+        "max_results": 30,
+        "offset": 0
+      },
+      "duration_ms": 172,
       "result_count": 4,
       "referenced_urns": [
         "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
@@ -176,11 +222,15 @@
       "parameters": {
         "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
         "column": "customer_email",
+        "start": 0,
         "count": 10
       },
       "duration_ms": 132,
       "result_count": 2,
-      "referenced_urns": ["urn:li:query:customer-email-usage"]
+      "referenced_urns": [
+        "urn:li:query:changesafe-customer-email-1",
+        "urn:li:query:changesafe-customer-email-2"
+      ]
     }
   ],
   "provenance": {

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ def test_replay_defaults_need_no_credentials(tmp_path: Path) -> None:
     assert settings.live_context_enabled is False
     assert settings.public_pr_enabled is False
     assert settings.public_writeback_enabled is False
+    assert settings.llm_max_run_cost_usd == Decimal("0.536")
 
 
 @pytest.mark.parametrize("gate", ["public_pr_enabled", "public_writeback_enabled"])
@@ -93,8 +95,6 @@ def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
                 "GITHUB_TOKEN=",
                 "GITHUB_REPOSITORY=",
                 "CHANGESAFE_ADMIN_TOKEN=",
-                "CHANGESAFE_PUBLIC_URL=",
-                "SENTRY_DSN=",
             ]
         ),
         encoding="utf-8",
@@ -108,8 +108,6 @@ def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
     assert settings.github_token is None
     assert settings.github_repository is None
     assert settings.changesafe_admin_token is None
-    assert settings.changesafe_public_url is None
-    assert settings.sentry_dsn is None
 
 
 def test_replay_factory_uses_configured_snapshot_paths(tmp_path: Path) -> None:

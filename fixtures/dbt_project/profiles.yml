@@ -1,0 +1,8 @@
+changesafe_sample:
+  target: ci
+  outputs:
+    ci:
+      type: duckdb
+      path: ":memory:"
+      schema: analytics
+      threads: 1

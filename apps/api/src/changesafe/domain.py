@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from changesafe.sql_types import validate_snowflake_type
+
+SQL_TYPE_PATTERN = (
+    r"^[A-Za-z][A-Za-z0-9_ ]*(?:\(\s*\d+(?:\s*,\s*\d+)?\s*\))?$"
+)
 
 
 class StrictModel(BaseModel):
@@ -36,6 +43,7 @@ class RiskBand(StrEnum):
 class RunState(StrEnum):
     CREATED = "created"
     LOADING_CONTEXT = "loading_context"
+    CONTEXT_FALLBACK_REQUIRED = "context_fallback_required"
     SCORING_RISK = "scoring_risk"
     GENERATING = "generating"
     VALIDATING = "validating"
@@ -52,10 +60,17 @@ class ChangeRequest(StrictModel):
     operation: ChangeOperation
     field: str = Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     new_field: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
-    old_type: str | None = None
-    new_type: str | None = None
+    old_type: str | None = Field(default=None, pattern=SQL_TYPE_PATTERN)
+    new_type: str | None = Field(default=None, pattern=SQL_TYPE_PATTERN)
     source_commit: str = Field(min_length=1, max_length=200)
     requested_by: str = Field(min_length=1, max_length=200)
+
+    @field_validator("old_type", "new_type")
+    @classmethod
+    def validate_type_semantics(cls, value: str | None) -> str | None:
+        if value is not None:
+            validate_snowflake_type(value)
+        return value
 
     @model_validator(mode="after")
     def validate_operation_fields(self) -> ChangeRequest:
@@ -96,6 +111,12 @@ class Owner(StrictModel):
     ownership_type: str = Field(min_length=1)
 
 
+class SchemaField(StrictModel):
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    data_type: str = Field(min_length=1)
+    nullable: bool = True
+
+
 class ToolEvidence(StrictModel):
     tool: str
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -117,6 +138,7 @@ class ContextBundle(StrictModel):
     target_domain: str | None = None
     field: str
     field_type: str
+    schema_fields: list[SchemaField] = Field(default_factory=list)
     upstream_assets: list[AffectedAsset] = Field(default_factory=list)
     downstream_assets: list[AffectedAsset] = Field(default_factory=list)
     owners: list[Owner] = Field(default_factory=list)
@@ -190,6 +212,16 @@ class ValidationReport(StrictModel):
         return next(item for item in self.checks if item.code == code)
 
 
+class LlmUsage(StrictModel):
+    provider: Literal["openai"] = "openai"
+    model: str = Field(min_length=1)
+    request_count: int = Field(ge=1, le=2)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    estimated_cost_usd: Decimal = Field(ge=0)
+
+
 class DataHubReceipt(StrictModel):
     mode: Literal["live", "preview"]
     label: str
@@ -214,6 +246,13 @@ class PublicationLedgerEntry(StrictModel):
     run_id: UUID
     artifact_hash: str = Field(min_length=64, max_length=64)
     approved_at: datetime
+    publication_mode: Literal["live", "preview"] | None = None
+    github_required: bool = False
+    datahub_required: bool = False
+    github_repository: str | None = None
+    github_base_branch: str | None = None
+    datahub_server: str | None = None
+    datahub_target_urn: str | None = None
     branch: str | None = None
     pull_request_url: str | None = None
     writeback: DataHubReceipt | None = None

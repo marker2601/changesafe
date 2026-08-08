@@ -10,19 +10,10 @@ from changesafe.domain import (
     RiskFactor,
     RiskResult,
 )
+from changesafe.sql_types import canonical_sql_type, type_change_kind
 
 ACCOUNTABLE_OWNER_TYPES = {"DATA_OWNER", "BUSINESS_OWNER", "OWNER"}
 GOVERNANCE_MARKERS = ("pii", "confidential", "governed", "sensitive")
-WIDENING_TYPE_CHANGES = {
-    ("SMALLINT", "INT"),
-    ("SMALLINT", "BIGINT"),
-    ("INT", "BIGINT"),
-    ("FLOAT", "DOUBLE"),
-    ("VARCHAR", "STRING"),
-    ("STRING", "TEXT"),
-}
-
-
 def band_for(score: int) -> RiskBand:
     if not 0 <= score <= 100:
         raise ValueError("risk score must be between 0 and 100")
@@ -35,7 +26,7 @@ def band_for(score: int) -> RiskBand:
     return RiskBand.CRITICAL
 
 
-def _base_factor(change: ChangeRequest) -> RiskFactor:
+def _base_factor(change: ChangeRequest, current_type: str) -> RiskFactor:
     if change.operation is ChangeOperation.RENAME:
         return RiskFactor(
             code="base_rename",
@@ -51,8 +42,14 @@ def _base_factor(change: ChangeRequest) -> RiskFactor:
             evidence_urns=[change.asset_urn],
         )
 
-    pair = ((change.old_type or "").upper(), (change.new_type or "").upper())
-    widening = pair in WIDENING_TYPE_CHANGES
+    current = canonical_sql_type(current_type)
+    old = canonical_sql_type(change.old_type or current_type)
+    if change.old_type is not None and old != current:
+        raise ValueError("old_type does not match DataHub metadata")
+    kind = type_change_kind(current_type, change.new_type or "")
+    if kind == "no_op":
+        raise ValueError("new_type is a no-op for DataHub metadata")
+    widening = kind == "widening"
     return RiskFactor(
         code="base_compatible_type_change" if widening else "base_type_change",
         label="Compatible widening type change"
@@ -71,7 +68,7 @@ def _is_governed(context: ContextBundle) -> bool:
 
 
 def score_change(change: ChangeRequest, context: ContextBundle) -> RiskResult:
-    factors = [_base_factor(change)]
+    factors = [_base_factor(change, context.field_type)]
     downstream = context.downstream_assets
 
     if downstream:

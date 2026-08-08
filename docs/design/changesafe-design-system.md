@@ -6,7 +6,7 @@ The visual source of truth is `changesafe-desktop-concept.png`, with
 ## Copy lock
 
 The first viewport uses only the product and workflow copy represented by the
-concept: ChangeSafe, Snapshot replay, No credentials required, Propose a schema
+concept: ChangeSafe, Snapshot replay, Preview only / snapshot mode, Propose a schema
 change, Change analysis, the selected field transition, the deterministic risk
 result, lineage evidence, run progress, generated artifacts, validation, and
 approval actions. Status labels are derived from real API states.

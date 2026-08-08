@@ -1,0 +1,13 @@
+name: changesafe_sample
+version: 1.0.0
+config-version: 2
+
+profile: changesafe_sample
+
+model-paths: ["models"]
+test-paths: ["tests"]
+clean-targets: ["target", "logs"]
+
+models:
+  changesafe_sample:
+    +materialized: table

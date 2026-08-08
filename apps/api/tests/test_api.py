@@ -4,11 +4,14 @@ from pathlib import Path
 import httpx
 import pytest
 
+import changesafe.api as api_module
 from changesafe.api import create_app
 from changesafe.config import Mode, Settings
+from changesafe.context.base import ContextTransportError, DecisionWriteback
 from changesafe.context.replay import ReplayDataHubContext
-from changesafe.domain import RunState
+from changesafe.domain import ChangeRequest, DataHubReceipt, RunState
 from changesafe.generation.openai_generator import OpenAIGenerationPlanner
+from changesafe.publication.service import PublicationFailure
 
 GOLDEN_CHANGE = {
     "asset_urn": (
@@ -22,6 +25,34 @@ GOLDEN_CHANGE = {
     "source_commit": "demo-unsafe-change",
     "requested_by": "demo-user",
 }
+
+
+class UnavailableLiveContext:
+    async def load(self, change: ChangeRequest):
+        del change
+        raise ContextTransportError("private upstream failure")
+
+    async def writeback(
+        self,
+        decision: DecisionWriteback,
+        **_kwargs: object,
+    ) -> DataHubReceipt:
+        raise AssertionError(f"unexpected writeback for {decision.run_id}")
+
+
+class ClosableReplayContext:
+    def __init__(self) -> None:
+        self.delegate = ReplayDataHubContext.from_default()
+        self.closed = False
+
+    async def load(self, change: ChangeRequest):
+        return await self.delegate.load(change)
+
+    async def writeback(self, decision, **kwargs):
+        return await self.delegate.writeback(decision, **kwargs)
+
+    def close(self) -> None:
+        self.closed = True
 
 
 async def wait_for_state(
@@ -63,6 +94,162 @@ async def test_api_runs_complete_replay_analysis_and_serves_artifact(
     assert len(run["analysis"]["context"]["downstream_assets"]) == 4
     assert artifact.status_code == 200
     assert "customer_email as primary_email" in artifact.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_run_creation_is_rate_limited_per_client(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+        changesafe_runs_per_minute=1,
+    )
+    app = create_app(
+        settings=settings, context_port=ReplayDataHubContext.from_default()
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        accepted = await client.post("/api/runs", json=GOLDEN_CHANGE)
+        limited = await client.post("/api/runs", json=GOLDEN_CHANGE)
+        await wait_for_state(
+            client, accepted.json()["run_id"], RunState.AWAITING_APPROVAL
+        )
+
+    assert accepted.status_code == 202
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "60"
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_prunes_expired_client_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 100.0
+    monkeypatch.setattr(api_module, "monotonic", lambda: now)
+    limiter = api_module.RunRateLimiter(limit=1, window_seconds=60)
+
+    assert await limiter.allow("expired-client") is True
+    now = 161.0
+    assert await limiter.allow("active-client") is True
+
+    assert set(limiter._requests) == {"active-client"}
+
+
+@pytest.mark.asyncio
+async def test_app_lifespan_closes_the_context_adapter(tmp_path: Path) -> None:
+    context = ClosableReplayContext()
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    app = create_app(settings=settings, context_port=context)
+
+    async with app.router.lifespan_context(app):
+        assert context.closed is False
+
+    assert context.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_creation_fails_before_llm_call_when_budget_is_exhausted(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.AUTO,
+        changesafe_data_path=tmp_path / "runs.db",
+        openai_api_key="configured-test-key",
+        changesafe_llm_budget_usd="0.01",
+    )
+    app = create_app(
+        settings=settings, context_port=ReplayDataHubContext.from_default()
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/runs", json=GOLDEN_CHANGE)
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == (
+        "The configured project LLM budget is exhausted."
+    )
+
+
+@pytest.mark.asyncio
+async def test_preflight_llm_fallback_releases_budget_reservation(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.AUTO,
+        changesafe_data_path=tmp_path / "runs.db",
+        openai_api_key="configured-test-key",
+        openai_max_input_tokens_per_call=512,
+        changesafe_llm_budget_usd="0.3",
+    )
+    app = create_app(
+        settings=settings, context_port=ReplayDataHubContext.from_default()
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        for _ in range(3):
+            created = await client.post("/api/runs", json=GOLDEN_CHANGE)
+            assert created.status_code == 202
+            await wait_for_state(
+                client,
+                created.json()["run_id"],
+                RunState.AWAITING_APPROVAL,
+            )
+
+    assert await app.state.store.llm_committed_cost_usd() == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("retryable", "expected_message"),
+    [
+        (True, "Publication did not complete; retry is available."),
+        (False, "Publication stopped and requires operator action."),
+    ],
+)
+async def test_publication_failure_message_matches_retryability(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    retryable: bool,
+    expected_message: str,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    app = create_app(
+        settings=settings, context_port=ReplayDataHubContext.from_default()
+    )
+
+    async def fail_approval(*_args: object, **_kwargs: object) -> DataHubReceipt:
+        raise PublicationFailure(
+            "PUBLICATION_CONFLICT",
+            "private detail",
+            retryable=retryable,
+        )
+
+    monkeypatch.setattr(app.state.publication_service, "approve", fail_approval)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/runs/0198f2b8-a68d-7af3-8958-cb18c7337e91/approve"
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == {
+        "code": "PUBLICATION_CONFLICT",
+        "message": expected_message,
+        "retryable": retryable,
+    }
 
 
 @pytest.mark.asyncio
@@ -128,7 +315,7 @@ async def test_production_app_serves_built_web_assets_without_shadowing_api(
 def test_app_activates_bounded_openai_planner_when_configured(tmp_path: Path) -> None:
     settings = Settings(
         _env_file=None,
-        mode=Mode.REPLAY,
+        mode=Mode.AUTO,
         changesafe_data_path=tmp_path / "runs.db",
         openai_api_key="configured-test-key",
         openai_model="configured-test-model",
@@ -143,6 +330,24 @@ def test_app_activates_bounded_openai_planner_when_configured(tmp_path: Path) ->
     planner = app.state.orchestrator.generator.planner
     assert isinstance(planner, OpenAIGenerationPlanner)
     assert planner.model == "configured-test-model"
+
+
+def test_replay_mode_never_activates_paid_planning(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+        openai_api_key="configured-but-disabled-test-key",
+    )
+
+    app = create_app(
+        settings=settings,
+        context_port=ReplayDataHubContext.from_default(),
+        web_dist=tmp_path / "missing-web",
+    )
+
+    assert app.state.orchestrator.generator.planner is None
+    assert settings.public_config()["llm_available"] is False
 
 
 @pytest.mark.asyncio
@@ -173,6 +378,37 @@ async def test_http_boundary_rejects_oversized_requests_and_sets_security_header
     assert "default-src 'self'" in health.headers["content-security-policy"]
     assert oversized.status_code == 413
     assert oversized.json()["detail"] == "Request body is too large"
+
+
+@pytest.mark.asyncio
+async def test_http_boundary_counts_chunked_body_without_content_length(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    app = create_app(
+        settings=settings,
+        context_port=ReplayDataHubContext.from_default(),
+        web_dist=tmp_path / "missing-web",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async def oversized_chunks():
+        for _ in range(20):
+            yield b"x" * 1024
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/runs",
+            content=oversized_chunks(),
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Request body is too large"
 
 
 @pytest.mark.asyncio
@@ -219,3 +455,100 @@ async def test_sse_query_cursor_resumes_without_replaying_old_events(
     assert '"sequence":1' not in stream.text
     assert '"sequence":5' in stream.text
     assert '"state":"awaiting_approval"' in stream.text
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_requires_explicit_persisted_snapshot_fallback(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.AUTO,
+        changesafe_data_path=tmp_path / "runs.db",
+        datahub_gms_url="https://datahub.example.test",
+        datahub_gms_token="private-token",
+    )
+    app = create_app(settings=settings, context_port=UnavailableLiveContext())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post("/api/runs", json=GOLDEN_CHANGE)
+        run_id = created.json()["run_id"]
+        stopped = await wait_for_state(
+            client, run_id, RunState.CONTEXT_FALLBACK_REQUIRED
+        )
+        continued = await client.post(
+            f"/api/runs/{run_id}/continue-with-snapshot"
+        )
+        completed = await wait_for_state(
+            client, run_id, RunState.AWAITING_APPROVAL
+        )
+
+    assert stopped["error"] == {
+        "code": "LIVE_CONTEXT_UNAVAILABLE",
+        "message": (
+            "Live metadata context is unavailable. Snapshot replay requires "
+            "confirmation."
+        ),
+        "retryable": True,
+    }
+    assert continued.status_code == 202
+    assert completed["analysis"]["context"]["provenance"]["mode"] == "snapshot"
+    assert completed["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_without_live_credentials_fails_replay_directly(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "invalid-context.json"
+    checksum = tmp_path / "invalid-context.sha256"
+    snapshot.write_text("{}\n", encoding="utf-8")
+    checksum.write_text(f"{'0' * 64}  invalid-context.json\n", encoding="ascii")
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.AUTO,
+        changesafe_data_path=tmp_path / "runs.db",
+        changesafe_snapshot_path=snapshot,
+        changesafe_snapshot_checksum_path=checksum,
+    )
+    app = create_app(settings=settings)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post("/api/runs", json=GOLDEN_CHANGE)
+        failed = await wait_for_state(client, created.json()["run_id"], RunState.FAILED)
+
+    assert failed["error"]["code"] == "CONTEXT_LOAD_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_sse_heartbeat_uses_fifteen_second_production_cadence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert api_module.SSE_HEARTBEAT_SECONDS == 15.0
+    monkeypatch.setattr(api_module, "SSE_HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(api_module, "SSE_POLL_SECONDS", 0.002)
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    app = create_app(
+        settings=settings,
+        context_port=ReplayDataHubContext.from_default(),
+        web_dist=tmp_path / "missing-web",
+    )
+    change = ChangeRequest.model_validate(GOLDEN_CHANGE)
+    run = await app.state.store.create(change)
+    await app.state.store.transition(run.run_id, RunState.LOADING_CONTEXT)
+
+    async def finish_run() -> None:
+        await asyncio.sleep(0.08)
+        await app.state.store.transition(run.run_id, RunState.FAILED)
+
+    task = asyncio.create_task(finish_run())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        stream = await client.get(f"/api/runs/{run.run_id}/events")
+    await task
+
+    assert stream.text.count(": heartbeat\n\n") >= 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from hashlib import sha1
 from typing import Any, cast
 from urllib.parse import quote
 from uuid import UUID
@@ -11,7 +12,7 @@ import httpx
 
 from changesafe.domain import ArtifactBundle, ChangeRequest
 from changesafe.generation.templates import PR_BODY
-from changesafe.publication.base import GitHubResult
+from changesafe.publication.base import GitHubResult, publication_key
 
 API_ROOT = "https://api.github.com"
 REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -86,7 +87,16 @@ class GitHubPublisher:
         artifacts: ArtifactBundle,
     ) -> str:
         repository_url = f"{API_ROOT}/repos/{self.repository}"
-        branch = f"changesafe/{str(run_id)[:8]}"
+        if artifacts.manifest_hash is None:
+            raise GitHubPublicationError(
+                "GITHUB_INVALID_ARTIFACTS",
+                "Verified artifact manifest is missing.",
+                retryable=False,
+            )
+        identity = publication_key(
+            change, change.source_commit, artifacts.manifest_hash
+        )
+        branch = f"changesafe/{str(run_id)[:8]}-{identity[:16]}"
         existing = await self._request_json(
             client,
             "GET",
@@ -94,6 +104,9 @@ class GitHubPublisher:
             allow_not_found=True,
         )
         if existing:
+            await self._verify_existing_branch(
+                client, repository_url, existing, identity, artifacts
+            )
             return branch
         base_ref = await self._request_json(
             client,
@@ -137,7 +150,10 @@ class GitHubPublisher:
             "POST",
             f"{repository_url}/git/commits",
             json_body={
-                "message": f"ChangeSafe migration for {change.field}",
+                "message": (
+                    f"ChangeSafe migration for {change.field}\n\n"
+                    f"ChangeSafe-Idempotency-Key: {identity}"
+                ),
                 "tree": self._string(tree, "sha"),
                 "parents": [base_sha],
             },
@@ -161,7 +177,147 @@ class GitHubPublisher:
             )
             if not reconciled:
                 raise
+            await self._verify_existing_branch(
+                client, repository_url, reconciled, identity, artifacts
+            )
         return branch
+
+    async def _verify_existing_branch(
+        self,
+        client: httpx.AsyncClient,
+        repository_url: str,
+        reference: Any,
+        identity: str,
+        artifacts: ArtifactBundle,
+    ) -> None:
+        if not isinstance(reference, dict):
+            raise GitHubPublicationError(
+                "GITHUB_INVALID_RESPONSE",
+                "GitHub returned an invalid branch reference.",
+                retryable=False,
+            )
+        commit_sha = self._nested_string(
+            cast(dict[str, Any], reference), "object", "sha"
+        )
+        commit = await self._request_json(
+            client, "GET", f"{repository_url}/git/commits/{commit_sha}"
+        )
+        if not isinstance(commit, dict):
+            raise GitHubPublicationError(
+                "GITHUB_INVALID_RESPONSE",
+                "GitHub returned an invalid branch commit.",
+                retryable=False,
+            )
+        message = self._string(cast(dict[str, Any], commit), "message")
+        marker = f"ChangeSafe-Idempotency-Key: {identity}"
+        if marker not in message.splitlines():
+            raise GitHubPublicationError(
+                "GITHUB_BRANCH_CONFLICT",
+                "An existing branch does not match the verified artifacts.",
+                retryable=False,
+            )
+        tree_sha = self._nested_string(cast(dict[str, Any], commit), "tree", "sha")
+        parents = commit.get("parents")
+        if not isinstance(parents, list) or len(parents) != 1:
+            raise GitHubPublicationError(
+                "GITHUB_BRANCH_CONFLICT",
+                "An existing branch does not have the expected commit parent.",
+                retryable=False,
+            )
+        parent = parents[0]
+        if not isinstance(parent, dict):
+            raise GitHubPublicationError(
+                "GITHUB_INVALID_RESPONSE",
+                "GitHub returned an invalid branch parent.",
+                retryable=False,
+            )
+        parent_sha = self._string(cast(dict[str, Any], parent), "sha")
+        parent_commit = await self._request_json(
+            client, "GET", f"{repository_url}/git/commits/{parent_sha}"
+        )
+        parent_tree_sha = self._nested_string(
+            cast(dict[str, Any], parent_commit), "tree", "sha"
+        )
+        current_tree = await self._request_json(
+            client,
+            "GET",
+            f"{repository_url}/git/trees/{tree_sha}",
+            query={"recursive": "1"},
+        )
+        parent_tree = await self._request_json(
+            client,
+            "GET",
+            f"{repository_url}/git/trees/{parent_tree_sha}",
+            query={"recursive": "1"},
+        )
+        self._verify_artifact_tree(current_tree, parent_tree, artifacts)
+
+    @staticmethod
+    def _git_blob_sha(content: str) -> str:
+        payload = content.encode("utf-8")
+        framed = b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload
+        return sha1(framed, usedforsecurity=False).hexdigest()
+
+    @classmethod
+    def _tree_entries(cls, payload: Any) -> dict[str, tuple[str, str, str]]:
+        if not isinstance(payload, dict) or payload.get("truncated") is True:
+            raise GitHubPublicationError(
+                "GITHUB_INVALID_RESPONSE",
+                "GitHub returned an incomplete repository tree.",
+                retryable=False,
+            )
+        raw_entries = payload.get("tree")
+        if not isinstance(raw_entries, list):
+            raise GitHubPublicationError(
+                "GITHUB_INVALID_RESPONSE",
+                "GitHub response omitted the repository tree.",
+                retryable=False,
+            )
+        entries: dict[str, tuple[str, str, str]] = {}
+        for raw_entry in raw_entries:
+            if not isinstance(raw_entry, dict):
+                raise GitHubPublicationError(
+                    "GITHUB_INVALID_RESPONSE",
+                    "GitHub returned an invalid repository tree entry.",
+                    retryable=False,
+                )
+            entry = cast(dict[str, Any], raw_entry)
+            path = cls._string(entry, "path")
+            entry_type = cls._string(entry, "type")
+            if entry_type == "tree":
+                continue
+            entries[path] = (
+                cls._string(entry, "mode"),
+                entry_type,
+                cls._string(entry, "sha"),
+            )
+        return entries
+
+    @classmethod
+    def _verify_artifact_tree(
+        cls, current_raw: Any, parent_raw: Any, artifacts: ArtifactBundle
+    ) -> None:
+        current = cls._tree_entries(current_raw)
+        parent = cls._tree_entries(parent_raw)
+        expected_paths = set(artifacts.files)
+        expected_entries = {
+            path: ("100644", "blob", cls._git_blob_sha(artifact.content))
+            for path, artifact in artifacts.files.items()
+        }
+        changed_paths = {
+            path
+            for path in current.keys() | parent.keys()
+            if current.get(path) != parent.get(path)
+        }
+        if (
+            any(current.get(path) != entry for path, entry in expected_entries.items())
+            or not changed_paths.issubset(expected_paths)
+        ):
+            raise GitHubPublicationError(
+                "GITHUB_BRANCH_CONFLICT",
+                "An existing branch does not match the verified artifact bytes.",
+                retryable=False,
+            )
 
     async def ensure_pull_request(
         self,

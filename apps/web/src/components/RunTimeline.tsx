@@ -16,14 +16,33 @@ interface RunTimelineProps {
 }
 
 export function RunTimeline({ events, runState }: RunTimelineProps) {
-  const seen = new Set(events.map((event) => event.state));
+  const phaseForState = PHASES.findIndex((phase) => phase.state === runState);
+  const furthestEvent = events.reduce(
+    (furthest, event) =>
+      Math.max(
+        furthest,
+        PHASES.findIndex((phase) => phase.state === event.state),
+      ),
+    -1,
+  );
+  const progress =
+    runState === "completed" ||
+    runState === "preparing_preview" ||
+    runState === "publishing" ||
+    runState === "publication_failed"
+      ? PHASES.length
+      : runState === "context_fallback_required"
+        ? 0
+        : phaseForState >= 0
+          ? phaseForState
+          : furthestEvent;
   const approved = runState === "completed";
   return (
     <aside className="timeline-panel" aria-labelledby="progress-heading">
       <h2 id="progress-heading">Run progress</h2>
       <ol>
-        {PHASES.map((phase) => {
-          const reached = seen.has(phase.state) || approved;
+        {PHASES.map((phase, index) => {
+          const reached = index < progress;
           const active = runState === phase.state;
           const label =
             approved && phase.state === "awaiting_approval"

@@ -44,8 +44,27 @@ def test_golden_artifacts_pass_every_blocking_check() -> None:
     report = verify_artifacts(bundle, change, context)
 
     assert report.passed is True
-    assert len(report.checks) == 10
+    assert len(report.checks) == 12
     assert all(check.passed for check in report.checks if check.blocking)
+
+
+def test_legacy_invalid_type_parameters_fail_context_alignment() -> None:
+    rename, context, _bundle = golden_inputs()
+    valid = rename.model_copy(
+        update={
+            "operation": ChangeOperation.TYPE_CHANGE,
+            "new_field": None,
+            "old_type": "STRING",
+            "new_type": "NUMBER(10,2)",
+        }
+    )
+    bundle = generate_artifacts(valid, context, score_change(valid, context))
+    legacy_invalid = valid.model_copy(update={"new_type": "NUMBER(1,99)"})
+
+    report = verify_artifacts(bundle, legacy_invalid, context)
+
+    assert report.passed is False
+    assert report.check("request_context_alignment").passed is False
 
 
 def test_select_star_in_model_blocks_publication() -> None:
@@ -122,3 +141,22 @@ def test_generated_expression_cannot_smuggle_a_subquery() -> None:
 
     assert report.passed is False
     assert report.check("source_relations").passed is False
+
+
+def test_duplicate_case_insensitive_output_names_block_publication() -> None:
+    change, context, bundle = golden_inputs()
+    duplicate_sql = bundle.files[MODEL_SQL].content.replace(
+        "customer_email as primary_email",
+        "customer_email as CUSTOMER_ID",
+    )
+    duplicate_yaml = bundle.files[MODEL_YAML].content.replace(
+        "name: primary_email",
+        "name: CUSTOMER_ID",
+    )
+    invalid = replace_file(bundle, MODEL_SQL, duplicate_sql)
+    invalid = replace_file(invalid, MODEL_YAML, duplicate_yaml)
+
+    report = verify_artifacts(invalid, change, context)
+
+    assert report.passed is False
+    assert report.check("unique_output_names").passed is False

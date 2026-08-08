@@ -64,6 +64,10 @@ export const goldenRun: RunView = {
       target_domain: "Analytics",
       field: "customer_email",
       field_type: "STRING",
+      schema_fields: [
+        { name: "customer_id", data_type: "STRING", nullable: false },
+        { name: "customer_email", data_type: "STRING", nullable: false },
+      ],
       upstream_assets: [],
       downstream_assets: downstream.map(([name, domain, executive], index) => ({
         urn: `urn:li:dataset:downstream-${index}`,
@@ -117,7 +121,7 @@ export const goldenRun: RunView = {
     artifacts: { files, manifest_hash: "c".repeat(64) },
     validation: {
       passed: true,
-      checks: Array.from({ length: 10 }, (_, index) => ({
+      checks: Array.from({ length: 12 }, (_, index) => ({
         code: `check_${index + 1}`,
         label: `Safety check ${index + 1}`,
         passed: true,
@@ -194,6 +198,7 @@ export function createGoldenApi(): ChangeSafeApi {
       };
       return previewReceipt;
     }),
+    continueWithSnapshot: vi.fn(async () => current),
     subscribe: (_runId, _afterSequence, onEvent) => {
       queueMicrotask(() => {
         for (const event of events) {

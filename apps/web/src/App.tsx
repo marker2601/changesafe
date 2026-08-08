@@ -27,7 +27,17 @@ function transitionLabel(change: ChangeRequest): string {
 }
 
 export function App({ api = browserApi }: AppProps) {
-  const { config, run, events, busy, error, analyze, approve, reset } = useRun(api);
+  const {
+    config,
+    run,
+    events,
+    busy,
+    error,
+    analyze,
+    approve,
+    continueWithSnapshot,
+    reset,
+  } = useRun(api);
   const liveEnvironment = run?.analysis
     ? run.analysis.context.provenance.mode === "live"
     : Boolean(config?.mode !== "replay" && config?.live_context_available);
@@ -40,7 +50,7 @@ export function App({ api = browserApi }: AppProps) {
       <a className="skip-link" href="#main-content">
         Skip to analysis
       </a>
-      <Header config={config} />
+      <Header config={config} run={run} />
       <main id="main-content">
         <div className="analysis-grid">
           <aside className="request-rail">
@@ -65,6 +75,25 @@ export function App({ api = browserApi }: AppProps) {
                     <RiskCard risk={run.analysis.risk} />
                     <ImpactGraph context={run.analysis.context} />
                   </>
+                ) : run.state === "context_fallback_required" ? (
+                  <div className="analysis-stage fallback-stage">
+                    <span className="stage-mark">
+                      <ShieldCheck aria-hidden="true" />
+                    </span>
+                    <h2>Live context is unavailable</h2>
+                    <p>
+                      {run.error?.message ??
+                        "Confirm the checksummed snapshot before analysis continues."}
+                    </p>
+                    <button
+                      className="button button-primary"
+                      disabled={busy}
+                      onClick={() => void continueWithSnapshot()}
+                      type="button"
+                    >
+                      Continue with labeled snapshot
+                    </button>
+                  </div>
                 ) : (
                   <div className="analysis-stage">
                     <span className="stage-mark">

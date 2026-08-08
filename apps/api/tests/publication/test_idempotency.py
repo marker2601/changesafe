@@ -1,25 +1,44 @@
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
+import aiosqlite
 import pytest
 
 from changesafe.config import Mode, Settings
-from changesafe.context.base import DecisionWriteback
+from changesafe.context.base import (
+    ContextAuthorizationError,
+    ContextLoadError,
+    ContextTimeoutError,
+    DecisionWriteback,
+)
 from changesafe.context.live import LiveDataHubContext
 from changesafe.context.replay import ReplayDataHubContext
-from changesafe.domain import ContextMode, DataHubReceipt, RunState
+from changesafe.domain import AnalysisResult, ContextMode, DataHubReceipt, RunState
 from changesafe.publication.base import GitHubResult
 from changesafe.publication.github import GitHubPublicationError
 from changesafe.publication.service import (
     ApprovalDenied,
     PublicationFailure,
     PublicationService,
+    PublicationStateError,
 )
 from changesafe.store import RunStore
 
 from .helpers import analyzed_run
 
 ADMIN_TOKEN = "owner-admin-secret"
+
+
+async def persist_analysis(
+    store: RunStore, run_id: UUID | str, analysis: AnalysisResult
+) -> None:
+    async with aiosqlite.connect(store.database) as connection:
+        await connection.execute(
+            "UPDATE runs SET analysis_json = ? WHERE run_id = ?",
+            (analysis.model_dump_json(), str(run_id)),
+        )
+        await connection.commit()
 
 
 class CountingGitHubPublisher:
@@ -74,6 +93,20 @@ class FlakyWritebackContext(ReplayDataHubContext):
         )
 
 
+class TypedFailureWritebackContext(FlakyWritebackContext):
+    def __init__(self, failure: Exception) -> None:
+        super().__init__()
+        self.failure = failure
+
+    async def writeback(
+        self,
+        decision: DecisionWriteback,
+        **_kwargs: object,
+    ) -> DataHubReceipt:
+        del decision
+        raise self.failure
+
+
 def live_settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
@@ -124,6 +157,21 @@ class BranchThenPullFailure:
         raise AssertionError("PublicationService must persist GitHub substeps")
 
 
+class SimulatedProcessCrash(BaseException):
+    pass
+
+
+class CrashBeforeBranchPublisher:
+    async def ensure_branch(self, **_kwargs: object) -> str:
+        raise SimulatedProcessCrash()
+
+    async def ensure_pull_request(self, **_kwargs: object) -> str:
+        raise AssertionError("pull request must follow a persisted branch")
+
+    async def publish(self, **_kwargs: object) -> GitHubResult:
+        raise AssertionError("PublicationService must persist GitHub substeps")
+
+
 class PartialDataHubRunner:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
@@ -133,6 +181,10 @@ class PartialDataHubRunner:
         self.calls.append((tool, parameters))
         if tool == "save_document":
             assert parameters["urn"].startswith("urn:li:document:changesafe-")
+            assert "## Risk factors" in parameters["content"]
+            assert "## Validation" in parameters["content"]
+            assert "## Migration" in parameters["content"]
+            assert "## Rollback" in parameters["content"]
             return {"success": True, "urn": parameters["urn"]}
         if tool == "add_structured_properties":
             self.property_attempts += 1
@@ -142,6 +194,83 @@ class PartialDataHubRunner:
         if tool == "add_tags":
             return {"success": True}
         raise AssertionError(tool)
+
+
+@pytest.mark.asyncio
+async def test_approval_rejects_artifacts_that_fail_the_current_verifier(
+    tmp_path: Path,
+) -> None:
+    store, context, run = await analyzed_run(tmp_path)
+    assert run.analysis is not None
+    conflicting_field = run.analysis.context.schema_fields[0].model_copy(
+        update={"name": "primary_email"}
+    )
+    stale_context = run.analysis.context.model_copy(
+        update={
+            "schema_fields": [
+                *run.analysis.context.schema_fields,
+                conflicting_field,
+            ]
+        }
+    )
+    stale_validation = run.analysis.validation.model_copy(
+        update={
+            "checks": [
+                check
+                for check in run.analysis.validation.checks
+                if check.code
+                not in {"request_context_alignment", "unique_output_names"}
+            ]
+        }
+    )
+    stale_analysis = run.analysis.model_copy(
+        update={
+            "context": stale_context,
+            "validation": stale_validation,
+            "publication_eligible": True,
+        }
+    )
+    await persist_analysis(store, run.run_id, stale_analysis)
+    service = PublicationService(
+        store=RunStore(store.database),
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=store.database,
+        ),
+        context_port=context,
+    )
+
+    with pytest.raises(PublicationStateError, match="current safety policy"):
+        await service.approve(run.run_id, supplied_admin_token=None)
+
+    persisted = await service.store.get(run.run_id)
+    assert persisted is not None
+    assert persisted.state is RunState.AWAITING_APPROVAL
+
+
+@pytest.mark.asyncio
+async def test_approval_rejects_a_stale_deterministic_risk_result(
+    tmp_path: Path,
+) -> None:
+    store, context, run = await analyzed_run(tmp_path)
+    assert run.analysis is not None
+    stale_analysis = run.analysis.model_copy(
+        update={"risk": run.analysis.risk.model_copy(update={"score": 89})}
+    )
+    await persist_analysis(store, run.run_id, stale_analysis)
+    service = PublicationService(
+        store=RunStore(store.database),
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=store.database,
+        ),
+        context_port=context,
+    )
+
+    with pytest.raises(PublicationStateError, match="current safety policy"):
+        await service.approve(run.run_id, supplied_admin_token=None)
 
 
 @pytest.mark.asyncio
@@ -190,6 +319,283 @@ async def test_partial_writeback_retry_does_not_duplicate_github_side_effect(
     assert completed is not None
     assert completed.state is RunState.COMPLETED
     assert completed.error is None
+
+
+@pytest.mark.asyncio
+async def test_incomplete_publication_cannot_be_resumed_by_another_run(
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    store, _, first_run = await analyzed_run(tmp_path, context_port=context)
+    publisher = CountingGitHubPublisher()
+    service = PublicationService(
+        store=store,
+        settings=live_settings(tmp_path),
+        context_port=context,
+        github_publisher=publisher,
+    )
+    with pytest.raises(PublicationFailure):
+        await service.approve(first_run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    second_store, _, second_run = await analyzed_run(
+        tmp_path, context_port=context
+    )
+    restarted = PublicationService(
+        store=second_store,
+        settings=live_settings(tmp_path),
+        context_port=context,
+        github_publisher=publisher,
+    )
+
+    with pytest.raises(PublicationStateError, match="original run"):
+        await restarted.approve(
+            second_run.run_id, supplied_admin_token=ADMIN_TOKEN
+        )
+
+    assert context.calls == 1
+    assert publisher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_live_publication_cannot_downgrade_to_preview_after_restart(
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    store, _, run = await analyzed_run(tmp_path, context_port=context)
+    publisher = CountingGitHubPublisher()
+    service = PublicationService(
+        store=store,
+        settings=live_settings(tmp_path),
+        context_port=context,
+        github_publisher=publisher,
+    )
+
+    with pytest.raises(PublicationFailure):
+        await service.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    disabled = Settings(
+        _env_file=None,
+        mode=Mode.LIVE,
+        changesafe_data_path=tmp_path / "runs.db",
+        datahub_gms_url="https://datahub.example.test",
+        datahub_gms_token="datahub-secret",
+        changesafe_admin_token=ADMIN_TOKEN,
+    )
+    restarted = PublicationService(
+        store=RunStore(tmp_path / "runs.db"),
+        settings=disabled,
+        context_port=context,
+        github_publisher=publisher,
+    )
+
+    with pytest.raises(PublicationFailure) as captured:
+        await restarted.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    persisted = await restarted.store.get(run.run_id)
+    assert captured.value.code == "DATAHUB_NOT_CONFIGURED"
+    assert captured.value.retryable is False
+    assert persisted is not None
+    assert persisted.state is RunState.PUBLICATION_FAILED
+    assert persisted.publication is not None
+    assert persisted.publication.mode == "live"
+    ledger = await restarted.store.get_publication(
+        persisted.publication.idempotency_key
+    )
+    assert ledger is not None
+    assert ledger.publication_mode == "live"
+    assert ledger.github_required is True
+    assert ledger.datahub_required is True
+
+
+@pytest.mark.asyncio
+async def test_live_publication_resumes_from_publishing_after_process_crash(
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    store, _, run = await analyzed_run(tmp_path, context_port=context)
+    github_only = live_settings(tmp_path).model_copy(
+        update={"public_writeback_enabled": False}
+    )
+    crashing = PublicationService(
+        store=store,
+        settings=github_only,
+        context_port=context,
+        github_publisher=CrashBeforeBranchPublisher(),
+    )
+
+    with pytest.raises(SimulatedProcessCrash):
+        await crashing.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    interrupted = await store.get(run.run_id)
+    assert interrupted is not None
+    assert interrupted.state is RunState.PUBLISHING
+
+    publisher = CountingGitHubPublisher()
+    restarted = PublicationService(
+        store=RunStore(tmp_path / "runs.db"),
+        settings=github_only,
+        context_port=context,
+        github_publisher=publisher,
+    )
+    receipt = await restarted.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    assert receipt.mode == "live"
+    assert receipt.pull_request_url == "https://github.com/acme/analytics/pull/7"
+    assert publisher.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_live_publication_rejects_github_destination_drift_after_crash(
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    store, _, run = await analyzed_run(tmp_path, context_port=context)
+    original = live_settings(tmp_path).model_copy(
+        update={"public_writeback_enabled": False}
+    )
+    crashing = PublicationService(
+        store=store,
+        settings=original,
+        context_port=context,
+        github_publisher=CrashBeforeBranchPublisher(),
+    )
+
+    with pytest.raises(SimulatedProcessCrash):
+        await crashing.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    changed = original.model_copy(update={"github_repository": "acme/other-repo"})
+    publisher = CountingGitHubPublisher()
+    restarted = PublicationService(
+        store=RunStore(tmp_path / "runs.db"),
+        settings=changed,
+        context_port=context,
+        github_publisher=publisher,
+    )
+
+    with pytest.raises(PublicationFailure) as captured:
+        await restarted.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    assert captured.value.code == "PUBLICATION_DESTINATION_MISMATCH"
+    assert captured.value.retryable is False
+    assert publisher.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_live_publication_rejects_datahub_destination_drift_after_failure(
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    store, _, run = await analyzed_run(tmp_path, context_port=context)
+    settings = writeback_only_live_settings(tmp_path)
+    service = PublicationService(
+        store=store,
+        settings=settings,
+        context_port=context,
+    )
+
+    with pytest.raises(PublicationFailure):
+        await service.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    changed = settings.model_copy(
+        update={"datahub_gms_url": "https://other-datahub.example.test"}
+    )
+    restarted = PublicationService(
+        store=RunStore(tmp_path / "runs.db"),
+        settings=changed,
+        context_port=context,
+    )
+
+    with pytest.raises(PublicationFailure) as captured:
+        await restarted.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    assert captured.value.code == "PUBLICATION_DESTINATION_MISMATCH"
+    assert captured.value.retryable is False
+    assert context.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_preview_resumes_from_preparing_after_process_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    store, context, run = await analyzed_run(tmp_path)
+    service = PublicationService(
+        store=store,
+        settings=settings,
+        context_port=context,
+    )
+    real_save = store.save_publication
+    crashed = False
+
+    async def crash_before_completed_ledger(entry):
+        nonlocal crashed
+        if entry.completed and not crashed:
+            crashed = True
+            raise SimulatedProcessCrash()
+        return await real_save(entry)
+
+    monkeypatch.setattr(store, "save_publication", crash_before_completed_ledger)
+    with pytest.raises(SimulatedProcessCrash):
+        await service.approve(run.run_id, supplied_admin_token=None)
+
+    interrupted = await store.get(run.run_id)
+    assert interrupted is not None
+    assert interrupted.state is RunState.PREPARING_PREVIEW
+
+    restarted = PublicationService(
+        store=RunStore(tmp_path / "runs.db"),
+        settings=settings,
+        context_port=context,
+    )
+    receipt = await restarted.approve(run.run_id, supplied_admin_token=None)
+
+    assert receipt.mode == "preview"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "expected_code", "retryable"),
+    [
+        (
+            ContextAuthorizationError("private authorization detail"),
+            "DATAHUB_AUTHORIZATION_FAILED",
+            False,
+        ),
+        (
+            ContextLoadError("malformed acknowledgement"),
+            "DATAHUB_WRITEBACK_REJECTED",
+            False,
+        ),
+        (
+            ContextTimeoutError("private timeout detail"),
+            "DATAHUB_WRITEBACK_FAILED",
+            True,
+        ),
+    ],
+)
+async def test_datahub_writeback_failure_retryability_is_typed(
+    tmp_path: Path,
+    failure: Exception,
+    expected_code: str,
+    retryable: bool,
+) -> None:
+    context = TypedFailureWritebackContext(failure)
+    store, _, run = await analyzed_run(tmp_path, context_port=context)
+    service = PublicationService(
+        store=store,
+        settings=writeback_only_live_settings(tmp_path),
+        context_port=context,
+    )
+
+    with pytest.raises(PublicationFailure) as captured:
+        await service.approve(run.run_id, ADMIN_TOKEN)
+
+    assert captured.value.code == expected_code
+    assert captured.value.retryable is retryable
 
 
 @pytest.mark.asyncio
@@ -255,6 +661,42 @@ async def test_completed_ledger_reuse_completes_a_new_identical_run(
 
 
 @pytest.mark.asyncio
+async def test_completed_live_receipt_is_not_reused_for_another_repository(
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    settings = live_settings(tmp_path).model_copy(
+        update={"public_writeback_enabled": False}
+    )
+    first_store, _, first_run = await analyzed_run(tmp_path, context_port=context)
+    first_publisher = CountingGitHubPublisher()
+    first_service = PublicationService(
+        store=first_store,
+        settings=settings,
+        context_port=context,
+        github_publisher=first_publisher,
+    )
+    await first_service.approve(first_run.run_id, ADMIN_TOKEN)
+
+    second_store, _, second_run = await analyzed_run(
+        tmp_path, context_port=context
+    )
+    changed = settings.model_copy(update={"github_repository": "acme/other-repo"})
+    second_publisher = CountingGitHubPublisher()
+    second_service = PublicationService(
+        store=second_store,
+        settings=changed,
+        context_port=context,
+        github_publisher=second_publisher,
+    )
+
+    with pytest.raises(PublicationStateError, match="different publication intent"):
+        await second_service.approve(second_run.run_id, ADMIN_TOKEN)
+
+    assert second_publisher.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_github_branch_is_persisted_before_pull_request_retry(
     tmp_path: Path,
 ) -> None:
@@ -290,7 +732,7 @@ async def test_datahub_substeps_resume_without_duplicate_document_creation(
     store, _, run = await analyzed_run(tmp_path, context_port=analysis_context)
     runner = PartialDataHubRunner()
     writeback_context = LiveDataHubContext(
-        runner=runner, allowlist={run.request.asset_urn}
+        runner=runner, allowlist={run.request.asset_urn}, retry_count=0
     )
     service = PublicationService(
         store=store,

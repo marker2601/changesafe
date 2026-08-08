@@ -1,4 +1,4 @@
-# Migration: `customer_email` to `primary_email`
+# Migration: rename `customer_email` to `primary_email`
 
 **Owner:** Customer Analytics  
 **Risk:** 90/100 — Critical  
@@ -6,7 +6,7 @@
 
 ## Phase one
 
-Introduce `primary_email` without removing `customer_email`, update the dbt contract, and enforce value compatibility.
+Keep `customer_email` and introduce `primary_email` during phase one. Update the dbt contract and enforce the operation-specific compatibility invariant.
 
 `customer_email` remains available for a 30-day deprecation window and is removed only after every recorded downstream consumer migrates.
 
@@ -19,4 +19,4 @@ Introduce `primary_email` without removing `customer_email`, update the dbt cont
 
 ## Exit criteria
 
-All four recorded consumers must use the preferred field, the compatibility test must remain green, and the accountable owner must approve phase two.
+All 4 recorded consumers must complete migration, the operation-specific compatibility test must remain green, and the accountable owner must approve phase two.

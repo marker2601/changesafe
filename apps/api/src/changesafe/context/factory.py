@@ -22,10 +22,16 @@ def build_context_port(settings: Settings) -> DataHubContextPort:
     runner = AgentContextToolRunner.connect(
         str(settings.datahub_gms_url).rstrip("/"),
         settings.datahub_gms_token.get_secret_value(),
+        timeout_seconds=settings.datahub_timeout_seconds,
     )
     allowlist = {
         value.strip()
         for value in settings.demo_urn_allowlist.split(";")
         if value.strip()
     }
-    return LiveDataHubContext(runner=runner, allowlist=allowlist)
+    return LiveDataHubContext(
+        runner=runner,
+        allowlist=allowlist,
+        timeout_seconds=settings.datahub_timeout_seconds,
+        retry_count=settings.datahub_retry_count,
+    )

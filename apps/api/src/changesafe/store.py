@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from changesafe.domain import (
     AnalysisResult,
     ChangeRequest,
     EvidenceRef,
+    LlmUsage,
     PublicationLedgerEntry,
     PublicationReceipt,
     PublicError,
@@ -28,9 +30,27 @@ class InvalidTransition(ValueError):
     """Raised when a run attempts an illegal state transition."""
 
 
+class LlmBudgetExceeded(RuntimeError):
+    """Raised before a run starts when its reserved LLM cost exceeds budget."""
+
+
+MICRO_USD = Decimal(1_000_000)
+
+
+def _usd_to_micros(value: Decimal) -> int:
+    return int((value * MICRO_USD).to_integral_value(rounding=ROUND_CEILING))
+
+
 ALLOWED_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
     RunState.CREATED: frozenset({RunState.LOADING_CONTEXT}),
-    RunState.LOADING_CONTEXT: frozenset({RunState.SCORING_RISK, RunState.FAILED}),
+    RunState.LOADING_CONTEXT: frozenset(
+        {
+            RunState.SCORING_RISK,
+            RunState.CONTEXT_FALLBACK_REQUIRED,
+            RunState.FAILED,
+        }
+    ),
+    RunState.CONTEXT_FALLBACK_REQUIRED: frozenset({RunState.LOADING_CONTEXT}),
     RunState.SCORING_RISK: frozenset({RunState.GENERATING, RunState.FAILED}),
     RunState.GENERATING: frozenset({RunState.VALIDATING, RunState.FAILED}),
     RunState.VALIDATING: frozenset({RunState.AWAITING_APPROVAL, RunState.FAILED}),
@@ -102,12 +122,27 @@ class RunStore:
                         updated_at TEXT NOT NULL,
                         FOREIGN KEY (run_id) REFERENCES runs(run_id)
                     );
+                    CREATE TABLE IF NOT EXISTS llm_usage (
+                        run_id TEXT PRIMARY KEY,
+                        reserved_microusd INTEGER NOT NULL,
+                        actual_microusd INTEGER,
+                        usage_json TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY (run_id) REFERENCES runs(run_id)
+                    );
                     """
                 )
                 await connection.commit()
             self._initialized = True
 
-    async def create(self, change: ChangeRequest) -> RunView:
+    async def create(
+        self,
+        change: ChangeRequest,
+        *,
+        llm_reservation_usd: Decimal = Decimal(0),
+        llm_budget_usd: Decimal | None = None,
+    ) -> RunView:
         await self.initialize()
         run_id = uuid7()
         now = _utc_now()
@@ -120,6 +155,24 @@ class RunStore:
         )
         async with aiosqlite.connect(self.database) as connection:
             await connection.execute("BEGIN IMMEDIATE")
+            reservation_micros = _usd_to_micros(llm_reservation_usd)
+            if reservation_micros:
+                budget_cursor = await connection.execute(
+                    """SELECT COALESCE(
+                        SUM(COALESCE(actual_microusd, reserved_microusd)), 0
+                    ) FROM llm_usage"""
+                )
+                budget_row = await budget_cursor.fetchone()
+                committed_micros = int(budget_row[0]) if budget_row else 0
+                if (
+                    llm_budget_usd is not None
+                    and committed_micros + reservation_micros
+                    > _usd_to_micros(llm_budget_usd)
+                ):
+                    await connection.rollback()
+                    raise LlmBudgetExceeded(
+                        "The configured project LLM budget is exhausted."
+                    )
             await connection.execute(
                 """INSERT INTO runs(
                     run_id, state, request_json, analysis_json, publication_json,
@@ -139,8 +192,84 @@ class RunStore:
                 ) VALUES (?, 1, ?, ?, '[]', ?)""",
                 (str(run_id), run.state.value, "Run created", now.isoformat()),
             )
+            if reservation_micros:
+                await connection.execute(
+                    """INSERT INTO llm_usage(
+                        run_id, reserved_microusd, actual_microusd, usage_json,
+                        created_at, updated_at
+                    ) VALUES (?, ?, NULL, NULL, ?, ?)""",
+                    (
+                        str(run_id),
+                        reservation_micros,
+                        now.isoformat(),
+                        now.isoformat(),
+                    ),
+                )
             await connection.commit()
         return run
+
+    async def record_llm_usage(
+        self, run_id: UUID | str, usage: LlmUsage
+    ) -> None:
+        await self.initialize()
+        now = _utc_now().isoformat()
+        actual_micros = _usd_to_micros(usage.estimated_cost_usd)
+        async with aiosqlite.connect(self.database) as connection:
+            await connection.execute("BEGIN IMMEDIATE")
+            cursor = await connection.execute(
+                """UPDATE llm_usage SET actual_microusd = ?, usage_json = ?,
+                    updated_at = ? WHERE run_id = ?""",
+                (actual_micros, usage.model_dump_json(), now, str(run_id)),
+            )
+            if cursor.rowcount == 0:
+                await connection.execute(
+                    """INSERT INTO llm_usage(
+                        run_id, reserved_microusd, actual_microusd, usage_json,
+                        created_at, updated_at
+                    ) VALUES (?, 0, ?, ?, ?, ?)""",
+                    (
+                        str(run_id),
+                        actual_micros,
+                        usage.model_dump_json(),
+                        now,
+                        now,
+                    ),
+                )
+            await connection.commit()
+
+    async def release_llm_reservation(self, run_id: UUID | str) -> None:
+        await self.initialize()
+        async with aiosqlite.connect(self.database) as connection:
+            await connection.execute(
+                """UPDATE llm_usage SET actual_microusd = 0, updated_at = ?
+                    WHERE run_id = ? AND actual_microusd IS NULL""",
+                (_utc_now().isoformat(), str(run_id)),
+            )
+            await connection.commit()
+
+    async def get_llm_usage(self, run_id: UUID | str) -> LlmUsage | None:
+        await self.initialize()
+        async with aiosqlite.connect(self.database) as connection:
+            cursor = await connection.execute(
+                "SELECT usage_json FROM llm_usage WHERE run_id = ?",
+                (str(run_id),),
+            )
+            row = await cursor.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return LlmUsage.model_validate_json(str(row[0]))
+
+    async def llm_committed_cost_usd(self) -> Decimal:
+        await self.initialize()
+        async with aiosqlite.connect(self.database) as connection:
+            cursor = await connection.execute(
+                """SELECT COALESCE(
+                    SUM(COALESCE(actual_microusd, reserved_microusd)), 0
+                ) FROM llm_usage"""
+            )
+            row = await cursor.fetchone()
+        micros = int(row[0]) if row else 0
+        return Decimal(micros) / MICRO_USD
 
     async def get(self, run_id: UUID | str) -> RunView | None:
         await self.initialize()
@@ -162,6 +291,7 @@ class RunStore:
         analysis: AnalysisResult | None = None,
         publication: PublicationReceipt | None = None,
         error: PublicError | None = None,
+        clear_error: bool = False,
     ) -> RunView:
         await self.initialize()
         now = _utc_now()
@@ -194,7 +324,7 @@ class RunStore:
             )
             error_json = (
                 None
-                if state is RunState.COMPLETED
+                if state is RunState.COMPLETED or clear_error
                 else error.model_dump_json()
                 if error is not None
                 else row["error_json"]

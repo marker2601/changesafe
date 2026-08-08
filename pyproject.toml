@@ -23,6 +23,10 @@ dependencies = [
 
 [project.optional-dependencies]
 live = ["datahub-agent-context==1.7.0"]
+dbt = [
+  "dbt-core==1.10.21",
+  "dbt-duckdb==1.10.1",
+]
 dev = [
   "mypy==2.3.0",
   "pytest==9.1.1",

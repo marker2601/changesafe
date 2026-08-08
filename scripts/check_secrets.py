@@ -9,6 +9,9 @@ from pathlib import Path
 SIGNATURES = {
     "OpenAI API key": re.compile(rb"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
     "GitHub token": re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    "GitHub fine-grained token": re.compile(
+        rb"\bgithub_pat_[A-Za-z0-9_]{20,}\b"
+    ),
     "Slack token": re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"),
     "private key": re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 }

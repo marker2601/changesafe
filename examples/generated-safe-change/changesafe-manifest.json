@@ -11,17 +11,17 @@
   },
   "context": {
     "mode": "snapshot",
-    "snapshot_hash": "a4070ac28b3620c8b2c8495c5fed411924fbfc66cb3a656898740c0ec194946e",
+    "snapshot_hash": "1909e72d1fa1a90eb97f55dd1814b93d0f62ddd4ee59c5dfdd0cf4e1d90e47b4",
     "target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
   },
   "deprecation_status": "phase_one",
   "files": {
-    "PR_BODY.md": "fbf2509d3f5a9a94e4c813667c3b061373787a336a20bd7810c31feab428f55c",
+    "PR_BODY.md": "a7bee21839fff2e3c9fd615c0a94d9f11571130de3fe493aae6729ea4c32f223",
     "ROLLBACK.md": "1edc6aa01d4987775c400cffe22a3e6107ba8b63d7bff8bf796dfc321c603df8",
-    "migrations/2026-08-06-customer-email-rename.md": "1b86200e59842744e5fa0c1ed01fe138c986614b6226b1dde181d58d661a1365",
+    "migrations/2026-08-06-customer-email-rename.md": "925c34b1afdc8114e880098860a430de04d22c9da57872090b3188bdd78a3edb",
     "models/marts/dim_customers.sql": "fc4877d60726e061ceb9f3cc1770eccc091ad4a12f226c529aa7453f0bb10958",
-    "models/marts/dim_customers.yml": "4bbf6aadc1d8202c2a8655eb06da83208cd38b4d4b057f368f156c167a62acaa",
-    "tests/assert_customer_email_compatibility.sql": "bf85c60accdb0b812d66faaa462486c2eec14f5a8223f3aac35f22f43ddfb2e3"
+    "models/marts/dim_customers.yml": "306a1c98544b2b1a090e844238241bdc8d3e8718cf5d5dfc146de98810e939ab",
+    "tests/assert_customer_email_compatibility.sql": "61ea4cd4709c289b77ad82d997c03b86f24bef2d5b1f7366132584b619509e9a"
   },
   "risk": {
     "band": "critical",

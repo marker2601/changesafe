@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import PurePosixPath
-from typing import cast
+from typing import Any, cast
 
 import sqlglot
 import yaml
@@ -13,20 +13,18 @@ from sqlglot import exp
 
 from changesafe.domain import (
     ArtifactBundle,
+    ChangeOperation,
     ChangeRequest,
     ContextBundle,
     ValidationCheck,
     ValidationReport,
 )
 from changesafe.generation.templates import (
-    COMPATIBILITY_TEST,
-    EXPECTED_GOLDEN_PATHS,
     MANIFEST,
-    MIGRATION_NOTES,
-    MODEL_SQL,
-    MODEL_YAML,
     ROLLBACK,
+    expected_artifact_paths,
 )
+from changesafe.sql_types import canonical_sql_type, type_change_kind
 
 REF_PATTERN = re.compile(r"\{\{\s*ref\(['\"]([^'\"]+)['\"]\)\s*\}\}")
 CONFIG_PATTERN = re.compile(r"^\s*\{\{\s*config\(.*?\)\s*\}\}\s*$", re.MULTILINE)
@@ -59,41 +57,129 @@ def _parsed_sql(
     return parsed, errors
 
 
-def _yaml_column_names(content: str) -> tuple[set[str], bool]:
+def _yaml_columns(
+    content: str, model_name: str
+) -> tuple[list[str], dict[str, set[str]], dict[str, str], bool]:
     try:
         document = yaml.safe_load(content)
     except yaml.YAMLError:
-        return set(), False
+        return [], {}, {}, False
     if not isinstance(document, dict) or document.get("version") != 2:
-        return set(), False
+        return [], {}, {}, False
     models = document.get("models")
     if not isinstance(models, list):
-        return set(), False
+        return [], {}, {}, False
     model = next(
         (
             item
             for item in models
-            if isinstance(item, dict) and item.get("name") == "dim_customers"
+            if isinstance(item, dict) and item.get("name") == model_name
         ),
         None,
     )
     if not isinstance(model, dict):
-        return set(), False
+        return [], {}, {}, False
     columns = model.get("columns")
     if not isinstance(columns, list):
-        return set(), False
-    names = {
-        str(column.get("name"))
-        for column in columns
-        if isinstance(column, dict) and column.get("name")
-    }
-    has_tests = all(
-        isinstance(column, dict) and column.get("tests")
-        for column in columns
-        if isinstance(column, dict)
-        and column.get("name") in {"customer_email", "primary_email"}
+        return [], {}, {}, False
+    names: list[str] = []
+    tests: dict[str, set[str]] = {}
+    data_types: dict[str, str] = {}
+    for column in columns:
+        if not isinstance(column, dict) or not column.get("name"):
+            continue
+        name = str(column["name"])
+        key = name.casefold()
+        names.append(name)
+        raw_tests = column.get("tests", [])
+        if not isinstance(raw_tests, list):
+            raw_tests = []
+        tests[key] = {
+            str(item) if isinstance(item, str) else str(next(iter(item), ""))
+            for item in raw_tests
+            if isinstance(item, (str, dict))
+        }
+        if column.get("data_type") is not None:
+            data_types[key] = str(column["data_type"])
+    return names, tests, data_types, True
+
+
+def _preferred_field(change: ChangeRequest) -> str | None:
+    if change.operation is ChangeOperation.RENAME:
+        return change.new_field
+    if change.operation is ChangeOperation.TYPE_CHANGE:
+        return f"{change.field}__new_type"
+    return None
+
+
+def _types_match(left: str, right: str) -> bool:
+    try:
+        return canonical_sql_type(left) == canonical_sql_type(right)
+    except ValueError:
+        return False
+
+
+def _context_alignment(
+    change: ChangeRequest, context: ContextBundle
+) -> tuple[bool, str, Any | None]:
+    matches = [
+        field
+        for field in context.schema_fields
+        if field.name.casefold() == change.field.casefold()
+    ]
+    if len(matches) != 1:
+        return (
+            False,
+            "The changed field is absent or ambiguous in DataHub schema.",
+            None,
+        )
+    changed = matches[0]
+    try:
+        if canonical_sql_type(changed.data_type) != canonical_sql_type(
+            context.field_type
+        ):
+            return (
+                False,
+                "DataHub field type conflicts with the complete schema.",
+                changed,
+            )
+
+        preferred = _preferred_field(change)
+        existing = {field.name.casefold() for field in context.schema_fields}
+        if preferred is not None and preferred.casefold() in existing:
+            return (
+                False,
+                "The preferred output name already exists in DataHub.",
+                changed,
+            )
+
+        if change.operation is ChangeOperation.TYPE_CHANGE:
+            assert change.new_type is not None
+            if (
+                change.old_type is not None
+                and canonical_sql_type(change.old_type)
+                != canonical_sql_type(context.field_type)
+            ):
+                return False, "old_type disagrees with DataHub metadata.", changed
+            if type_change_kind(context.field_type, change.new_type) == "no_op":
+                return False, "new_type is a no-op for DataHub metadata.", changed
+    except ValueError as exc:
+        return False, f"Invalid or unsupported Snowflake type: {exc}.", changed
+    return True, "The request agrees with complete DataHub schema metadata.", changed
+
+
+def _select_output_names(expressions: list[exp.Expression]) -> list[str]:
+    select = next(
+        (
+            expression
+            for expression in expressions
+            if isinstance(expression, exp.Select)
+        ),
+        None,
     )
-    return names, has_tests
+    if select is None:
+        return []
+    return [projection.alias_or_name for projection in select.expressions]
 
 
 def _manifest_matches(bundle: ArtifactBundle) -> bool:
@@ -119,7 +205,8 @@ def verify_artifacts(
     context: ContextBundle,
 ) -> ValidationReport:
     checks: list[ValidationCheck] = []
-    allowed = set(EXPECTED_GOLDEN_PATHS)
+    expected_paths = expected_artifact_paths(change, context)
+    allowed = set(expected_paths)
     paths_safe = set(bundle.files) == allowed and all(
         path == artifact.path
         and not PurePosixPath(path).is_absolute()
@@ -149,41 +236,129 @@ def verify_artifacts(
         )
     )
 
-    model_content = bundle.files.get(MODEL_SQL)
+    model_sql = next(
+        path
+        for path in expected_paths
+        if path.startswith("models/marts/") and path.endswith(".sql")
+    )
+    model_yaml = next(
+        path
+        for path in expected_paths
+        if path.startswith("models/marts/") and path.endswith((".yml", ".yaml"))
+    )
+    compatibility_test = next(
+        path for path in expected_paths if path.startswith("tests/")
+    )
+    migration_notes = next(
+        path for path in expected_paths if path.startswith("migrations/")
+    )
+    model_name = PurePosixPath(model_sql).stem
+    model_content = bundle.files.get(model_sql)
     model_text = model_content.content if model_content else ""
-    new_field = change.new_field or f"{change.field}__new_type"
-    compatible = bool(
+    new_field = _preferred_field(change)
+    context_aligned, alignment_detail, changed_schema_field = _context_alignment(
+        change, context
+    )
+    checks.append(
+        _check(
+            "request_context_alignment",
+            "Requested change agrees with DataHub metadata",
+            context_aligned,
+            alignment_detail,
+        )
+    )
+    old_present = bool(
         re.search(rf"\b{re.escape(change.field)}\b", model_text, re.IGNORECASE)
-        and re.search(rf"\bas\s+{re.escape(new_field)}\b", model_text, re.IGNORECASE)
+    )
+    compatible = old_present and (
+        new_field is None
+        or bool(
+            re.search(
+                rf"\bas\s+{re.escape(new_field)}\b", model_text, re.IGNORECASE
+            )
+        )
     )
     checks.append(
         _check(
             "phase_one_compatibility",
-            "Old and new fields coexist",
+            "Phase-one compatibility invariant holds",
             compatible,
-            "The phase-one model exposes both field contracts."
+            "The phase-one model preserves the old contract and required alias."
             if compatible
             else "The model does not expose both phase-one field names.",
         )
     )
 
-    yaml_artifact = bundle.files.get(MODEL_YAML)
-    columns, has_tests = _yaml_column_names(
-        yaml_artifact.content if yaml_artifact else ""
+    yaml_artifact = bundle.files.get(model_yaml)
+    required_fields = {change.field.casefold()}
+    if new_field is not None:
+        required_fields.add(new_field.casefold())
+    columns, column_tests, column_types, yaml_structure_valid = _yaml_columns(
+        yaml_artifact.content if yaml_artifact else "",
+        model_name,
     )
-    yaml_valid = {change.field, new_field}.issubset(columns) and has_tests
+    column_keys = {name.casefold() for name in columns}
+    required_not_null: set[str] = set()
+    expected_types: dict[str, str] = {}
+    if changed_schema_field is not None:
+        source_key = change.field.casefold()
+        expected_types[source_key] = changed_schema_field.data_type
+        if not changed_schema_field.nullable:
+            required_not_null.add(source_key)
+        if new_field is not None:
+            preferred_key = new_field.casefold()
+            expected_types[preferred_key] = (
+                change.new_type
+                if change.operation is ChangeOperation.TYPE_CHANGE
+                and change.new_type is not None
+                else changed_schema_field.data_type
+            )
+            if not changed_schema_field.nullable:
+                required_not_null.add(preferred_key)
+    tests_valid = all(
+        "not_null" in column_tests.get(name, set()) for name in required_not_null
+    )
+    types_valid = all(
+        name in column_types and _types_match(column_types[name], data_type)
+        for name, data_type in expected_types.items()
+    )
+    yaml_valid = (
+        yaml_structure_valid
+        and required_fields.issubset(column_keys)
+        and tests_valid
+        and types_valid
+    )
     checks.append(
         _check(
             "yaml_contract",
-            "dbt YAML declares changed fields and tests",
+            "dbt YAML matches the DataHub-backed contract",
             yaml_valid,
-            "Both fields are contracted and tested."
+            "Changed fields, types, and evidence-backed tests are contracted."
             if yaml_valid
-            else "The dbt contract is missing a changed field or required tests.",
+            else "The dbt contract has a missing field, type, or required test.",
         )
     )
 
-    model_expressions = parsed.get(MODEL_SQL, [])
+    model_expressions = parsed.get(model_sql, [])
+    model_output_names = _select_output_names(model_expressions)
+    normalized_model_names = [name.casefold() for name in model_output_names if name]
+    normalized_yaml_names = [name.casefold() for name in columns]
+    output_names_unique = bool(normalized_model_names) and (
+        len(normalized_model_names) == len(set(normalized_model_names))
+        and len(normalized_yaml_names) == len(set(normalized_yaml_names))
+        and set(normalized_model_names) == set(normalized_yaml_names)
+    )
+    checks.append(
+        _check(
+            "unique_output_names",
+            "Model and YAML output names are unique",
+            output_names_unique,
+            "SQL and YAML expose the same case-insensitively unique columns."
+            if output_names_unique
+            else "SQL or YAML contains duplicate or mismatched output columns.",
+        )
+    )
+
     no_star = bool(model_expressions) and not any(
         expression.find(exp.Star) for expression in model_expressions
     )
@@ -243,10 +418,12 @@ def verify_artifacts(
         )
     )
 
-    compatibility = bundle.files.get(COMPATIBILITY_TEST)
+    compatibility = bundle.files.get(compatibility_test)
     compatibility_text = compatibility.content.lower() if compatibility else ""
-    comparison_valid = (
-        change.field.lower() in compatibility_text
+    comparison_valid = change.field.lower() in compatibility_text and (
+        "where false" in compatibility_text
+        if change.operation is ChangeOperation.REMOVE
+        else new_field is not None
         and new_field.lower() in compatibility_text
         and "is distinct from" in compatibility_text
     )
@@ -261,7 +438,7 @@ def verify_artifacts(
         )
     )
 
-    migration = bundle.files.get(MIGRATION_NOTES)
+    migration = bundle.files.get(migration_notes)
     migration_text = migration.content.lower() if migration else ""
     downstream_named = all(
         asset.name.lower() in migration_text for asset in context.downstream_assets
@@ -284,7 +461,7 @@ def verify_artifacts(
 
     rollback = bundle.files.get(ROLLBACK)
     rollback_text = rollback.content if rollback else ""
-    rollback_valid = MODEL_SQL in rollback_text and MODEL_YAML in rollback_text
+    rollback_valid = model_sql in rollback_text and model_yaml in rollback_text
     checks.append(
         _check(
             "rollback_instructions",

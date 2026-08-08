@@ -12,13 +12,28 @@ from changesafe.domain import (
     ChangeRequest,
     ContextBundle,
     DataHubReceipt,
+    EvidenceRef,
     RiskBand,
+    RiskFactor,
     StrictModel,
+    ValidationCheck,
 )
 
 
 class ContextLoadError(RuntimeError):
     """A stable context acquisition failure safe for orchestration mapping."""
+
+
+class ContextAuthorizationError(ContextLoadError):
+    """DataHub rejected the configured credential; retries are unsafe/useless."""
+
+
+class ContextTimeoutError(ContextLoadError):
+    """DataHub did not complete a bounded tool call."""
+
+
+class ContextTransportError(ContextLoadError):
+    """DataHub could not be reached after the bounded retry policy."""
 
 
 class DecisionWriteback(StrictModel):
@@ -30,6 +45,11 @@ class DecisionWriteback(StrictModel):
     approved_at: datetime
     pull_request_url: str | None = None
     idempotency_key: str = Field(min_length=64, max_length=64)
+    risk_factors: list[RiskFactor] = Field(default_factory=list)
+    evidence: list[EvidenceRef] = Field(default_factory=list)
+    validation_checks: list[ValidationCheck] = Field(default_factory=list)
+    migration_summary: str = ""
+    rollback_summary: str = ""
 
 
 WritebackProgress = Callable[[DataHubReceipt], Awaitable[None]]

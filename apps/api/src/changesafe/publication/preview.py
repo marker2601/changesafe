@@ -2,30 +2,43 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import PurePosixPath
 
 from changesafe.domain import ArtifactBundle
-from changesafe.generation.templates import EXPECTED_GOLDEN_PATHS
 
 
 class UnsafeArtifactPath(ValueError):
     """Raised when a patch path is outside the verified artifact allowlist."""
 
 
-def _safe_path(path: str) -> bool:
+PATH_PATTERNS = {
+    "model_sql": re.compile(r"^models/marts/[a-z_][a-z0-9_]*\.sql$"),
+    "model_yaml": re.compile(r"^models/marts/[a-z_][a-z0-9_]*\.yml$"),
+    "test": re.compile(r"^tests/assert_[a-z_][a-z0-9_]*\.sql$"),
+    "migration": re.compile(
+        r"^migrations/\d{4}-\d{2}-\d{2}-[a-z0-9-]+"
+        r"-(?:rename|remove|type_change)\.md$"
+    ),
+    "rollback": re.compile(r"^ROLLBACK\.md$"),
+    "pr": re.compile(r"^PR_BODY\.md$"),
+    "manifest": re.compile(r"^changesafe-manifest\.json$"),
+}
+
+
+def _path_kind(path: str) -> str | None:
     parsed = PurePosixPath(path)
-    return (
-        path in EXPECTED_GOLDEN_PATHS
-        and not parsed.is_absolute()
-        and ".." not in parsed.parts
-        and "\\" not in path
+    if parsed.is_absolute() or ".." in parsed.parts or "\\" in path:
+        return None
+    return next(
+        (kind for kind, pattern in PATH_PATTERNS.items() if pattern.fullmatch(path)),
+        None,
     )
 
 
 def build_unified_patch(artifacts: ArtifactBundle) -> str:
-    if set(artifacts.files) != set(EXPECTED_GOLDEN_PATHS) or not all(
-        _safe_path(path) for path in artifacts.files
-    ):
+    kinds = [_path_kind(path) for path in artifacts.files]
+    if len(artifacts.files) != len(PATH_PATTERNS) or set(kinds) != set(PATH_PATTERNS):
         raise UnsafeArtifactPath("artifact bundle contains a non-allowlisted path")
 
     sections: list[str] = []

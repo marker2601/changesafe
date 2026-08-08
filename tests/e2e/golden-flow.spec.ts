@@ -9,7 +9,9 @@ test("judge completes the credential-free golden workflow", async ({ page }) => 
   await page.goto("/");
 
   await expect(page.getByText("Snapshot replay", { exact: true })).toBeVisible();
-  await expect(page.getByText("No credentials required", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Preview only / snapshot mode", { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Analyze change" }).click();
 
@@ -17,7 +19,7 @@ test("judge completes the credential-free golden workflow", async ({ page }) => 
   await expect(page.getByText("Critical risk", { exact: true })).toBeVisible();
   await expect(page.getByTestId("affected-asset-row")).toHaveCount(4);
   await expect(page.getByTestId("artifact-file")).toHaveCount(7);
-  await expect(page.getByText("10 / 10", { exact: true })).toBeVisible();
+  await expect(page.getByText("12 / 12", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Approve preview" }).click();
   await expect(page.getByText("Preview ready", { exact: true })).toBeVisible();

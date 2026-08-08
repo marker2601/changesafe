@@ -61,6 +61,8 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> created
     created --> loading_context
+    loading_context --> context_fallback_required: eligible live read failure in auto mode
+    context_fallback_required --> loading_context: user explicitly accepts snapshot
     loading_context --> scoring_risk
     scoring_risk --> generating
     generating --> validating
@@ -81,20 +83,21 @@ Every transition is validated and written to `run_events` before it is streamed.
 Both adapters return the same strict `ContextBundle` contract.
 
 - Replay verifies `fixtures/datahub/golden-context.json` against its committed SHA-256 before parsing it. The resulting provenance is `snapshot` and contains the hash.
-- Live uses the `datahub-agent-context` tool surface for entities, schema fields, bounded lineage, and query context. Tool evidence records sanitized parameters, duration, result count, and referenced URNs.
+- Live uses the `datahub-agent-context` tool surface for entities, the full target schema, bounded upstream and downstream lineage, and query context. Tool evidence records sanitized parameters, duration, result count, and referenced URNs. Calls have a bounded timeout and retry transport/timeouts once; authorization errors are never retried.
+- In `auto` mode, an eligible live read failure is persisted as `context_fallback_required`. Only an explicit API/UI action resumes the same run with labeled snapshot provenance; fallback is unavailable once publication begins.
 - Live reads and writes reject targets outside `DEMO_URN_ALLOWLIST` before a tool call is made.
 
 No replay code path initializes a network client.
 
 ## Generation and verification
 
-Reviewed templates define the seven paths and safety invariants. When an OpenAI key exists, one strict structured-output call may supply bounded narrative and transformation fields; one repair call is allowed only after schema validation failure. On timeout or planning failure, the deterministic template remains available. The planner cannot change the risk score, remove a required file, or bypass validation.
+Reviewed operation-specific templates derive the seven paths from the target model and define safety invariants for rename, removal, and type-change requests. When an OpenAI key exists, one strict structured-output call may supply bounded narrative and advisory transformation fields; one repair call is allowed only after schema validation failure. Executable SQL remains deterministic. On timeout or planning failure, the template remains available. The planner cannot change the risk score, remove a required file, introduce a relation, or bypass validation.
 
 The verifier operates on in-memory bytes and blocks publication on any failed mandatory check. Generated code is parsed but never executed.
 
 ## Publication and idempotency
 
-The publication key hashes the normalized request, source commit, and final artifact manifest. The local ledger stores intermediate GitHub and DataHub receipts. A retry with the same artifact hash returns or resumes the existing ledger entry; a conflicting artifact hash fails closed.
+The publication key hashes the normalized request, source commit, and final artifact manifest. The local ledger checkpoints the GitHub branch, pull request, and each DataHub writeback substep. A retry with the same artifact hash reconciles and resumes only missing work; a conflicting artifact hash fails closed. Transitional runs whose ledger already completed are recovered without replaying external mutations.
 
 Replay approval creates a unified patch and preview receipt only. Live mutation also requires:
 
@@ -115,7 +118,7 @@ Replay approval creates a unified patch and preview receipt only. Live mutation 
 - UI code and Markdown are rendered as text; generated HTML is not injected.
 - The container runs as UID 10001 with a read-only filesystem and a dedicated `/data` volume.
 
-For a public deployment, terminate TLS and add per-IP rate limiting at the edge. For multiple replicas, replace in-process background work and SQLite with a durable queue and shared transactional store.
+The app applies a per-client sliding-window run limit in each process. For a public deployment, terminate TLS and add a distributed per-IP limit at the edge. For multiple replicas, replace in-process background work and SQLite with a durable queue and shared transactional store.
 
 ## Deployment
 

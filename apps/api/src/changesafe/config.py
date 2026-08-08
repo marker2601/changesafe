@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -58,19 +59,29 @@ class Settings(BaseSettings):
     )
     datahub_gms_url: AnyHttpUrl | None = None
     datahub_gms_token: SecretStr | None = None
+    datahub_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
+    datahub_retry_count: int = Field(default=1, ge=0, le=2)
     demo_urn_allowlist: str = (
         "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
     )
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-5.6-luna"
+    openai_input_cost_per_million_usd: Decimal = Field(
+        default=Decimal("10"), ge=0
+    )
+    openai_output_cost_per_million_usd: Decimal = Field(
+        default=Decimal("60"), ge=0
+    )
+    openai_max_input_tokens_per_call: int = Field(default=16_000, ge=1, le=100_000)
+    openai_max_output_tokens_per_call: int = Field(default=1_800, ge=1, le=10_000)
+    changesafe_llm_budget_usd: Decimal = Field(default=Decimal("5"), ge=0)
+    changesafe_runs_per_minute: int = Field(default=10, ge=1, le=1_000)
     github_token: SecretStr | None = None
     github_repository: str | None = None
     github_base_branch: str = "main"
     public_writeback_enabled: bool = False
     public_pr_enabled: bool = False
     changesafe_admin_token: SecretStr | None = None
-    changesafe_public_url: AnyHttpUrl | None = None
-    sentry_dsn: str | None = None
 
     @field_validator(
         "datahub_gms_url",
@@ -79,8 +90,6 @@ class Settings(BaseSettings):
         "github_token",
         "github_repository",
         "changesafe_admin_token",
-        "changesafe_public_url",
-        "sentry_dsn",
         mode="before",
     )
     @classmethod
@@ -108,6 +117,16 @@ class Settings(BaseSettings):
         return self.openai_api_key is not None
 
     @property
+    def llm_max_run_cost_usd(self) -> Decimal:
+        per_call = (
+            Decimal(self.openai_max_input_tokens_per_call)
+            * self.openai_input_cost_per_million_usd
+            + Decimal(self.openai_max_output_tokens_per_call)
+            * self.openai_output_cost_per_million_usd
+        ) / Decimal(1_000_000)
+        return per_call * 2
+
+    @property
     def github_publication_enabled(self) -> bool:
         return bool(
             self.public_pr_enabled
@@ -128,7 +147,7 @@ class Settings(BaseSettings):
         return {
             "mode": self.mode.value,
             "live_context_available": self.live_context_enabled,
-            "llm_available": self.llm_enabled,
+            "llm_available": self.llm_enabled and self.mode is not Mode.REPLAY,
             "github_publication_available": self.github_publication_enabled,
             "datahub_writeback_available": self.datahub_writeback_enabled,
             "openai_model": self.openai_model,

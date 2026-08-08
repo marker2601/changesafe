@@ -14,7 +14,7 @@ The seeded `dim_customers.customer_email` rename produces the same auditable res
 - A deterministic score of 90/100 (Critical), with every point tied to metadata evidence.
 - A conservative two-phase migration that keeps `customer_email` while introducing `primary_email`.
 - Seven generated artifacts with exact SHA-256 hashes.
-- Ten blocking validation checks covering paths, SQL, dbt YAML, compatibility, rollback, and the manifest.
+- Twelve blocking validation checks covering metadata alignment, unique outputs, paths, SQL, dbt YAML, compatibility, rollback, and the manifest.
 - An approval receipt and downloadable unified patch labeled `NOT WRITTEN - SNAPSHOT MODE`.
 
 Replay approval never contacts or mutates GitHub, DataHub, a warehouse, or OpenAI.
@@ -64,6 +64,8 @@ C:\Users\harik\ChangeSafe\private\changesafe.env
 
 Leave values blank for replay. Add only the integrations you want to validate. The application normalizes blank optional values as unconfigured and never exposes secret values through `/api/public-config`.
 
+The application and DataHub seed command automatically look for this exact private path. If you move the file, set `CHANGESAFE_ENV_FILE` to its new absolute path.
+
 Run local development with that file:
 
 ```powershell
@@ -85,7 +87,15 @@ Never copy the private file into this repository. `.env*`, databases, test artif
 | `CHANGESAFE_MODE` | `replay`, `live`, or startup selection with `auto` | None |
 | `DATAHUB_GMS_URL` | DataHub GMS endpoint | Network reachability from the server |
 | `DATAHUB_GMS_TOKEN` | Metadata reads | Entities, schema fields, lineage, and dataset-query context |
+| `DATAHUB_TIMEOUT_SECONDS` | Per-attempt live DataHub timeout, default `8` | None |
+| `DATAHUB_RETRY_COUNT` | Retry count for transport/timeouts, default `1` | None |
 | `OPENAI_API_KEY` | Optional bounded prose/transformation planning | Responses API access to `OPENAI_MODEL` |
+| `OPENAI_INPUT_COST_PER_MILLION_USD` | Conservative input-token accounting rate, default `10` | Update when configured model pricing changes |
+| `OPENAI_OUTPUT_COST_PER_MILLION_USD` | Conservative output-token accounting rate, default `60` | Update when configured model pricing changes |
+| `OPENAI_MAX_INPUT_TOKENS_PER_CALL` | Hard byte-conservative input ceiling, default `16000` | None |
+| `OPENAI_MAX_OUTPUT_TOKENS_PER_CALL` | Responses output ceiling, default `1800` | None |
+| `CHANGESAFE_LLM_BUDGET_USD` | Atomic project LLM ceiling, default `5` | None |
+| `CHANGESAFE_RUNS_PER_MINUTE` | Per-client, per-process run limit, default `10` | None |
 | `GITHUB_TOKEN` | Optional owner-gated publication | Contents and pull-request read/write on one repository |
 | `GITHUB_REPOSITORY` | Publication target, such as `owner/repo` | Repository must already exist |
 | `CHANGESAFE_ADMIN_TOKEN` | Server-side approval gate for all external mutations | Use a random, private value |
@@ -93,9 +103,31 @@ Never copy the private file into this repository. `.env*`, databases, test artif
 | `PUBLIC_WRITEBACK_ENABLED` | Enables DataHub decision writeback | Keep `false` until live testing |
 | `DEMO_URN_ALLOWLIST` | Semicolon-separated DataHub targets | Include only seeded demo URNs |
 
-DataHub writeback additionally needs permission for the allowlisted equivalents of `save_document`, `add_structured_properties`, and `add_tags`. External mutation flags fail configuration unless `CHANGESAFE_ADMIN_TOKEN` is present. The browser never receives DataHub, OpenAI, or GitHub credentials; in live publication mode the owner enters the separate admin approval token.
+DataHub writeback additionally needs permission for the allowlisted equivalents of `save_document`, `add_structured_properties`, and `add_tags`. External mutation flags fail configuration unless `CHANGESAFE_ADMIN_TOKEN` is present. The browser never receives DataHub, OpenAI, or GitHub credentials; in live publication mode the owner enters the separate admin approval token. LLM runs reserve their two-call worst-case estimate atomically before work starts, then persist actual response usage; calls without usage telemetry retain the conservative reservation.
 
 See [.env.example](.env.example) for every supported setting.
+
+### Seed and verify a live DataHub instance
+
+First preview the deterministic graph without making a network call:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\seed_datahub.py
+```
+
+After adding `DATAHUB_GMS_URL` and `DATAHUB_GMS_TOKEN` to the private file, apply idempotent UPSERT proposals and immediately verify them through the same live adapter used by the application:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\seed_datahub.py --apply
+```
+
+For a read-only contract check against an already seeded instance:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\seed_datahub.py --verify-only
+```
+
+The seed token needs metadata proposal/write access. Application writeback remains separately disabled until `PUBLIC_WRITEBACK_ENABLED=true`, an allowlist is present, and an admin approval token is supplied.
 
 ## Safety model
 
@@ -147,6 +179,7 @@ Read [docs/architecture.md](docs/architecture.md) for component boundaries, stat
 - `GET /api/runs/{run_id}`
 - `GET /api/runs/{run_id}/events`
 - `GET /api/runs/{run_id}/artifacts/{path}`
+- `POST /api/runs/{run_id}/continue-with-snapshot`
 - `POST /api/runs/{run_id}/approve`
 - `GET /api/runs/{run_id}/publication.patch`
 
@@ -167,6 +200,15 @@ python scripts/check_secrets.py
 docker build -t changesafe:local .
 ```
 
+The checked-in sample migration is also parsed and materialized with pinned dbt packages in an isolated environment:
+
+```powershell
+py -3.12 -m venv .venv-dbt
+.\.venv-dbt\Scripts\python.exe -m pip install -e ".[dbt]"
+.\.venv-dbt\Scripts\dbt.exe parse --project-dir fixtures/dbt_project --profiles-dir fixtures/dbt_project
+.\.venv-dbt\Scripts\dbt.exe build --project-dir fixtures/dbt_project --profiles-dir fixtures/dbt_project
+```
+
 CI repeats those gates, runs the browser golden flow, checks the license and tracked files for credential signatures, builds the release image, and smoke-tests its health and UI. Optional live authentication checks execute only when their corresponding repository secrets exist and never perform writes.
 
 ## Repository map
@@ -185,8 +227,8 @@ docs/                         Architecture, demo, submission, and design evidenc
 
 - No warehouse SQL is executed, no PR is merged automatically, and replay mode never mutates external systems.
 - SQLite plus in-process analysis tasks target a single service instance. Multi-replica production deployment needs a shared database and durable job queue.
-- Public internet deployment should add reverse-proxy rate limiting and managed TLS. The app itself enforces strict schemas, a 16 KiB request boundary, same-origin CSP, allowlisted generated paths, and owner-gated mutations.
-- `auto` selects live context at startup when both DataHub settings exist; otherwise it selects replay. A failed live run stops safely instead of silently changing evidence sources.
+- Public internet deployment should add distributed reverse-proxy rate limiting and managed TLS. The app itself enforces a per-client, per-process run limit, strict schemas, a 16 KiB request boundary, same-origin CSP, allowlisted generated paths, and owner-gated mutations.
+- `auto` attempts live context when both DataHub settings exist; otherwise it selects replay. A failed live read pauses in `context_fallback_required` and changes evidence source only after the user clicks **Continue with labeled snapshot**. Authorization failures are not retried, and no fallback is permitted after publication begins.
 - An actual live DataHub receipt, real GitHub pull request, and hosted URL require the external credentials and targets listed above; they cannot be truthfully produced from replay credentials.
 
 ## Demo and submission material

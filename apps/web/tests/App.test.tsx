@@ -1,11 +1,147 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { App } from "../src/App";
-import { createGoldenApi } from "./fixtures";
+import { RUN_SESSION_KEY } from "../src/hooks/useRun";
+import type {
+  ChangeSafeApi,
+  PublicConfig,
+  RunEvent,
+  RunView,
+} from "../src/types";
+import { createGoldenApi, goldenRun, RUN_ID } from "./fixtures";
 
 describe("ChangeSafe workspace", () => {
+  it("blocks a new analysis while a saved run is being restored", async () => {
+    let resolveRun: (run: RunView) => void = () => undefined;
+    const pendingRun = new Promise<RunView>((resolve) => {
+      resolveRun = resolve;
+    });
+    const api = {
+      ...createGoldenApi(),
+      getRun: vi.fn(() => pendingRun),
+    };
+    window.sessionStorage.setItem(
+      RUN_SESSION_KEY,
+      JSON.stringify({ runId: RUN_ID, lastSequence: 6 }),
+    );
+
+    render(<App api={api} />);
+
+    expect(screen.getByRole("button", { name: /Analyzing/ })).toBeDisabled();
+    await act(async () => resolveRun(goldenRun));
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: /customer_email.*primary_email/,
+      }),
+    ).toBeVisible();
+  });
+
+  it("restores an interrupted publication and resumes from its saved cursor", async () => {
+    const subscribe = vi.fn(() => () => undefined);
+    const publishing: RunView = {
+      ...goldenRun,
+      state: "publishing",
+      analysis: goldenRun.analysis
+        ? {
+            ...goldenRun.analysis,
+            context: {
+              ...goldenRun.analysis.context,
+              provenance: {
+                ...goldenRun.analysis.context.provenance,
+                mode: "live",
+                snapshot_hash: null,
+              },
+            },
+          }
+        : null,
+    };
+    const api: ChangeSafeApi = {
+      getPublicConfig: vi.fn(async (): Promise<PublicConfig> => ({
+        mode: "live",
+        live_context_available: true,
+        llm_available: false,
+        github_publication_available: true,
+        datahub_writeback_available: true,
+        openai_model: "gpt-5.6-luna",
+      })),
+      createRun: vi.fn(async () => publishing),
+      getRun: vi.fn(async () => publishing),
+      approve: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+      continueWithSnapshot: vi.fn(async () => publishing),
+      subscribe,
+    };
+    window.sessionStorage.setItem(
+      RUN_SESSION_KEY,
+      JSON.stringify({ runId: RUN_ID, lastSequence: 7 }),
+    );
+
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: /customer_email.*primary_email/,
+      }),
+    ).toBeVisible();
+    expect(subscribe).toHaveBeenCalledWith(
+      RUN_ID,
+      7,
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(
+      screen.getByRole("button", { name: "Resume publication" }),
+    ).toBeEnabled();
+    expect(screen.getByText("Owner-gated publishing")).toBeVisible();
+  });
+
+  it("restores a publication failure after refresh without resubscribing", async () => {
+    const failed: RunView = {
+      ...goldenRun,
+      state: "publication_failed",
+      error: {
+        code: "GITHUB_BRANCH_CONFLICT",
+        message: "The branch no longer matches verified artifacts.",
+        retryable: false,
+      },
+    };
+    const subscribe = vi.fn(() => () => undefined);
+    const api: ChangeSafeApi = {
+      getPublicConfig: vi.fn(async (): Promise<PublicConfig> => ({
+        mode: "live",
+        live_context_available: true,
+        llm_available: false,
+        github_publication_available: true,
+        datahub_writeback_available: true,
+        openai_model: "gpt-5.6-luna",
+      })),
+      createRun: vi.fn(async () => failed),
+      getRun: vi.fn(async () => failed),
+      approve: vi.fn(async () => {
+        throw new Error("not used");
+      }),
+      continueWithSnapshot: vi.fn(async () => failed),
+      subscribe,
+    };
+    window.sessionStorage.setItem(
+      RUN_SESSION_KEY,
+      JSON.stringify({ runId: RUN_ID, lastSequence: 9 }),
+    );
+
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByText("The branch no longer matches verified artifacts."),
+    ).toBeVisible();
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(screen.getByText(`Run ID: ${RUN_ID.slice(0, 8)}`)).toBeVisible();
+  });
+
   it("renders the real golden analysis from ordered run events", async () => {
     const user = userEvent.setup();
     render(<App api={createGoldenApi()} />);
@@ -16,7 +152,9 @@ describe("ChangeSafe workspace", () => {
     expect(screen.getByText("Critical risk")).toBeVisible();
     expect(screen.getAllByTestId("risk-factor")).toHaveLength(6);
     expect(screen.getByText("executive_customer_health")).toBeVisible();
-    expect(screen.getByText("10 / 10")).toBeVisible();
+    expect(screen.getByText("12 / 12")).toBeVisible();
+    expect(screen.getByText("Snapshot replay")).toBeVisible();
+    expect(screen.getByText("Preview only / snapshot mode")).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Approve preview" }),
     ).toBeEnabled();
@@ -47,5 +185,71 @@ describe("ChangeSafe workspace", () => {
     await user.click(screen.getByRole("tab", { name: "PR_BODY.md" }));
     expect(screen.getByText(/<img src=x onerror=/)).toBeVisible();
     expect(document.querySelector(".artifact-code img")).toBeNull();
+  });
+
+  it("requires explicit confirmation before using the labeled snapshot", async () => {
+    const user = userEvent.setup();
+    const fallback: RunView = {
+      ...goldenRun,
+      state: "context_fallback_required",
+      analysis: null,
+      error: {
+        code: "LIVE_CONTEXT_UNAVAILABLE",
+        message:
+          "Live metadata context is unavailable. Snapshot replay requires confirmation.",
+        retryable: true,
+      },
+    };
+    const event: RunEvent = {
+      run_id: RUN_ID,
+      sequence: 2,
+      state: "context_fallback_required",
+      public_message: "Live context unavailable; confirmation required",
+      evidence: [],
+      created_at: fallback.updated_at,
+    };
+    let current = fallback;
+    const continueWithSnapshot = vi.fn(async () => {
+      current = { ...fallback, state: "loading_context", error: null };
+      return current;
+    });
+    const api: ChangeSafeApi = {
+      getPublicConfig: vi.fn(async (): Promise<PublicConfig> => ({
+        mode: "auto",
+        live_context_available: true,
+        llm_available: false,
+        github_publication_available: false,
+        datahub_writeback_available: false,
+        openai_model: "gpt-5.6-luna",
+      })),
+      createRun: vi.fn(async () => fallback),
+      getRun: vi.fn(async () => current),
+      approve: vi.fn(async () => {
+        throw new Error("unexpected approval");
+      }),
+      continueWithSnapshot,
+      subscribe: (_runId, _after, onEvent) => {
+        queueMicrotask(() => onEvent(event));
+        return () => undefined;
+      },
+    };
+    render(<App api={api} />);
+
+    await user.click(screen.getByRole("button", { name: "Analyze change" }));
+    const confirm = await screen.findByRole("button", {
+      name: "Continue with labeled snapshot",
+    });
+    expect(screen.getByText("Live unavailable")).toBeVisible();
+    expect(
+      screen.getByText("Preview only / publication disabled"),
+    ).toBeVisible();
+    expect(screen.getByText("Context loaded").closest("li")).toHaveTextContent(
+      "Pending",
+    );
+    expect(continueWithSnapshot).not.toHaveBeenCalled();
+
+    await user.click(confirm);
+
+    expect(continueWithSnapshot).toHaveBeenCalledWith(RUN_ID);
   });
 });

@@ -162,6 +162,110 @@ def test_removal_without_downstream_context_is_medium() -> None:
     assert result.band is RiskBand.MEDIUM
 
 
+def test_type_change_rejects_old_type_that_disagrees_with_datahub() -> None:
+    change = ChangeRequest(
+        asset_urn=TARGET,
+        operation=ChangeOperation.TYPE_CHANGE,
+        field="customer_email",
+        old_type="SMALLINT",
+        new_type="BIGINT",
+        source_commit="misstated-old-type",
+        requested_by="demo-user",
+    )
+
+    with pytest.raises(ValueError, match="old_type does not match DataHub metadata"):
+        score_change(change, golden_context())
+
+
+def test_type_change_rejects_new_type_equal_to_datahub_type() -> None:
+    change = ChangeRequest(
+        asset_urn=TARGET,
+        operation=ChangeOperation.TYPE_CHANGE,
+        field="customer_email",
+        new_type="STRING",
+        source_commit="no-op-type-change",
+        requested_by="demo-user",
+    )
+
+    with pytest.raises(ValueError, match="no-op"):
+        score_change(change, golden_context())
+
+
+@pytest.mark.parametrize(
+    ("current_type", "new_type"),
+    [
+        ("VARCHAR(100)", "VARCHAR(200)"),
+        ("NUMBER(10,0)", "NUMBER(18,0)"),
+        ("NUMBER(10,2)", "NUMBER(12,4)"),
+    ],
+)
+def test_parameter_widening_is_scored_from_datahub_type(
+    current_type: str, new_type: str
+) -> None:
+    change = ChangeRequest(
+        asset_urn=TARGET,
+        operation=ChangeOperation.TYPE_CHANGE,
+        field="customer_email",
+        new_type=new_type,
+        source_commit="widen-parameterized-type",
+        requested_by="demo-user",
+    )
+    context = golden_context().model_copy(update={"field_type": current_type})
+
+    result = score_change(change, context)
+
+    assert result.factors[0].code == "base_compatible_type_change"
+    assert result.factors[0].points == 15
+
+
+@pytest.mark.parametrize(
+    ("current_type", "new_type"),
+    [
+        ("VARCHAR(200)", "VARCHAR(100)"),
+        ("NUMBER(18,0)", "NUMBER(10,0)"),
+        ("NUMBER(12,4)", "NUMBER(10,2)"),
+    ],
+)
+def test_parameter_narrowing_is_scored_as_incompatible(
+    current_type: str, new_type: str
+) -> None:
+    change = ChangeRequest(
+        asset_urn=TARGET,
+        operation=ChangeOperation.TYPE_CHANGE,
+        field="customer_email",
+        new_type=new_type,
+        source_commit="narrow-parameterized-type",
+        requested_by="demo-user",
+    )
+    context = golden_context().model_copy(update={"field_type": current_type})
+
+    result = score_change(change, context)
+
+    assert result.factors[0].code == "base_type_change"
+    assert result.factors[0].points == 35
+
+
+@pytest.mark.parametrize(
+    ("current_type", "new_type"),
+    [("VARCHAR", "STRING"), ("STRING", "TEXT"), ("SMALLINT", "BIGINT")],
+)
+def test_snowflake_type_alias_no_ops_are_rejected(
+    current_type: str, new_type: str
+) -> None:
+    change = ChangeRequest(
+        asset_urn=TARGET,
+        operation=ChangeOperation.TYPE_CHANGE,
+        field="customer_email",
+        new_type=new_type,
+        source_commit="alias-no-op",
+        requested_by="demo-user",
+    )
+    context = golden_context().model_copy(update={"field_type": current_type})
+
+    with pytest.raises(ValueError, match="no-op"):
+        score_change(change, context)
+
+
 @pytest.mark.parametrize(
     ("score", "expected"),
     [

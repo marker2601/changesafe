@@ -1,21 +1,25 @@
-"""Reviewed deterministic templates that remain authoritative over LLM prose."""
+"""Reviewed operation-specific templates; LLM output can supply prose only."""
 
 from __future__ import annotations
 
 import json
+import re
 from datetime import timedelta
 
 from pydantic import Field
 
 from changesafe.domain import (
+    AffectedAsset,
     ArtifactBundle,
     ArtifactFile,
     ChangeOperation,
     ChangeRequest,
     ContextBundle,
     RiskResult,
+    SchemaField,
     StrictModel,
 )
+from changesafe.sql_types import canonical_sql_type, type_change_kind
 
 MODEL_SQL = "models/marts/dim_customers.sql"
 MODEL_YAML = "models/marts/dim_customers.yml"
@@ -44,12 +48,64 @@ class GenerationNarrative(StrictModel):
     pr_prose: str = Field(min_length=1, max_length=4000)
 
 
+def _slug(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "-", value).strip("-").lower()
+    return normalized or "change"
+
+
+def _identifier(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_]", "_", value).strip("_").lower()
+    if not normalized:
+        return "model"
+    return f"model_{normalized}" if normalized[0].isdigit() else normalized
+
+
+def _model_name(context: ContextBundle) -> str:
+    return _identifier(context.target_name)
+
+
+def _model_paths(context: ContextBundle) -> tuple[str, str]:
+    model = _model_name(context)
+    return f"models/marts/{model}.sql", f"models/marts/{model}.yml"
+
+
+def _test_path(change: ChangeRequest) -> str:
+    field = _identifier(change.field)
+    suffix = {
+        ChangeOperation.RENAME: "compatibility",
+        ChangeOperation.REMOVE: "retained",
+        ChangeOperation.TYPE_CHANGE: "type_compatibility",
+    }[change.operation]
+    return f"tests/assert_{field}_{suffix}.sql"
+
+
+def _migration_path(change: ChangeRequest, context: ContextBundle) -> str:
+    date = context.provenance.retrieved_at.date().isoformat()
+    return f"migrations/{date}-{_slug(change.field)}-{change.operation.value}.md"
+
+
+def expected_artifact_paths(
+    change: ChangeRequest, context: ContextBundle
+) -> tuple[str, ...]:
+    model_sql, model_yaml = _model_paths(context)
+    return (
+        model_sql,
+        model_yaml,
+        _test_path(change),
+        _migration_path(change, context),
+        ROLLBACK,
+        PR_BODY,
+        MANIFEST,
+    )
+
+
 def _owner(context: ContextBundle) -> str:
     accountable = next(
         (
             owner
             for owner in context.owners
-            if owner.ownership_type.upper() in {"DATA_OWNER", "BUSINESS_OWNER", "OWNER"}
+            if owner.ownership_type.upper()
+            in {"DATA_OWNER", "BUSINESS_OWNER", "OWNER"}
         ),
         None,
     )
@@ -60,98 +116,242 @@ def _owner(context: ContextBundle) -> str:
     return "Data Platform"
 
 
+def _preferred_field(change: ChangeRequest) -> str | None:
+    if change.operation is ChangeOperation.RENAME:
+        return change.new_field
+    if change.operation is ChangeOperation.TYPE_CHANGE:
+        return f"{change.field}__new_type"
+    return None
+
+
+def _source_asset(change: ChangeRequest, context: ContextBundle) -> AffectedAsset:
+    candidates = [
+        asset
+        for asset in context.upstream_assets
+        if asset.entity_type.lower() == "dataset"
+        and (asset.field is None or asset.field == change.field)
+    ]
+    if not candidates:
+        candidates = [
+            asset
+            for asset in context.upstream_assets
+            if asset.entity_type.lower() == "dataset"
+        ]
+    if not candidates:
+        raise ValueError(
+            "Complete upstream context is required for artifact generation"
+        )
+    staged = next(
+        (asset for asset in reversed(candidates) if asset.name.startswith("stg_")),
+        None,
+    )
+    return staged or candidates[-1]
+
+
+def _schema(context: ContextBundle) -> list[SchemaField]:
+    if not context.schema_fields:
+        raise ValueError("Complete schema context is required for artifact generation")
+    return context.schema_fields
+
+
+def _changed_schema_field(
+    change: ChangeRequest, context: ContextBundle
+) -> SchemaField:
+    matches = [
+        field
+        for field in _schema(context)
+        if field.name.casefold() == change.field.casefold()
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            "Changed field is absent or ambiguous in DataHub schema context"
+        )
+    return matches[0]
+
+
+def _validate_generation_context(
+    change: ChangeRequest, context: ContextBundle
+) -> SchemaField:
+    changed = _changed_schema_field(change, context)
+    if canonical_sql_type(changed.data_type) != canonical_sql_type(
+        context.field_type
+    ):
+        raise ValueError("DataHub field type disagrees with complete schema context")
+
+    preferred = _preferred_field(change)
+    existing_names = {field.name.casefold() for field in _schema(context)}
+    if preferred is not None and preferred.casefold() in existing_names:
+        raise ValueError(
+            f"Preferred field '{preferred}' already exists in the DataHub schema"
+        )
+
+    if change.operation is ChangeOperation.TYPE_CHANGE:
+        assert change.new_type is not None
+        if (
+            change.old_type is not None
+            and canonical_sql_type(change.old_type)
+            != canonical_sql_type(context.field_type)
+        ):
+            raise ValueError("old_type does not match DataHub metadata")
+        if type_change_kind(context.field_type, change.new_type) == "no_op":
+            raise ValueError("new_type is a no-op for DataHub metadata")
+    return changed
+
+
 def default_narrative(
     change: ChangeRequest, context: ContextBundle
 ) -> GenerationNarrative:
-    expression = change.field
-    if change.operation is ChangeOperation.TYPE_CHANGE and change.new_type:
-        expression = f"cast({change.field} as {change.new_type})"
+    preferred = _preferred_field(change)
+    if change.operation is ChangeOperation.REMOVE:
+        action = (
+            f"Retain `{change.field}` during phase one while every recorded consumer "
+            "moves away from it."
+        )
+    elif change.operation is ChangeOperation.TYPE_CHANGE:
+        action = (
+            f"Keep `{change.field}` and introduce `{preferred}` with type "
+            f"`{change.new_type}` during phase one."
+        )
+    else:
+        action = (
+            f"Keep `{change.field}` and introduce `{preferred}` during phase one."
+        )
     return GenerationNarrative(
-        transformation_expression=expression,
-        explanation=(
-            "Keep the source value available under the existing contract while "
-            "consumers move to the new field name."
-        ),
+        transformation_expression=change.field,
+        explanation=action,
         deprecation_language=(
             f"`{change.field}` remains available for a 30-day deprecation window "
             "and is removed only after every recorded downstream consumer migrates."
         ),
         migration_summary=(
-            f"Introduce `{change.new_field or change.field}` without removing "
-            f"`{change.field}`, update the dbt contract, and enforce value "
-            "compatibility."
+            f"{action} Update the dbt contract and enforce the operation-specific "
+            "compatibility invariant."
         ),
         rollback_summary=(
-            "Revert the generated model, schema, and compatibility test together, then "
-            "run dbt parse before reopening downstream traffic."
+            "Revert the generated model, schema, and compatibility test together, "
+            "then run dbt parse before reopening downstream traffic."
         ),
         pr_prose=(
-            "This phase-one migration preserves the existing interface, adds the new "
-            "contracted field, and includes deterministic validation and rollback "
-            "evidence."
+            "This phase-one migration preserves the existing interface and includes "
+            "deterministic validation, deprecation evidence, and rollback steps."
         ),
     )
 
 
-def _model_sql(change: ChangeRequest, narrative: GenerationNarrative) -> str:
-    new_field = change.new_field or f"{change.field}__new_type"
-    new_expression = narrative.transformation_expression
+def _model_sql(change: ChangeRequest, context: ContextBundle) -> str:
+    preferred = _preferred_field(change)
+    projections: list[str] = []
+    for schema_field in _schema(context):
+        projections.append(schema_field.name)
+        if schema_field.name != change.field or preferred is None:
+            continue
+        if change.operation is ChangeOperation.TYPE_CHANGE:
+            assert change.new_type is not None
+            projections.append(
+                f"cast({change.field} as {change.new_type}) as {preferred}"
+            )
+        else:
+            projections.append(f"{change.field} as {preferred}")
+    if change.field not in {field.name for field in _schema(context)}:
+        raise ValueError("Changed field is absent from complete schema context")
+    source = _source_asset(change, context)
+    rendered = ",\n".join(f"    {projection}" for projection in projections)
     return (
         "{{ config(materialized='table', contract={'enforced': true}) }}\n\n"
-        "select\n"
-        "    customer_id,\n"
-        "    customer_name,\n"
-        f"    {change.field},\n"
-        f"    {new_expression} as {new_field},\n"
-        "    customer_status,\n"
-        "    created_at\n"
-        "from {{ ref('stg_customers') }}\n"
+        f"select\n{rendered}\n"
+        f"from {{{{ ref('{_identifier(source.name)}') }}}}\n"
     )
+
+
+def _yaml_tests(field: SchemaField) -> str | None:
+    return "[not_null]" if not field.nullable else None
 
 
 def _model_yaml(change: ChangeRequest, context: ContextBundle) -> str:
-    new_field = change.new_field or f"{change.field}__new_type"
-    new_type = change.new_type or context.field_type
-    return (
-        "version: 2\n\n"
-        "models:\n"
-        "  - name: dim_customers\n"
-        "    description: Governed customer dimension with a phase-one "
-        "compatibility alias.\n"
-        "    config:\n"
-        "      contract:\n"
-        "        enforced: true\n"
-        "    columns:\n"
-        "      - name: customer_id\n"
-        "        data_type: STRING\n"
-        "        tests: [not_null, unique]\n"
-        f"      - name: {change.field}\n"
-        f"        data_type: {context.field_type}\n"
-        "        description: Deprecated compatibility field retained during "
-        "phase one.\n"
-        "        tests: [not_null]\n"
-        f"      - name: {new_field}\n"
-        f"        data_type: {new_type}\n"
-        "        description: Preferred field for migrated consumers.\n"
-        "        tests: [not_null]\n"
-        "      - name: customer_name\n"
-        "        data_type: STRING\n"
-        "      - name: customer_status\n"
-        "        data_type: STRING\n"
-        "      - name: created_at\n"
-        "        data_type: TIMESTAMP\n"
-    )
+    preferred = _preferred_field(change)
+    changed_field = _changed_schema_field(change, context)
+    fields = list(_schema(context))
+    if preferred is not None:
+        fields.insert(
+            next(
+                i
+                for i, field in enumerate(fields)
+                if field.name.casefold() == change.field.casefold()
+            )
+            + 1,
+            SchemaField(
+                name=preferred,
+                data_type=(
+                    change.new_type
+                    if change.operation is ChangeOperation.TYPE_CHANGE
+                    else changed_field.data_type
+                ),
+                nullable=changed_field.nullable,
+            ),
+        )
+    lines = [
+        "version: 2",
+        "",
+        "models:",
+        f"  - name: {_model_name(context)}",
+        "    description: Governed phase-one compatibility migration.",
+        "    config:",
+        "      contract:",
+        "        enforced: true",
+        "    columns:",
+    ]
+    for field in fields:
+        lines.extend(
+            [
+                f"      - name: {field.name}",
+                f"        data_type: {json.dumps(field.data_type)}",
+            ]
+        )
+        if field.name == change.field:
+            lines.append(
+                "        description: Deprecated compatibility field retained "
+                "during phase one."
+            )
+        elif field.name == preferred:
+            lines.append(
+                "        description: Preferred field for migrated consumers."
+            )
+        tests = _yaml_tests(field)
+        if tests:
+            lines.append(f"        tests: {tests}")
+    return "\n".join(lines) + "\n"
 
 
-def _compatibility_test(change: ChangeRequest) -> str:
-    new_field = change.new_field or f"{change.field}__new_type"
+def _compatibility_test(change: ChangeRequest, context: ContextBundle) -> str:
+    model = _model_name(context)
+    preferred = _preferred_field(change)
+    if change.operation is ChangeOperation.REMOVE:
+        return (
+            "-- This compiles only while the phase-one field remains available.\n"
+            f"select {change.field}\n"
+            f"from {{{{ ref('{model}') }}}}\n"
+            "where false\n"
+        )
+    assert preferred is not None
+    expected = change.field
+    if change.operation is ChangeOperation.TYPE_CHANGE:
+        assert change.new_type is not None
+        expected = f"cast({change.field} as {change.new_type})"
     return (
         "-- Passing result: zero rows where phase-one values diverge.\n"
         "select\n"
-        "    customer_id\n"
-        "from {{ ref('dim_customers') }}\n"
-        f"where {change.field} is distinct from {new_field}\n"
+        f"    {change.field}\n"
+        f"from {{{{ ref('{model}') }}}}\n"
+        f"where {expected} is distinct from {preferred}\n"
     )
+
+
+def _change_title(change: ChangeRequest) -> str:
+    if change.operation is ChangeOperation.RENAME:
+        return f"rename `{change.field}` to `{change.new_field}`"
+    if change.operation is ChangeOperation.TYPE_CHANGE:
+        return f"change `{change.field}` to `{change.new_type}`"
+    return f"defer removal of `{change.field}`"
 
 
 def _migration_notes(
@@ -165,9 +365,9 @@ def _migration_notes(
     downstream = "\n".join(
         f"- `{asset.name}` — {asset.domain or 'Unassigned'} — `{asset.urn}`"
         for asset in context.downstream_assets
-    )
+    ) or "- No downstream assets were returned by the complete lineage query."
     return (
-        f"# Migration: `{change.field}` to `{change.new_field}`\n\n"
+        f"# Migration: {_change_title(change)}\n\n"
         f"**Owner:** {owner}  \n"
         f"**Risk:** {risk.score}/100 — {risk.band.value.title()}  \n"
         f"**Deprecation window:** through {ends.isoformat()}\n\n"
@@ -177,19 +377,25 @@ def _migration_notes(
         "## Downstream evidence\n\n"
         f"{downstream}\n\n"
         "## Exit criteria\n\n"
-        "All four recorded consumers must use the preferred field, the "
-        "compatibility test must remain green, and the accountable owner must "
-        "approve phase two.\n"
+        f"All {len(context.downstream_assets)} recorded consumers must complete "
+        "migration, the operation-specific compatibility test must remain green, "
+        "and the accountable owner must approve phase two.\n"
     )
 
 
-def _rollback(change: ChangeRequest, narrative: GenerationNarrative) -> str:
+def _rollback(
+    change: ChangeRequest,
+    context: ContextBundle,
+    narrative: GenerationNarrative,
+) -> str:
+    model_sql, model_yaml = _model_paths(context)
+    test_path = _test_path(change)
     return (
         "# ChangeSafe rollback\n\n"
         f"{narrative.rollback_summary}\n\n"
-        "1. Revert `models/marts/dim_customers.sql`.\n"
-        "2. Revert `models/marts/dim_customers.yml`.\n"
-        "3. Remove `tests/assert_customer_email_compatibility.sql`.\n"
+        f"1. Revert `{model_sql}`.\n"
+        f"2. Revert `{model_yaml}`.\n"
+        f"3. Remove `{test_path}`.\n"
         f"4. Confirm `{change.field}` remains available to every downstream consumer.\n"
         "5. Run `dbt parse` and the project test suite before republishing.\n"
     )
@@ -204,14 +410,14 @@ def _pr_body(
     factor_lines = "\n".join(
         f"- **+{factor.points}** {factor.label}" for factor in risk.factors
     )
+    domains = {asset.domain for asset in context.downstream_assets if asset.domain}
     return (
-        f"# ChangeSafe: migrate `{change.field}` to `{change.new_field}`\n\n"
+        f"# ChangeSafe: {_change_title(change)}\n\n"
         f"{narrative.pr_prose}\n\n"
         f"## Deterministic risk: {risk.score}/100 — {risk.band.value.title()}\n\n"
         f"{factor_lines}\n\n"
         f"## Impact\n\n{len(context.downstream_assets)} downstream assets across "
-        f"{len({asset.domain for asset in context.downstream_assets if asset.domain})} "
-        "domains were found in DataHub.\n\n"
+        f"{len(domains)} domains were found in DataHub.\n\n"
         "## Validation\n\n"
         "Publication remains blocked until SQL, YAML, compatibility, path, "
         "rollback, and manifest checks pass.\n"
@@ -224,13 +430,17 @@ def generate_artifacts(
     risk: RiskResult,
     narrative: GenerationNarrative | None = None,
 ) -> ArtifactBundle:
+    _validate_generation_context(change, context)
     narrative = narrative or default_narrative(change, context)
+    model_sql, model_yaml = _model_paths(context)
     contents = {
-        MODEL_SQL: _model_sql(change, narrative),
-        MODEL_YAML: _model_yaml(change, context),
-        COMPATIBILITY_TEST: _compatibility_test(change),
-        MIGRATION_NOTES: _migration_notes(change, context, risk, narrative),
-        ROLLBACK: _rollback(change, narrative),
+        model_sql: _model_sql(change, context),
+        model_yaml: _model_yaml(change, context),
+        _test_path(change): _compatibility_test(change, context),
+        _migration_path(change, context): _migration_notes(
+            change, context, risk, narrative
+        ),
+        ROLLBACK: _rollback(change, context, narrative),
         PR_BODY: _pr_body(change, context, risk, narrative),
     }
     files = {

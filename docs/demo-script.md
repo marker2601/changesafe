@@ -6,7 +6,7 @@ Open ChangeSafe at the replay URL.
 
 > A column rename can look harmless in a pull request while breaking dashboards, campaigns, support workflows, and models. ChangeSafe checks organizational metadata before code is published.
 
-Point to **Snapshot replay** and **No credentials required**.
+Point to **Snapshot replay** and **Preview only / snapshot mode**.
 
 > This run uses a checksummed DataHub snapshot, so judges need no accounts and every replay is honest about its evidence source.
 
@@ -32,7 +32,7 @@ Show the SQL file and switch briefly to YAML, the compatibility test, rollback, 
 
 Expand validation.
 
-> Ten blocking checks parse SQL, validate dbt YAML, reject SELECT star, confirm both field names and the compatibility test, verify rollback content, and recompute the manifest. Publication stays locked if any check fails.
+> Twelve blocking checks also require DataHub/request alignment and case-insensitively unique SQL/YAML outputs, then parse SQL, validate dbt YAML, reject SELECT star, confirm compatibility, verify rollback content, and recompute the manifest. Publication stays locked if any check fails.
 
 ## 1:55-2:20 - Approve safely
 

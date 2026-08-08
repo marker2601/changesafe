@@ -27,8 +27,10 @@ export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
       operation,
       field,
       new_field: operation === "rename" ? newField : null,
-      old_type: operation === "type_change" ? oldType : "STRING",
-      new_type: operation === "type_change" ? newType : "STRING",
+      old_type:
+        operation === "type_change" ? oldType : operation === "rename" ? "STRING" : null,
+      new_type:
+        operation === "type_change" ? newType : operation === "rename" ? "STRING" : null,
       source_commit: sourceCommit,
       requested_by: "demo-user",
     });
