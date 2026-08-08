@@ -97,7 +97,7 @@ Never copy the private file into this repository. `.env*`, databases, test artif
 | `CHANGESAFE_LLM_BUDGET_USD` | Atomic project LLM ceiling, default `5` | None |
 | `CHANGESAFE_RUNS_PER_MINUTE` | Per-client, per-process run limit, default `10` | None |
 | `GITHUB_TOKEN` | Optional owner-gated publication | Contents and pull-request read/write on one repository |
-| `GITHUB_REPOSITORY` | Publication target, such as `owner/repo` | Repository must already exist |
+| `CHANGESAFE_GITHUB_REPOSITORY` | Publication target, such as `owner/repo` | Repository must already exist |
 | `CHANGESAFE_ADMIN_TOKEN` | Server-side approval gate for all external mutations | Use a random, private value |
 | `PUBLIC_PR_ENABLED` | Enables GitHub branch/commit/PR creation | Keep `false` until live testing |
 | `PUBLIC_WRITEBACK_ENABLED` | Enables DataHub decision writeback | Keep `false` until live testing |

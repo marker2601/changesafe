@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     changesafe_llm_budget_usd: Decimal = Field(default=Decimal("5"), ge=0)
     changesafe_runs_per_minute: int = Field(default=10, ge=1, le=1_000)
     github_token: SecretStr | None = None
-    github_repository: str | None = None
+    changesafe_github_repository: str | None = None
     github_base_branch: str = "main"
     public_writeback_enabled: bool = False
     public_pr_enabled: bool = False
@@ -88,7 +88,7 @@ class Settings(BaseSettings):
         "datahub_gms_token",
         "openai_api_key",
         "github_token",
-        "github_repository",
+        "changesafe_github_repository",
         "changesafe_admin_token",
         mode="before",
     )
@@ -131,7 +131,7 @@ class Settings(BaseSettings):
         return bool(
             self.public_pr_enabled
             and self.github_token
-            and self.github_repository
+            and self.changesafe_github_repository
             and self.changesafe_admin_token
         )
 

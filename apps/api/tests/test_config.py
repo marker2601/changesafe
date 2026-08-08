@@ -93,7 +93,7 @@ def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
                 "DATAHUB_GMS_TOKEN=",
                 "OPENAI_API_KEY=",
                 "GITHUB_TOKEN=",
-                "GITHUB_REPOSITORY=",
+                "CHANGESAFE_GITHUB_REPOSITORY=",
                 "CHANGESAFE_ADMIN_TOKEN=",
             ]
         ),
@@ -106,8 +106,18 @@ def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
     assert settings.datahub_gms_token is None
     assert settings.openai_api_key is None
     assert settings.github_token is None
-    assert settings.github_repository is None
+    assert settings.changesafe_github_repository is None
     assert settings.changesafe_admin_token is None
+
+
+def test_github_actions_repository_env_does_not_configure_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "marker2601/changesafe")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.changesafe_github_repository is None
 
 
 def test_replay_factory_uses_configured_snapshot_paths(tmp_path: Path) -> None:

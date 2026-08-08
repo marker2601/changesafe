@@ -115,7 +115,7 @@ def live_settings(tmp_path: Path) -> Settings:
         datahub_gms_url="https://datahub.example.test",
         datahub_gms_token="datahub-secret",
         github_token="github-secret",
-        github_repository="acme/analytics",
+        changesafe_github_repository="acme/analytics",
         public_writeback_enabled=True,
         public_pr_enabled=True,
         changesafe_admin_token=ADMIN_TOKEN,
@@ -463,7 +463,9 @@ async def test_live_publication_rejects_github_destination_drift_after_crash(
     with pytest.raises(SimulatedProcessCrash):
         await crashing.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
 
-    changed = original.model_copy(update={"github_repository": "acme/other-repo"})
+    changed = original.model_copy(
+        update={"changesafe_github_repository": "acme/other-repo"}
+    )
     publisher = CountingGitHubPublisher()
     restarted = PublicationService(
         store=RunStore(tmp_path / "runs.db"),
@@ -681,7 +683,9 @@ async def test_completed_live_receipt_is_not_reused_for_another_repository(
     second_store, _, second_run = await analyzed_run(
         tmp_path, context_port=context
     )
-    changed = settings.model_copy(update={"github_repository": "acme/other-repo"})
+    changed = settings.model_copy(
+        update={"changesafe_github_repository": "acme/other-repo"}
+    )
     second_publisher = CountingGitHubPublisher()
     second_service = PublicationService(
         store=second_store,
@@ -766,7 +770,7 @@ async def test_auto_mode_snapshot_run_cannot_publish_to_github(tmp_path: Path) -
         mode=Mode.AUTO,
         changesafe_data_path=tmp_path / "runs.db",
         github_token="github-secret",
-        github_repository="acme/analytics",
+        changesafe_github_repository="acme/analytics",
         public_pr_enabled=True,
         changesafe_admin_token=ADMIN_TOKEN,
     )

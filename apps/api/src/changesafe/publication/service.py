@@ -70,10 +70,10 @@ class PublicationService:
         if not self.settings.github_publication_enabled:
             return None
         assert self.settings.github_token is not None
-        assert self.settings.github_repository is not None
+        assert self.settings.changesafe_github_repository is not None
         return GitHubPublisher(
             token=self.settings.github_token.get_secret_value(),
-            repository=self.settings.github_repository,
+            repository=self.settings.changesafe_github_repository,
             base_branch=self.settings.github_base_branch,
         )
 
@@ -121,7 +121,9 @@ class PublicationService:
             "github_required": github_required,
             "datahub_required": datahub_required,
             "github_repository": (
-                self.settings.github_repository if github_required else None
+                self.settings.changesafe_github_repository
+                if github_required
+                else None
             ),
             "github_base_branch": (
                 self.settings.github_base_branch if github_required else None
@@ -164,7 +166,7 @@ class PublicationService:
         self, run: RunView, entry: PublicationLedgerEntry
     ) -> bool:
         if entry.github_required and entry.pull_request_url is None and (
-            entry.github_repository != self.settings.github_repository
+            entry.github_repository != self.settings.changesafe_github_repository
             or entry.github_base_branch != self.settings.github_base_branch
         ):
             return True
