@@ -133,7 +133,7 @@ class PublicationService:
             key = publication_key(run.request, run.request.source_commit, artifact_hash)
             existing = await self.store.get_publication(key)
             if existing is not None and existing.completed and existing.receipt:
-                return existing.receipt
+                return await self._reuse_completed_receipt(run, existing.receipt)
 
             now = _now()
             entry = existing or PublicationLedgerEntry(
@@ -149,6 +149,39 @@ class PublicationService:
             if not self._live_enabled:
                 return await self._approve_preview(run, entry, patch)
             return await self._approve_live(run, entry, patch)
+
+    async def _reuse_completed_receipt(
+        self,
+        run: RunView,
+        receipt: PublicationReceipt,
+    ) -> PublicationReceipt:
+        if run.state is RunState.COMPLETED and run.publication is not None:
+            return run.publication
+
+        transition = (
+            RunState.PREPARING_PREVIEW
+            if receipt.mode == "preview"
+            else RunState.PUBLISHING
+        )
+        reused = receipt.model_copy(
+            update={
+                "writeback": receipt.writeback.model_copy(
+                    update={"idempotent_reuse": True}
+                )
+            }
+        )
+        await self.store.transition(
+            run.run_id,
+            transition,
+            public_message="Reusing completed publication receipt",
+        )
+        await self.store.transition(
+            run.run_id,
+            RunState.COMPLETED,
+            public_message="Publication receipt reused",
+            publication=reused,
+        )
+        return reused
 
     async def _approve_preview(
         self, run: RunView, entry: PublicationLedgerEntry, patch: str

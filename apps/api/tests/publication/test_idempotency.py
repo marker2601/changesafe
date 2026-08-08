@@ -133,3 +133,43 @@ async def test_live_publication_requires_matching_admin_token(tmp_path: Path) ->
     assert persisted.state is RunState.AWAITING_APPROVAL
     assert publisher.calls == 0
     assert context.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_completed_ledger_reuse_completes_a_new_identical_run(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    first_store, context, first_run = await analyzed_run(tmp_path)
+    first_service = PublicationService(
+        store=first_store,
+        settings=settings,
+        context_port=context,
+    )
+    first_receipt = await first_service.approve(
+        first_run.run_id, supplied_admin_token=None
+    )
+
+    second_store, _, second_run = await analyzed_run(
+        tmp_path, context_port=context
+    )
+    second_service = PublicationService(
+        store=second_store,
+        settings=settings,
+        context_port=context,
+    )
+
+    reused = await second_service.approve(
+        second_run.run_id, supplied_admin_token=None
+    )
+    persisted = await second_store.get(second_run.run_id)
+
+    assert reused.idempotency_key == first_receipt.idempotency_key
+    assert reused.writeback.idempotent_reuse is True
+    assert persisted is not None
+    assert persisted.state is RunState.COMPLETED
+    assert persisted.publication == reused
