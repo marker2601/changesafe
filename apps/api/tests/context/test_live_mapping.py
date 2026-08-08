@@ -693,3 +693,27 @@ async def test_writeback_requires_explicit_positive_tool_acknowledgement(
 
     with pytest.raises(ContextLoadError, match="positive success acknowledgement"):
         await port.writeback(decision())
+
+
+@pytest.mark.asyncio
+async def test_writeback_applies_status_tag_to_the_readable_asset_entity() -> None:
+    document_urn = f"urn:li:document:changesafe-{'f' * 32}"
+    runner = FakeRunner(
+        {
+            "save_document": {"success": True, "urn": document_urn},
+            "add_structured_properties": {"success": True},
+            "add_tags": {"success": True},
+        }
+    )
+    port = LiveDataHubContext(runner=runner, allowlist={TARGET}, retry_count=0)
+
+    await port.writeback(decision())
+
+    tag_parameters = next(
+        parameters for tool, parameters in runner.calls if tool == "add_tags"
+    )
+    assert tag_parameters == {
+        "tag_urns": ["urn:li:tag:ChangeSafe:Deprecating"],
+        "entity_urns": [TARGET],
+        "column_paths": [None],
+    }

@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     datahub_gms_token: SecretStr | None = None
     datahub_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
     datahub_retry_count: int = Field(default=1, ge=0, le=2)
+    save_document_restrict_updates: bool = True
     demo_urn_allowlist: str = (
         "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
     )
@@ -105,6 +106,11 @@ class Settings(BaseSettings):
         ) and self.changesafe_admin_token is None:
             raise ValueError(
                 "CHANGESAFE_ADMIN_TOKEN is required when external mutations are enabled"
+            )
+        if self.public_writeback_enabled and self.save_document_restrict_updates:
+            raise ValueError(
+                "SAVE_DOCUMENT_RESTRICT_UPDATES=false is required for "
+                "deterministic DataHub decision document upserts"
             )
         return self
 

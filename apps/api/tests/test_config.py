@@ -1,3 +1,4 @@
+import os
 from decimal import Decimal
 from pathlib import Path
 
@@ -32,6 +33,45 @@ def test_external_mutation_requires_admin_token(gate: str, tmp_path: Path) -> No
 
     with pytest.raises(ValidationError, match="CHANGESAFE_ADMIN_TOKEN"):
         Settings(_env_file=None, **values)
+
+
+def test_live_writeback_requires_deterministic_document_upserts(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValidationError, match="SAVE_DOCUMENT_RESTRICT_UPDATES=false"):
+        Settings(
+            _env_file=None,
+            mode=Mode.LIVE,
+            changesafe_data_path=tmp_path / "changesafe.db",
+            datahub_gms_url="https://datahub.example.com",
+            datahub_gms_token="datahub-secret",
+            public_writeback_enabled=True,
+            changesafe_admin_token="admin-secret",
+            save_document_restrict_updates=True,
+        )
+
+
+def test_live_factory_exports_document_upsert_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("SAVE_DOCUMENT_RESTRICT_UPDATES", raising=False)
+    monkeypatch.setattr(
+        "changesafe.context.factory.AgentContextToolRunner.connect",
+        lambda *args, **kwargs: object(),
+    )
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.LIVE,
+        changesafe_data_path=tmp_path / "changesafe.db",
+        datahub_gms_url="https://datahub.example.com",
+        datahub_gms_token="datahub-secret",
+        save_document_restrict_updates=False,
+    )
+
+    build_context_port(settings)
+
+    assert os.environ["SAVE_DOCUMENT_RESTRICT_UPDATES"] == "false"
 
 
 def test_live_context_requires_url_and_token(tmp_path: Path) -> None:

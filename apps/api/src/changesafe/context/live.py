@@ -419,7 +419,7 @@ class LiveDataHubContext:
                 evidence,
                 tag_urns=["urn:li:tag:ChangeSafe:Deprecating"],
                 entity_urns=[target],
-                column_paths=[decision.change.field],
+                column_paths=[None],
             )
             _require_mutation_success("add_tags", tags)
             await record("add_tags")

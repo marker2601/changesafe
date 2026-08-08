@@ -119,6 +119,7 @@ def live_settings(tmp_path: Path) -> Settings:
         public_writeback_enabled=True,
         public_pr_enabled=True,
         changesafe_admin_token=ADMIN_TOKEN,
+        save_document_restrict_updates=False,
     )
 
 
@@ -131,6 +132,7 @@ def writeback_only_live_settings(tmp_path: Path) -> Settings:
         datahub_gms_token="datahub-secret",
         public_writeback_enabled=True,
         changesafe_admin_token=ADMIN_TOKEN,
+        save_document_restrict_updates=False,
     )
 
 

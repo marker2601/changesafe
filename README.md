@@ -89,6 +89,7 @@ Never copy the private file into this repository. `.env*`, databases, test artif
 | `DATAHUB_GMS_TOKEN` | Metadata reads | Entities, schema fields, lineage, and dataset-query context |
 | `DATAHUB_TIMEOUT_SECONDS` | Per-attempt live DataHub timeout, default `8` | None |
 | `DATAHUB_RETRY_COUNT` | Retry count for transport/timeouts, default `1` | None |
+| `SAVE_DOCUMENT_RESTRICT_UPDATES` | Agent Context document guard; set `false` only for ChangeSafe's allowlisted deterministic decision upserts | Required for live writeback |
 | `OPENAI_API_KEY` | Optional bounded prose/transformation planning | Responses API access to `OPENAI_MODEL` |
 | `OPENAI_INPUT_COST_PER_MILLION_USD` | Conservative input-token accounting rate, default `10` | Update when configured model pricing changes |
 | `OPENAI_OUTPUT_COST_PER_MILLION_USD` | Conservative output-token accounting rate, default `60` | Update when configured model pricing changes |
@@ -103,7 +104,7 @@ Never copy the private file into this repository. `.env*`, databases, test artif
 | `PUBLIC_WRITEBACK_ENABLED` | Enables DataHub decision writeback | Keep `false` until live testing |
 | `DEMO_URN_ALLOWLIST` | Semicolon-separated DataHub targets | Include only seeded demo URNs |
 
-DataHub writeback additionally needs permission for the allowlisted equivalents of `save_document`, `add_structured_properties`, and `add_tags`. External mutation flags fail configuration unless `CHANGESAFE_ADMIN_TOKEN` is present. The browser never receives DataHub, OpenAI, or GitHub credentials; in live publication mode the owner enters the separate admin approval token. LLM runs reserve their two-call worst-case estimate atomically before work starts, then persist actual response usage; calls without usage telemetry retain the conservative reservation.
+DataHub writeback additionally needs permission for the allowlisted equivalents of `save_document`, `add_structured_properties`, and `add_tags`, plus `SAVE_DOCUMENT_RESTRICT_UPDATES=false` so Agent Context Kit can create ChangeSafe's deterministic, idempotent document URN. ChangeSafe still enforces its owner token and exact target allowlist, and startup fails closed if writeback is enabled without that explicit setting. External mutation flags fail configuration unless `CHANGESAFE_ADMIN_TOKEN` is present. The browser never receives DataHub, OpenAI, or GitHub credentials; in live publication mode the owner enters the separate admin approval token. LLM runs reserve their two-call worst-case estimate atomically before work starts, then persist actual response usage; calls without usage telemetry retain the conservative reservation.
 
 See [.env.example](.env.example) for every supported setting.
 

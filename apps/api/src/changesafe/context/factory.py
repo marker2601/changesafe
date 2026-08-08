@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from changesafe.config import Mode, Settings
 from changesafe.context.base import ContextLoadError, DataHubContextPort
 from changesafe.context.live import AgentContextToolRunner, LiveDataHubContext
@@ -19,6 +21,9 @@ def build_context_port(settings: Settings) -> DataHubContextPort:
 
     assert settings.datahub_gms_url is not None
     assert settings.datahub_gms_token is not None
+    os.environ["SAVE_DOCUMENT_RESTRICT_UPDATES"] = str(
+        settings.save_document_restrict_updates
+    ).lower()
     runner = AgentContextToolRunner.connect(
         str(settings.datahub_gms_url).rstrip("/"),
         settings.datahub_gms_token.get_secret_value(),
