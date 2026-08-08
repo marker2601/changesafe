@@ -7,7 +7,7 @@ import secrets
 from datetime import UTC, datetime
 from uuid import UUID
 
-from changesafe.config import Mode, Settings
+from changesafe.config import Settings
 from changesafe.context.base import DataHubContextPort, DecisionWriteback
 from changesafe.domain import (
     DataHubReceipt,
@@ -69,14 +69,21 @@ class PublicationService:
         )
 
     @property
-    def _live_enabled(self) -> bool:
-        return self.settings.mode is not Mode.REPLAY and (
+    def _external_publication_configured(self) -> bool:
+        return (
             self.settings.github_publication_enabled
             or self.settings.datahub_writeback_enabled
         )
 
+    def _live_enabled(self, run: RunView) -> bool:
+        return bool(
+            run.analysis is not None
+            and run.analysis.context.provenance.mode.value == "live"
+            and self._external_publication_configured
+        )
+
     def _authorize(self, supplied_admin_token: str | None, run: RunView) -> None:
-        if not self._live_enabled:
+        if not self._live_enabled(run):
             return
         configured = self.settings.changesafe_admin_token
         token_matches = (
@@ -118,6 +125,14 @@ class PublicationService:
                 raise PublicationStateError(
                     "Run has no verified publication artifacts."
                 )
+            artifact_hash = run.analysis.artifacts.manifest_hash
+            if artifact_hash is None:
+                raise PublicationStateError("Verified artifact manifest is missing.")
+            key = publication_key(run.request, run.request.source_commit, artifact_hash)
+            existing = await self.store.get_publication(key)
+            if existing is not None and existing.completed and existing.receipt:
+                return await self._reuse_completed_receipt(run, existing.receipt)
+
             if run.state not in {
                 RunState.AWAITING_APPROVAL,
                 RunState.PUBLICATION_FAILED,
@@ -126,14 +141,6 @@ class PublicationService:
                 raise PublicationStateError(
                     f"Run cannot be approved from state {run.state.value}."
                 )
-
-            artifact_hash = run.analysis.artifacts.manifest_hash
-            if artifact_hash is None:
-                raise PublicationStateError("Verified artifact manifest is missing.")
-            key = publication_key(run.request, run.request.source_commit, artifact_hash)
-            existing = await self.store.get_publication(key)
-            if existing is not None and existing.completed and existing.receipt:
-                return await self._reuse_completed_receipt(run, existing.receipt)
 
             now = _now()
             entry = existing or PublicationLedgerEntry(
@@ -146,7 +153,7 @@ class PublicationService:
             )
             entry = await self.store.save_publication(entry)
             patch = build_unified_patch(run.analysis.artifacts)
-            if not self._live_enabled:
+            if not self._live_enabled(run):
                 return await self._approve_preview(run, entry, patch)
             return await self._approve_live(run, entry, patch)
 
@@ -170,11 +177,12 @@ class PublicationService:
                 )
             }
         )
-        await self.store.transition(
-            run.run_id,
-            transition,
-            public_message="Reusing completed publication receipt",
-        )
+        if run.state not in {RunState.PREPARING_PREVIEW, RunState.PUBLISHING}:
+            await self.store.transition(
+                run.run_id,
+                transition,
+                public_message="Reusing completed publication receipt",
+            )
         await self.store.transition(
             run.run_id,
             RunState.COMPLETED,
@@ -238,8 +246,18 @@ class PublicationService:
                     retryable=False,
                 )
             try:
-                github = await self.github_publisher.publish(
-                    run_id=run.run_id,
+                if entry.branch is None:
+                    branch = await self.github_publisher.ensure_branch(
+                        run_id=run.run_id,
+                        change=run.request,
+                        artifacts=run.analysis.artifacts,
+                    )
+                    entry = await self.store.save_publication(
+                        entry.model_copy(update={"branch": branch})
+                    )
+                assert entry.branch is not None
+                pull_request_url = await self.github_publisher.ensure_pull_request(
+                    branch=entry.branch,
                     change=run.request,
                     artifacts=run.analysis.artifacts,
                 )
@@ -260,15 +278,13 @@ class PublicationService:
                     code="GITHUB_PUBLICATION_FAILED",
                     message="GitHub publication did not complete.",
                 )
-            entry = entry.model_copy(
-                update={
-                    "branch": github.branch,
-                    "pull_request_url": github.pull_request_url,
-                }
-            )
+            entry = entry.model_copy(update={"pull_request_url": pull_request_url})
             entry = await self.store.save_publication(entry)
 
-        if self.settings.datahub_writeback_enabled and entry.writeback is None:
+        if self.settings.datahub_writeback_enabled and (
+            entry.writeback is None
+            or entry.writeback.label != "WRITTEN TO DATAHUB"
+        ):
             decision = DecisionWriteback(
                 run_id=str(run.run_id),
                 change=run.request,
@@ -277,9 +293,21 @@ class PublicationService:
                 artifact_hash=entry.artifact_hash,
                 approved_at=entry.approved_at,
                 pull_request_url=entry.pull_request_url,
+                idempotency_key=entry.idempotency_key,
             )
+
+            async def persist_writeback(progress: DataHubReceipt) -> None:
+                nonlocal entry
+                entry = await self.store.save_publication(
+                    entry.model_copy(update={"writeback": progress})
+                )
+
             try:
-                writeback = await self.context_port.writeback(decision)
+                writeback = await self.context_port.writeback(
+                    decision,
+                    progress=entry.writeback,
+                    on_progress=persist_writeback,
+                )
             except Exception:
                 return await self._fail(
                     run,

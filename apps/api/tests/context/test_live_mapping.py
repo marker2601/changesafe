@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from changesafe.context.base import ContextLoadError
 from changesafe.context.live import LiveDataHubContext
 from changesafe.domain import ChangeOperation, ChangeRequest, ContextMode
 
@@ -109,6 +110,187 @@ async def test_live_adapter_maps_agent_context_tool_envelopes() -> None:
         "get_lineage",
         "get_dataset_queries",
     ]
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_maps_installed_agent_context_1_7_envelopes() -> None:
+    downstream = [
+        {
+            "entity": {
+                "urn": f"urn:li:dataset:asset-{index}",
+                "name": name,
+                "type": "DASHBOARD" if index == 4 else "DATASET",
+                "domain": {
+                    "domain": {
+                        "urn": f"urn:li:domain:{domain.lower().replace(' ', '-')}",
+                        "properties": {"name": domain},
+                    }
+                },
+            },
+            "degree": 1,
+            "lineageColumns": ["customer_email"],
+        }
+        for index, (name, domain) in enumerate(
+            [
+                ("customer_360", "Analytics"),
+                ("campaign_audiences", "Marketing"),
+                ("customer_contact_queue", "Support"),
+                ("customer_retention_dashboard", "Executive Reporting"),
+            ],
+            start=1,
+        )
+    ]
+    runner = FakeRunner(
+        {
+            "get_entities": [
+                {
+                    "urn": TARGET,
+                    "name": "dim_customers",
+                    "domain": {
+                        "domain": {
+                            "urn": "urn:li:domain:analytics",
+                            "properties": {"name": "Analytics"},
+                        }
+                    },
+                    "ownership": {
+                        "owners": [
+                            {
+                                "owner": {
+                                    "urn": "urn:li:corpuser:customer-analytics",
+                                    "properties": {
+                                        "displayName": "Customer Analytics"
+                                    },
+                                },
+                                "ownershipType": {
+                                    "urn": (
+                                        "urn:li:ownershipType:"
+                                        "__system__business_owner"
+                                    ),
+                                    "type": "BUSINESS_OWNER",
+                                    "info": {"name": "Business Owner"},
+                                },
+                            }
+                        ]
+                    },
+                    "tags": {
+                        "tags": [
+                            {
+                                "tag": {
+                                    "urn": "urn:li:tag:PII",
+                                    "properties": {"name": "PII"},
+                                }
+                            }
+                        ]
+                    },
+                }
+            ],
+            "list_schema_fields": {
+                "urn": TARGET,
+                "fields": [
+                    {
+                        "fieldPath": "customer_email",
+                        "nativeDataType": "STRING",
+                        "tags": {
+                            "tags": [
+                                {"tag": {"urn": "urn:li:tag:PII"}}
+                            ]
+                        },
+                        "glossaryTerms": {
+                            "terms": [
+                                {
+                                    "term": {
+                                        "urn": (
+                                            "urn:li:glossaryTerm:CustomerEmail"
+                                        )
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+                "offset": 0,
+            },
+            "get_lineage": {
+                "downstreams": {
+                    "searchResults": downstream,
+                    "total": 4,
+                    "returned": 4,
+                    "hasMore": False,
+                },
+                "metadata": {"queryType": "column-level-lineage"},
+            },
+            "get_dataset_queries": {
+                "total": 1,
+                "start": 0,
+                "count": 1,
+                "queries": [
+                    {
+                        "urn": "urn:li:query:q1",
+                        "properties": {
+                            "statement": {
+                                "value": (
+                                    "select customer_email from "
+                                    "analytics.dim_customers"
+                                ),
+                                "language": "SQL",
+                            },
+                            "source": "SYSTEM",
+                        },
+                    }
+                ],
+            },
+        }
+    )
+
+    context = await LiveDataHubContext(
+        runner=runner, allowlist={TARGET}
+    ).load(golden_change())
+
+    assert context.target_domain == "Analytics"
+    assert context.owners[0].name == "Customer Analytics"
+    assert context.owners[0].ownership_type == "BUSINESS_OWNER"
+    assert context.field_tags == ["urn:li:tag:PII"]
+    assert context.glossary_terms == ["urn:li:glossaryTerm:CustomerEmail"]
+    assert len(context.downstream_assets) == 4
+    assert context.downstream_assets[0].field == "customer_email"
+    assert context.queries == [
+        "select customer_email from analytics.dim_customers"
+    ]
+    assert context.usage_tier == "high"
+
+
+@pytest.mark.asyncio
+async def test_seeded_live_lineage_fails_closed_when_page_is_partial() -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+            "get_lineage": {
+                "downstreams": {
+                    "searchResults": [],
+                    "total": 4,
+                    "returned": 0,
+                    "hasMore": True,
+                }
+            },
+            "get_dataset_queries": {"total": 0, "queries": []},
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match="partial"):
+        await LiveDataHubContext(runner=runner, allowlist={TARGET}).load(
+            golden_change()
+        )
 
 
 @pytest.mark.asyncio

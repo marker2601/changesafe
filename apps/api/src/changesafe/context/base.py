@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, Protocol
 
@@ -28,12 +29,22 @@ class DecisionWriteback(StrictModel):
     artifact_hash: str = Field(min_length=64, max_length=64)
     approved_at: datetime
     pull_request_url: str | None = None
+    idempotency_key: str = Field(min_length=64, max_length=64)
+
+
+WritebackProgress = Callable[[DataHubReceipt], Awaitable[None]]
 
 
 class DataHubContextPort(Protocol):
     async def load(self, change: ChangeRequest) -> ContextBundle: ...
 
-    async def writeback(self, decision: DecisionWriteback) -> DataHubReceipt: ...
+    async def writeback(
+        self,
+        decision: DecisionWriteback,
+        *,
+        progress: DataHubReceipt | None = None,
+        on_progress: WritebackProgress | None = None,
+    ) -> DataHubReceipt: ...
 
 
 class ToolRunner(Protocol):

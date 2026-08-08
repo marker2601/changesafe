@@ -105,3 +105,20 @@ def test_manifest_hash_tampering_blocks_publication() -> None:
 
     assert report.passed is False
     assert report.check("manifest_hashes").passed is False
+
+
+def test_generated_expression_cannot_smuggle_a_subquery() -> None:
+    change, context, bundle = golden_inputs()
+    unsafe_sql = bundle.files[MODEL_SQL].content.replace(
+        "customer_email as primary_email",
+        (
+            "customer_email || "
+            "(select max(secret) from sensitive_table) as primary_email"
+        ),
+    )
+    invalid = replace_file(bundle, MODEL_SQL, unsafe_sql)
+
+    report = verify_artifacts(invalid, change, context)
+
+    assert report.passed is False
+    assert report.check("source_relations").passed is False

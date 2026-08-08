@@ -30,6 +30,9 @@ async def test_github_publisher_maps_verified_bundle_to_git_data_api(
     del tmp_path
     change, artifacts = await artifact_bundle()
     root = "https://api.github.com/repos/acme/analytics"
+    respx.get(f"{root}/git/ref/heads/changesafe%2F0198f000").mock(
+        return_value=httpx.Response(404, json={"message": "not found"})
+    )
     respx.get(f"{root}/git/ref/heads/main").mock(
         return_value=httpx.Response(200, json={"object": {"sha": "base-commit"}})
     )
@@ -58,6 +61,14 @@ async def test_github_publisher_maps_verified_bundle_to_git_data_api(
             201, json={"html_url": "https://github.com/acme/analytics/pull/7"}
         )
     )
+    respx.get(
+        f"{root}/pulls",
+        params={
+            "state": "open",
+            "head": "acme:changesafe/0198f000",
+            "base": "main",
+        },
+    ).mock(return_value=httpx.Response(200, json=[]))
     publisher = GitHubPublisher(
         token="repository-secret",
         repository="acme/analytics",
@@ -93,6 +104,9 @@ async def test_github_publisher_maps_verified_bundle_to_git_data_api(
 @respx.mock
 async def test_github_auth_failure_is_typed_and_does_not_expose_token() -> None:
     change, artifacts = await artifact_bundle()
+    respx.get(
+        "https://api.github.com/repos/acme/analytics/git/ref/heads/changesafe%2F0198f000"
+    ).mock(return_value=httpx.Response(404, json={"message": "not found"}))
     respx.get("https://api.github.com/repos/acme/analytics/git/ref/heads/main").mock(
         return_value=httpx.Response(403, json={"message": "denied"})
     )
@@ -112,3 +126,46 @@ async def test_github_auth_failure_is_typed_and_does_not_expose_token() -> None:
     assert captured.value.code == "GITHUB_AUTH_FAILED"
     assert captured.value.retryable is False
     assert "never-print-this" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_github_publisher_reconciles_existing_branch_and_pull_request() -> None:
+    change, artifacts = await artifact_bundle()
+    root = "https://api.github.com/repos/acme/analytics"
+    respx.get(f"{root}/git/ref/heads/changesafe%2F0198f000").mock(
+        return_value=httpx.Response(200, json={"object": {"sha": "existing"}})
+    )
+    respx.get(
+        f"{root}/pulls",
+        params={
+            "state": "open",
+            "head": "acme:changesafe/0198f000",
+            "base": "main",
+        },
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"html_url": "https://github.com/acme/analytics/pull/7"}],
+        )
+    )
+    publisher = GitHubPublisher(
+        token="repository-secret",
+        repository="acme/analytics",
+        base_branch="main",
+    )
+
+    branch = await publisher.ensure_branch(
+        run_id="0198f000-0000-7000-8000-000000000000",
+        change=change,
+        artifacts=artifacts,
+    )
+    pull_request_url = await publisher.ensure_pull_request(
+        branch=branch,
+        change=change,
+        artifacts=artifacts,
+    )
+
+    assert branch == "changesafe/0198f000"
+    assert pull_request_url == "https://github.com/acme/analytics/pull/7"
+    assert not any(call.request.method == "POST" for call in respx.calls)

@@ -8,7 +8,11 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from changesafe.context.base import ContextLoadError, DecisionWriteback
+from changesafe.context.base import (
+    ContextLoadError,
+    DecisionWriteback,
+    WritebackProgress,
+)
 from changesafe.domain import (
     ChangeRequest,
     ContextBundle,
@@ -67,10 +71,20 @@ class ReplayDataHubContext:
                 "DataHub snapshot failed contract validation"
             ) from exc
 
-    async def writeback(self, decision: DecisionWriteback) -> DataHubReceipt:
-        return DataHubReceipt(
+    async def writeback(
+        self,
+        decision: DecisionWriteback,
+        *,
+        progress: DataHubReceipt | None = None,
+        on_progress: WritebackProgress | None = None,
+    ) -> DataHubReceipt:
+        del progress
+        receipt = DataHubReceipt(
             mode="preview",
             label="NOT WRITTEN — SNAPSHOT MODE",
             updated_urns=[decision.change.asset_urn],
             mutations=[],
         )
+        if on_progress is not None:
+            await on_progress(receipt)
+        return receipt

@@ -77,6 +77,7 @@ async def test_replay_writeback_is_an_explicit_non_mutating_preview() -> None:
         risk_band=RiskBand.CRITICAL,
         artifact_hash="b" * 64,
         approved_at="2026-08-08T12:00:00Z",
+        idempotency_key="f" * 64,
     )
 
     receipt = await port.writeback(decision)

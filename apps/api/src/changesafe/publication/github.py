@@ -56,19 +56,45 @@ class GitHubPublisher:
         change: ChangeRequest,
         artifacts: ArtifactBundle,
     ) -> GitHubResult:
-        if self._client is not None:
-            return await self._publish(self._client, run_id, change, artifacts)
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            return await self._publish(client, run_id, change, artifacts)
+        branch = await self.ensure_branch(
+            run_id=run_id, change=change, artifacts=artifacts
+        )
+        pull_request_url = await self.ensure_pull_request(
+            branch=branch, change=change, artifacts=artifacts
+        )
+        return GitHubResult(branch=branch, pull_request_url=pull_request_url)
 
-    async def _publish(
+    async def ensure_branch(
+        self,
+        *,
+        run_id: UUID | str,
+        change: ChangeRequest,
+        artifacts: ArtifactBundle,
+    ) -> str:
+        if self._client is not None:
+            return await self._ensure_branch(
+                self._client, run_id, change, artifacts
+            )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            return await self._ensure_branch(client, run_id, change, artifacts)
+
+    async def _ensure_branch(
         self,
         client: httpx.AsyncClient,
         run_id: UUID | str,
         change: ChangeRequest,
         artifacts: ArtifactBundle,
-    ) -> GitHubResult:
+    ) -> str:
         repository_url = f"{API_ROOT}/repos/{self.repository}"
+        branch = f"changesafe/{str(run_id)[:8]}"
+        existing = await self._request_json(
+            client,
+            "GET",
+            f"{repository_url}/git/ref/heads/{quote(branch, safe='')}",
+            allow_not_found=True,
+        )
+        if existing:
+            return branch
         base_ref = await self._request_json(
             client,
             "GET",
@@ -117,13 +143,63 @@ class GitHubPublisher:
             },
         )
         commit_sha = self._string(commit, "sha")
-        branch = f"changesafe/{str(run_id)[:8]}"
-        await self._request_json(
+        try:
+            await self._request_json(
+                client,
+                "POST",
+                f"{repository_url}/git/refs",
+                json_body={"ref": f"refs/heads/{branch}", "sha": commit_sha},
+            )
+        except GitHubPublicationError as exc:
+            if exc.code != "GITHUB_CONFLICT":
+                raise
+            reconciled = await self._request_json(
+                client,
+                "GET",
+                f"{repository_url}/git/ref/heads/{quote(branch, safe='')}",
+                allow_not_found=True,
+            )
+            if not reconciled:
+                raise
+        return branch
+
+    async def ensure_pull_request(
+        self,
+        *,
+        branch: str,
+        change: ChangeRequest,
+        artifacts: ArtifactBundle,
+    ) -> str:
+        if self._client is not None:
+            return await self._ensure_pull_request(
+                self._client, branch, change, artifacts
+            )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            return await self._ensure_pull_request(client, branch, change, artifacts)
+
+    async def _ensure_pull_request(
+        self,
+        client: httpx.AsyncClient,
+        branch: str,
+        change: ChangeRequest,
+        artifacts: ArtifactBundle,
+    ) -> str:
+        repository_url = f"{API_ROOT}/repos/{self.repository}"
+        owner = self.repository.split("/", 1)[0]
+        existing = await self._request_json(
             client,
-            "POST",
-            f"{repository_url}/git/refs",
-            json_body={"ref": f"refs/heads/{branch}", "sha": commit_sha},
+            "GET",
+            f"{repository_url}/pulls",
+            query={
+                "state": "open",
+                "head": f"{owner}:{branch}",
+                "base": self.base_branch,
+            },
         )
+        if isinstance(existing, list) and existing:
+            first = existing[0]
+            if isinstance(first, dict):
+                return self._string(cast(dict[str, Any], first), "html_url")
         pull = await self._request_json(
             client,
             "POST",
@@ -135,10 +211,13 @@ class GitHubPublisher:
                 "body": artifacts.files[PR_BODY].content,
             },
         )
-        return GitHubResult(
-            branch=branch,
-            pull_request_url=self._string(pull, "html_url"),
-        )
+        if not isinstance(pull, dict):
+            raise GitHubPublicationError(
+                "GITHUB_INVALID_RESPONSE",
+                "GitHub returned an invalid pull request response.",
+                retryable=False,
+            )
+        return self._string(cast(dict[str, Any], pull), "html_url")
 
     async def _request_json(
         self,
@@ -147,10 +226,16 @@ class GitHubPublisher:
         url: str,
         *,
         json_body: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        query: dict[str, str] | None = None,
+        allow_not_found: bool = False,
+    ) -> Any:
         try:
             response = await client.request(
-                method, url, headers=self._headers, json=json_body
+                method,
+                url,
+                headers=self._headers,
+                json=json_body,
+                params=query,
             )
         except httpx.TimeoutException as exc:
             raise GitHubPublicationError(
@@ -160,6 +245,8 @@ class GitHubPublisher:
             raise GitHubPublicationError(
                 "GITHUB_UNAVAILABLE", "GitHub could not be reached.", retryable=True
             ) from exc
+        if response.status_code == 404 and allow_not_found:
+            return None
         if response.status_code >= 400:
             if response.status_code in {401, 403}:
                 raise GitHubPublicationError(
@@ -167,13 +254,19 @@ class GitHubPublisher:
                     "GitHub rejected the configured repository credential.",
                     retryable=False,
                 )
+            if response.status_code in {409, 422}:
+                raise GitHubPublicationError(
+                    "GITHUB_CONFLICT",
+                    "GitHub reported an existing publication resource.",
+                    retryable=True,
+                )
             raise GitHubPublicationError(
                 "GITHUB_REQUEST_FAILED",
                 f"GitHub returned HTTP {response.status_code}.",
                 retryable=response.status_code >= 500,
             )
         try:
-            return cast(dict[str, Any], response.json())
+            return response.json()
         except ValueError as exc:
             raise GitHubPublicationError(
                 "GITHUB_INVALID_RESPONSE",

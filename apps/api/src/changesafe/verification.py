@@ -209,15 +209,37 @@ def verify_artifacts(
         *(asset.name for asset in context.upstream_assets),
         *(asset.name for asset in context.downstream_assets),
     }
-    sources_valid = referenced.issubset(known)
+    parsed_relations = {
+        table.name
+        for expressions in parsed.values()
+        for expression in expressions
+        for table in expression.find_all(exp.Table)
+        if table.name
+    }
+    unsafe_statement = any(
+        not isinstance(expression, exp.Select)
+        or bool(list(expression.find_all(exp.Subquery)))
+        or len(list(expression.find_all(exp.Select))) != 1
+        or bool(list(expression.find_all(exp.Anonymous)))
+        for expressions in parsed.values()
+        for expression in expressions
+    )
+    all_relations = referenced | parsed_relations
+    unknown_relations = all_relations - known
+    sources_valid = not unsafe_statement and not unknown_relations
     checks.append(
         _check(
             "source_relations",
             "Referenced relations exist in context",
             sources_valid,
-            "Every dbt ref is backed by DataHub context."
+            "Every relation is backed by DataHub context and expressions are scalar."
             if sources_valid
-            else f"Unknown relations: {sorted(referenced - known)}",
+            else (
+                "Generated SQL contains a subquery, unsafe function, or non-select "
+                "statement."
+                if unsafe_statement
+                else f"Unknown relations: {sorted(unknown_relations)}"
+            ),
         )
     )
 

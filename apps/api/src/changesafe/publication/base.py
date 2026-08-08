@@ -16,6 +16,22 @@ class GitHubResult(StrictModel):
 
 
 class GitHubPublisherPort(Protocol):
+    async def ensure_branch(
+        self,
+        *,
+        run_id: UUID | str,
+        change: ChangeRequest,
+        artifacts: ArtifactBundle,
+    ) -> str: ...
+
+    async def ensure_pull_request(
+        self,
+        *,
+        branch: str,
+        change: ChangeRequest,
+        artifacts: ArtifactBundle,
+    ) -> str: ...
+
     async def publish(
         self,
         *,
