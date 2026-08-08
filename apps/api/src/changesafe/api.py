@@ -12,9 +12,15 @@ from fastapi.responses import StreamingResponse
 from changesafe.config import Settings
 from changesafe.context.base import DataHubContextPort
 from changesafe.context.factory import build_context_port
-from changesafe.domain import ChangeRequest, RunState, RunView
+from changesafe.domain import ChangeRequest, PublicationReceipt, RunState, RunView
 from changesafe.generation.service import ArtifactGenerationService
 from changesafe.orchestrator import ChangeSafeOrchestrator
+from changesafe.publication.service import (
+    ApprovalDenied,
+    PublicationFailure,
+    PublicationService,
+    PublicationStateError,
+)
 from changesafe.store import RunStore
 
 STREAM_END_STATES = {
@@ -33,15 +39,22 @@ def create_app(
 ) -> FastAPI:
     active_settings = settings or Settings()
     store = RunStore(active_settings.changesafe_data_path)
+    active_context = context_port or build_context_port(active_settings)
     orchestrator = ChangeSafeOrchestrator(
         store=store,
-        context_port=context_port or build_context_port(active_settings),
+        context_port=active_context,
         generator=generator or ArtifactGenerationService(),
+    )
+    publication_service = PublicationService(
+        store=store,
+        settings=active_settings,
+        context_port=active_context,
     )
     app = FastAPI(title="ChangeSafe API", version="0.1.0")
     app.state.settings = active_settings
     app.state.store = store
     app.state.orchestrator = orchestrator
+    app.state.publication_service = publication_service
 
     @app.get("/healthz")
     async def health() -> dict[str, str]:
@@ -75,6 +88,51 @@ def create_app(
             "application/sql" if artifact_path.endswith(".sql") else "text/plain"
         )
         return Response(content=artifact.content, media_type=media_type)
+
+    @app.post(
+        "/api/runs/{run_id}/approve",
+        response_model=PublicationReceipt,
+    )
+    async def approve_run(
+        run_id: UUID,
+        x_changesafe_admin_token: str | None = Header(default=None),
+    ) -> PublicationReceipt:
+        try:
+            return await publication_service.approve(
+                run_id, supplied_admin_token=x_changesafe_admin_token
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Run not found") from exc
+        except ApprovalDenied as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except PublicationStateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except PublicationFailure as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": exc.code,
+                    "message": "Publication did not complete; retry is available.",
+                    "retryable": exc.retryable,
+                },
+            ) from exc
+
+    @app.get("/api/runs/{run_id}/publication.patch")
+    async def publication_patch(run_id: UUID) -> Response:
+        run = await store.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.publication is None or run.publication.patch is None:
+            raise HTTPException(status_code=404, detail="Publication patch not found")
+        return Response(
+            content=run.publication.patch,
+            media_type="text/x-diff",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="changesafe-{run_id}.patch"'
+                )
+            },
+        )
 
     async def event_stream(run_id: UUID, after_sequence: int) -> AsyncIterator[str]:
         cursor = after_sequence

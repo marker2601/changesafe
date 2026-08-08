@@ -15,6 +15,7 @@ from changesafe.domain import (
     AnalysisResult,
     ChangeRequest,
     EvidenceRef,
+    PublicationLedgerEntry,
     PublicationReceipt,
     PublicError,
     RunEvent,
@@ -192,7 +193,11 @@ class RunStore:
                 else row["publication_json"]
             )
             error_json = (
-                error.model_dump_json() if error is not None else row["error_json"]
+                None
+                if state is RunState.COMPLETED
+                else error.model_dump_json()
+                if error is not None
+                else row["error_json"]
             )
             await connection.execute(
                 """UPDATE runs SET state = ?, analysis_json = ?,
@@ -262,6 +267,58 @@ class RunStore:
             )
             for row in rows
         ]
+
+    async def get_publication(
+        self, idempotency_key: str
+    ) -> PublicationLedgerEntry | None:
+        await self.initialize()
+        async with aiosqlite.connect(self.database) as connection:
+            cursor = await connection.execute(
+                """SELECT receipt_json FROM publication_ledger
+                    WHERE idempotency_key = ?""",
+                (idempotency_key,),
+            )
+            row = await cursor.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return PublicationLedgerEntry.model_validate_json(str(row[0]))
+
+    async def save_publication(
+        self, entry: PublicationLedgerEntry
+    ) -> PublicationLedgerEntry:
+        await self.initialize()
+        now = _utc_now()
+        updated = entry.model_copy(update={"updated_at": now})
+        async with aiosqlite.connect(self.database) as connection:
+            await connection.execute("BEGIN IMMEDIATE")
+            cursor = await connection.execute(
+                """SELECT artifact_hash FROM publication_ledger
+                    WHERE idempotency_key = ?""",
+                (entry.idempotency_key,),
+            )
+            existing = await cursor.fetchone()
+            if existing is not None and str(existing[0]) != entry.artifact_hash:
+                await connection.rollback()
+                raise ValueError("idempotency key is bound to another artifact hash")
+            await connection.execute(
+                """INSERT INTO publication_ledger(
+                    idempotency_key, run_id, artifact_hash, receipt_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(idempotency_key) DO UPDATE SET
+                    receipt_json = excluded.receipt_json,
+                    updated_at = excluded.updated_at""",
+                (
+                    updated.idempotency_key,
+                    str(updated.run_id),
+                    updated.artifact_hash,
+                    updated.model_dump_json(),
+                    updated.created_at.isoformat(),
+                    updated.updated_at.isoformat(),
+                ),
+            )
+            await connection.commit()
+        return updated
 
     @staticmethod
     def _run_from_row(row: aiosqlite.Row) -> RunView:

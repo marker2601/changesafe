@@ -209,6 +209,20 @@ class PublicationReceipt(StrictModel):
     writeback: DataHubReceipt
 
 
+class PublicationLedgerEntry(StrictModel):
+    idempotency_key: str = Field(min_length=64, max_length=64)
+    run_id: UUID
+    artifact_hash: str = Field(min_length=64, max_length=64)
+    approved_at: datetime
+    branch: str | None = None
+    pull_request_url: str | None = None
+    writeback: DataHubReceipt | None = None
+    receipt: PublicationReceipt | None = None
+    completed: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
 class AnalysisResult(StrictModel):
     context: ContextBundle
     risk: RiskResult
