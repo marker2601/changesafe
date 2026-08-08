@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -88,11 +88,13 @@ describe("ChangeSafe workspace", () => {
         name: /customer_email.*primary_email/,
       }),
     ).toBeVisible();
-    expect(subscribe).toHaveBeenCalledWith(
-      RUN_ID,
-      7,
-      expect.any(Function),
-      expect.any(Function),
+    await waitFor(() =>
+      expect(subscribe).toHaveBeenCalledWith(
+        RUN_ID,
+        7,
+        expect.any(Function),
+        expect.any(Function),
+      ),
     );
     expect(
       screen.getByRole("button", { name: "Resume publication" }),
