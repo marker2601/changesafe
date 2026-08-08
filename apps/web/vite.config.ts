@@ -1,17 +1,22 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { loadEnv } from "vite";
+import { defineConfig } from "vitest/config";
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 5173,
-    proxy: {
-      "/api": "http://127.0.0.1:8000",
-      "/healthz": "http://127.0.0.1:8000"
-    }
-  },
-  test: {
-    environment: "jsdom",
-    setupFiles: ["./tests/setup.ts"]
-  }
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, ".", "");
+  const apiTarget = env.CHANGESAFE_API_TARGET || "http://127.0.0.1:8000";
+  return {
+    plugins: [react()],
+    server: {
+      port: 5173,
+      proxy: {
+        "/api": apiTarget,
+        "/healthz": apiTarget,
+      },
+    },
+    test: {
+      environment: "jsdom",
+      setupFiles: ["./tests/setup.ts"],
+    },
+  };
 });

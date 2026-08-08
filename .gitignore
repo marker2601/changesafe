@@ -17,5 +17,6 @@ __pycache__/
 coverage/
 dist/
 build/
+*.tsbuildinfo
 playwright-report/
 test-results/
