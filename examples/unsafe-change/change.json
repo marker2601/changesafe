@@ -1,0 +1,10 @@
+{
+  "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+  "operation": "rename",
+  "field": "customer_email",
+  "new_field": "primary_email",
+  "old_type": "STRING",
+  "new_type": "STRING",
+  "source_commit": "demo-unsafe-change",
+  "requested_by": "demo-user"
+}
