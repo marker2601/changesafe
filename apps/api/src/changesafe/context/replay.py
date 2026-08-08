@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,11 @@ class ReplayDataHubContext:
 
     @classmethod
     def from_default(cls) -> ReplayDataHubContext:
-        return cls(DEFAULT_SNAPSHOT, DEFAULT_CHECKSUM)
+        snapshot = Path(os.getenv("CHANGESAFE_SNAPSHOT_PATH", DEFAULT_SNAPSHOT))
+        checksum = Path(
+            os.getenv("CHANGESAFE_SNAPSHOT_CHECKSUM_PATH", DEFAULT_CHECKSUM)
+        )
+        return cls(snapshot, checksum)
 
     def _load_payload(self) -> tuple[dict[str, Any], str]:
         try:

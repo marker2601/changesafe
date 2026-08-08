@@ -51,6 +51,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CHANGESAFE_MODE", "mode"),
     )
     changesafe_data_path: Path = Path("data/changesafe.db")
+    changesafe_web_dist: Path = Path("apps/web/dist")
+    changesafe_snapshot_path: Path = Path("fixtures/datahub/golden-context.json")
+    changesafe_snapshot_checksum_path: Path = Path(
+        "fixtures/datahub/golden-context.sha256"
+    )
     datahub_gms_url: AnyHttpUrl | None = None
     datahub_gms_token: SecretStr | None = None
     demo_urn_allowlist: str = (

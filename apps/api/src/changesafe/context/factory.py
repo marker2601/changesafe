@@ -12,7 +12,10 @@ def build_context_port(settings: Settings) -> DataHubContextPort:
     if settings.mode is Mode.REPLAY or not settings.live_context_enabled:
         if settings.mode is Mode.LIVE:
             raise ContextLoadError("Live mode requires DataHub URL and token")
-        return ReplayDataHubContext.from_default()
+        return ReplayDataHubContext(
+            settings.changesafe_snapshot_path,
+            settings.changesafe_snapshot_checksum_path,
+        )
 
     assert settings.datahub_gms_url is not None
     assert settings.datahub_gms_token is not None

@@ -4,6 +4,8 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from changesafe.config import Mode, Settings, resolve_env_file
+from changesafe.context.factory import build_context_port
+from changesafe.context.replay import ReplayDataHubContext
 
 
 def test_replay_defaults_need_no_credentials(tmp_path: Path) -> None:
@@ -108,4 +110,21 @@ def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
     assert settings.changesafe_admin_token is None
     assert settings.changesafe_public_url is None
     assert settings.sentry_dsn is None
+
+
+def test_replay_factory_uses_configured_snapshot_paths(tmp_path: Path) -> None:
+    snapshot = tmp_path / "context.json"
+    checksum = tmp_path / "context.sha256"
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_snapshot_path=snapshot,
+        changesafe_snapshot_checksum_path=checksum,
+    )
+
+    port = build_context_port(settings)
+
+    assert isinstance(port, ReplayDataHubContext)
+    assert port.snapshot_path == snapshot
+    assert port.checksum_path == checksum
     assert settings.public_config()["llm_available"] is False

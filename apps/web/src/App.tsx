@@ -28,6 +28,9 @@ function transitionLabel(change: ChangeRequest): string {
 
 export function App({ api = browserApi }: AppProps) {
   const { config, run, events, busy, error, analyze, approve, reset } = useRun(api);
+  const liveEnvironment = run?.analysis
+    ? run.analysis.context.provenance.mode === "live"
+    : Boolean(config?.mode !== "replay" && config?.live_context_available);
   const patchUrl = run
     ? (api.patchUrl?.(run.run_id) ?? `/api/runs/${run.run_id}/publication.patch`)
     : "#";
@@ -112,7 +115,7 @@ export function App({ api = browserApi }: AppProps) {
       </main>
       <footer className="app-footer">
         <span>Run ID: {run?.run_id.slice(0, 8) ?? "not started"}</span>
-        <span>Environment: {config?.mode === "live" ? "LIVE" : "REPLAY"}</span>
+        <span>Environment: {liveEnvironment ? "LIVE" : "REPLAY"}</span>
         <span>
           Evidence adapter: {run?.analysis?.context.provenance.mode ?? "waiting"}
         </span>

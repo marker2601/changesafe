@@ -38,6 +38,7 @@ export function ArtifactExplorer({ artifacts }: ArtifactExplorerProps) {
               aria-controls="artifact-code"
               aria-selected={selected === path}
               className={selected === path ? "is-selected" : ""}
+              data-testid="artifact-file"
               key={path}
               onClick={() => setSelected(path)}
               role="tab"

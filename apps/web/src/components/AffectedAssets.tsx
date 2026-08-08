@@ -17,7 +17,7 @@ export function AffectedAssets({ assets }: AffectedAssetsProps) {
               ? Workflow
               : Database;
         return (
-          <li key={asset.urn}>
+          <li data-testid="affected-asset-row" key={asset.urn}>
             <Icon aria-hidden="true" />
             <span>
               <strong>{asset.name}</strong>

@@ -7,7 +7,8 @@ interface HeaderProps {
 }
 
 export function Header({ config }: HeaderProps) {
-  const replay = !config || config.mode === "replay";
+  const replay =
+    !config || config.mode === "replay" || !config.live_context_available;
   return (
     <header className="app-header">
       <a className="brand" href="#main-content" aria-label="ChangeSafe home">

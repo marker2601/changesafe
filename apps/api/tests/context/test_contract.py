@@ -53,6 +53,20 @@ async def test_replay_rejects_snapshot_checksum_drift(tmp_path: Path) -> None:
         await port.load(golden_change())
 
 
+def test_replay_default_paths_can_be_overridden_for_packaged_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = tmp_path / "packaged-context.json"
+    checksum = tmp_path / "packaged-context.sha256"
+    monkeypatch.setenv("CHANGESAFE_SNAPSHOT_PATH", str(snapshot))
+    monkeypatch.setenv("CHANGESAFE_SNAPSHOT_CHECKSUM_PATH", str(checksum))
+
+    port = ReplayDataHubContext.from_default()
+
+    assert port.snapshot_path == snapshot
+    assert port.checksum_path == checksum
+
+
 @pytest.mark.asyncio
 async def test_replay_writeback_is_an_explicit_non_mutating_preview() -> None:
     port = ReplayDataHubContext.from_default()

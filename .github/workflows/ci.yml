@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Enable pinned pnpm
+        run: corepack enable && corepack prepare pnpm@11.16.0 --activate
+
+      - name: Install Python dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Python quality and tests
+        run: |
+          python -m ruff check .
+          python -m mypy apps/api/src
+          python -m pytest -q
+
+      - name: Web quality and unit tests
+        run: |
+          pnpm --filter @changesafe/web lint
+          pnpm --filter @changesafe/web typecheck
+          pnpm --filter @changesafe/web test --run
+          pnpm --filter @changesafe/web build
+
+      - name: Install browser runtime
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Credential-free browser acceptance
+        run: pnpm exec playwright test
+
+      - name: Secret and license gates
+        run: |
+          python scripts/check_secrets.py
+          test -s LICENSE
+          grep -q "Apache License" LICENSE
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diagnostics
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+
+  container-smoke:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release image
+        run: docker build -t changesafe:ci .
+      - name: Exercise health and single-origin UI
+        run: |
+          docker run --rm -d --name changesafe-ci -p 18000:8000 changesafe:ci
+          trap 'docker stop changesafe-ci' EXIT
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:18000/healthz && break
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18000/ | grep -q "ChangeSafe"
+          run_id=$(curl --fail --silent \
+            -H 'Content-Type: application/json' \
+            -d '{"asset_urn":"urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)","operation":"rename","field":"customer_email","new_field":"primary_email","old_type":"STRING","new_type":"STRING","source_commit":"ci-container-smoke","requested_by":"ci"}' \
+            http://127.0.0.1:18000/api/runs \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['run_id'])")
+          for attempt in $(seq 1 50); do
+            run_json=$(curl --fail --silent "http://127.0.0.1:18000/api/runs/${run_id}")
+            state=$(printf '%s' "${run_json}" | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])")
+            [ "${state}" = "awaiting_approval" ] && break
+            [ "${state}" = "failed" ] && exit 1
+            sleep 0.2
+          done
+          export RUN_JSON="${run_json}"
+          python3 -c "import json,os; r=json.loads(os.environ['RUN_JSON']); assert r['state']=='awaiting_approval'; assert r['analysis']['risk']['score']==90; assert len(r['analysis']['context']['downstream_assets'])==4; assert len(r['analysis']['artifacts']['files'])==7; assert r['analysis']['validation']['passed']"
+          curl --fail --silent -X POST "http://127.0.0.1:18000/api/runs/${run_id}/approve" | grep -q '"mode":"preview"'
+          curl --fail --silent "http://127.0.0.1:18000/api/runs/${run_id}/publication.patch" | grep -q '^diff --git'
+
+  optional-live-readiness:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
+      DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.CHANGESAFE_GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ vars.CHANGESAFE_GITHUB_REPOSITORY }}
+    steps:
+      - name: DataHub read-access smoke
+        if: env.DATAHUB_GMS_URL != '' && env.DATAHUB_GMS_TOKEN != ''
+        run: >-
+          curl --fail --silent --show-error --output /dev/null
+          -H "Authorization: Bearer ${DATAHUB_GMS_TOKEN}"
+          "${DATAHUB_GMS_URL%/}/config"
+
+      - name: OpenAI authentication smoke
+        if: env.OPENAI_API_KEY != ''
+        run: >-
+          curl --fail --silent --show-error --output /dev/null
+          -H "Authorization: Bearer ${OPENAI_API_KEY}"
+          https://api.openai.com/v1/models
+
+      - name: GitHub repository access smoke
+        if: env.GITHUB_TOKEN != '' && env.GITHUB_REPOSITORY != ''
+        run: >-
+          curl --fail --silent --show-error --output /dev/null
+          -H "Authorization: Bearer ${GITHUB_TOKEN}"
+          -H "Accept: application/vnd.github+json"
+          "https://api.github.com/repos/${GITHUB_REPOSITORY}"
+
+      - name: Explain skipped live checks
+        if: env.DATAHUB_GMS_TOKEN == '' && env.OPENAI_API_KEY == '' && env.GITHUB_TOKEN == ''
+        run: echo "Live readiness checks skipped because no optional credentials were configured."

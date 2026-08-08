@@ -8,6 +8,7 @@ from changesafe.api import create_app
 from changesafe.config import Mode, Settings
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.domain import RunState
+from changesafe.generation.openai_generator import OpenAIGenerationPlanner
 
 GOLDEN_CHANGE = {
     "asset_urn": (
@@ -87,6 +88,91 @@ async def test_public_config_and_health_never_expose_secrets(tmp_path: Path) -> 
     serialized = config.text.lower()
     assert "private" not in serialized
     assert "token" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_production_app_serves_built_web_assets_without_shadowing_api(
+    tmp_path: Path,
+) -> None:
+    web_dist = tmp_path / "web"
+    assets = web_dist / "assets"
+    assets.mkdir(parents=True)
+    (web_dist / "index.html").write_text(
+        '<!doctype html><main id="root">ChangeSafe production</main>',
+        encoding="utf-8",
+    )
+    (assets / "app.js").write_text("window.CHANGESAFE = true;", encoding="utf-8")
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    app = create_app(
+        settings=settings,
+        context_port=ReplayDataHubContext.from_default(),
+        web_dist=web_dist,
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        index = await client.get("/")
+        javascript = await client.get("/assets/app.js")
+        config = await client.get("/api/public-config")
+
+    assert index.status_code == 200
+    assert "ChangeSafe production" in index.text
+    assert javascript.text == "window.CHANGESAFE = true;"
+    assert config.headers["content-type"].startswith("application/json")
+
+
+def test_app_activates_bounded_openai_planner_when_configured(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+        openai_api_key="configured-test-key",
+        openai_model="configured-test-model",
+    )
+
+    app = create_app(
+        settings=settings,
+        context_port=ReplayDataHubContext.from_default(),
+        web_dist=tmp_path / "missing-web",
+    )
+
+    planner = app.state.orchestrator.generator.planner
+    assert isinstance(planner, OpenAIGenerationPlanner)
+    assert planner.model == "configured-test-model"
+
+
+@pytest.mark.asyncio
+async def test_http_boundary_rejects_oversized_requests_and_sets_security_headers(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    app = create_app(
+        settings=settings,
+        context_port=ReplayDataHubContext.from_default(),
+        web_dist=tmp_path / "missing-web",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        health = await client.get("/healthz")
+        oversized = await client.post(
+            "/api/runs",
+            json={"padding": "x" * 17_000},
+        )
+
+    assert health.headers["x-content-type-options"] == "nosniff"
+    assert health.headers["x-frame-options"] == "DENY"
+    assert "default-src 'self'" in health.headers["content-security-policy"]
+    assert oversized.status_code == 413
+    assert oversized.json()["detail"] == "Request body is too large"
 
 
 @pytest.mark.asyncio
