@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools==82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "changesafe"
+version = "0.1.0"
+description = "Metadata-aware pre-merge safety agent for analytics schema changes"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+dependencies = [
+  "aiosqlite==0.22.1",
+  "fastapi==0.141.1",
+  "httpx==0.28.1",
+  "openai==2.53.0",
+  "pydantic-settings==2.15.0",
+  "pyyaml==6.0.3",
+  "sqlglot==30.15.0",
+  "uuid6==2025.0.1",
+  "uvicorn[standard]==0.52.1",
+]
+
+[project.optional-dependencies]
+live = ["datahub-agent-context==1.7.0"]
+dev = [
+  "mypy==2.3.0",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "respx==0.23.1",
+  "ruff==0.16.2",
+  "types-PyYAML==6.0.12.20250915",
+]
+
+[tool.setuptools]
+package-dir = {"" = "apps/api/src"}
+
+[tool.setuptools.packages.find]
+where = ["apps/api/src"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config"
+asyncio_mode = "auto"
+pythonpath = ["apps/api/src"]
+testpaths = ["apps/api/tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["apps/api/src", "apps/api/tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["changesafe"]
+mypy_path = "apps/api/src"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["datahub.*", "datahub_agent_context.*", "sqlglot.*", "yaml.*"]
+ignore_missing_imports = true

@@ -1,0 +1,16 @@
+{
+  "name": "changesafe",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
+  "scripts": {
+    "dev": "pnpm --filter @changesafe/web dev",
+    "build": "pnpm --filter @changesafe/web build",
+    "lint": "pnpm --filter @changesafe/web lint",
+    "typecheck": "pnpm --filter @changesafe/web typecheck",
+    "test": "pnpm --filter @changesafe/web test --run",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}
