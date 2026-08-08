@@ -158,12 +158,14 @@ def create_app(
 
     @app.get("/api/runs/{run_id}/events")
     async def run_events(
-        run_id: UUID, last_event_id: int | None = Header(default=None)
+        run_id: UUID,
+        after: int = 0,
+        last_event_id: int | None = Header(default=None),
     ) -> StreamingResponse:
         if await store.get(run_id) is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return StreamingResponse(
-            event_stream(run_id, last_event_id or 0),
+            event_stream(run_id, max(after, last_event_id or 0)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

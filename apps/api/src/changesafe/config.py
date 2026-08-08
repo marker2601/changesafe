@@ -7,7 +7,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, model_validator
+from pydantic import (
+    AliasChoices,
+    AnyHttpUrl,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_PRIVATE_ENV = Path("C:/Users/harik/ChangeSafe/private/changesafe.env")
@@ -59,6 +66,23 @@ class Settings(BaseSettings):
     changesafe_admin_token: SecretStr | None = None
     changesafe_public_url: AnyHttpUrl | None = None
     sentry_dsn: str | None = None
+
+    @field_validator(
+        "datahub_gms_url",
+        "datahub_gms_token",
+        "openai_api_key",
+        "github_token",
+        "github_repository",
+        "changesafe_admin_token",
+        "changesafe_public_url",
+        "sentry_dsn",
+        mode="before",
+    )
+    @classmethod
+    def blank_optional_values_are_unconfigured(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def protect_external_mutations(self) -> Settings:

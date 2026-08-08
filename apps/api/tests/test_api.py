@@ -109,3 +109,27 @@ async def test_sse_stream_contains_real_ordered_state_events(tmp_path: Path) -> 
     assert "event: run_state" in stream.text
     assert '"state":"loading_context"' in stream.text
     assert '"state":"awaiting_approval"' in stream.text
+
+
+@pytest.mark.asyncio
+async def test_sse_query_cursor_resumes_without_replaying_old_events(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    app = create_app(
+        settings=settings, context_port=ReplayDataHubContext.from_default()
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = (await client.post("/api/runs", json=GOLDEN_CHANGE)).json()
+        await wait_for_state(client, created["run_id"], RunState.AWAITING_APPROVAL)
+        stream = await client.get(f"/api/runs/{created['run_id']}/events?after=4")
+
+    assert stream.status_code == 200
+    assert '"sequence":1' not in stream.text
+    assert '"sequence":5' in stream.text
+    assert '"state":"awaiting_approval"' in stream.text

@@ -76,3 +76,36 @@ def test_private_env_file_is_preferred_when_present(tmp_path: Path) -> None:
 
     assert resolve_env_file(private_file) == private_file
     assert resolve_env_file(tmp_path / "missing.env") is None
+
+
+def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
+    tmp_path: Path,
+) -> None:
+    private_file = tmp_path / "changesafe.env"
+    private_file.write_text(
+        "\n".join(
+            [
+                "DATAHUB_GMS_URL=",
+                "DATAHUB_GMS_TOKEN=",
+                "OPENAI_API_KEY=",
+                "GITHUB_TOKEN=",
+                "GITHUB_REPOSITORY=",
+                "CHANGESAFE_ADMIN_TOKEN=",
+                "CHANGESAFE_PUBLIC_URL=",
+                "SENTRY_DSN=",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=private_file)
+
+    assert settings.datahub_gms_url is None
+    assert settings.datahub_gms_token is None
+    assert settings.openai_api_key is None
+    assert settings.github_token is None
+    assert settings.github_repository is None
+    assert settings.changesafe_admin_token is None
+    assert settings.changesafe_public_url is None
+    assert settings.sentry_dsn is None
+    assert settings.public_config()["llm_available"] is False
