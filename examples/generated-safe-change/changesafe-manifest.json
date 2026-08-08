@@ -1,0 +1,88 @@
+{
+  "change": {
+    "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+    "field": "customer_email",
+    "new_field": "primary_email",
+    "new_type": "STRING",
+    "old_type": "STRING",
+    "operation": "rename",
+    "requested_by": "demo-user",
+    "source_commit": "demo-unsafe-change"
+  },
+  "context": {
+    "mode": "snapshot",
+    "snapshot_hash": "a4070ac28b3620c8b2c8495c5fed411924fbfc66cb3a656898740c0ec194946e",
+    "target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
+  },
+  "deprecation_status": "phase_one",
+  "files": {
+    "PR_BODY.md": "fbf2509d3f5a9a94e4c813667c3b061373787a336a20bd7810c31feab428f55c",
+    "ROLLBACK.md": "1edc6aa01d4987775c400cffe22a3e6107ba8b63d7bff8bf796dfc321c603df8",
+    "migrations/2026-08-06-customer-email-rename.md": "1b86200e59842744e5fa0c1ed01fe138c986614b6226b1dde181d58d661a1365",
+    "models/marts/dim_customers.sql": "fc4877d60726e061ceb9f3cc1770eccc091ad4a12f226c529aa7453f0bb10958",
+    "models/marts/dim_customers.yml": "4bbf6aadc1d8202c2a8655eb06da83208cd38b4d4b057f368f156c167a62acaa",
+    "tests/assert_customer_email_compatibility.sql": "bf85c60accdb0b812d66faaa462486c2eec14f5a8223f3aac35f22f43ddfb2e3"
+  },
+  "risk": {
+    "band": "critical",
+    "factors": [
+      {
+        "code": "base_rename",
+        "evidence_urns": [
+          "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
+        ],
+        "label": "Column rename",
+        "points": 25
+      },
+      {
+        "code": "downstream_assets",
+        "evidence_urns": [
+          "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
+          "urn:li:dashboard:(looker,customer_retention_dashboard)"
+        ],
+        "label": "4 downstream assets",
+        "points": 20
+      },
+      {
+        "code": "executive_downstream",
+        "evidence_urns": [
+          "urn:li:dashboard:(looker,customer_retention_dashboard)"
+        ],
+        "label": "Dashboard or executive report downstream",
+        "points": 15
+      },
+      {
+        "code": "governed_field",
+        "evidence_urns": [
+          "urn:li:tag:PII",
+          "urn:li:glossaryTerm:CustomerEmail"
+        ],
+        "label": "Governed, confidential, or PII field",
+        "points": 10
+      },
+      {
+        "code": "high_usage",
+        "evidence_urns": [
+          "urn:li:query:customer-email-usage"
+        ],
+        "label": "High query usage",
+        "points": 10
+      },
+      {
+        "code": "cross_domain",
+        "evidence_urns": [
+          "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
+          "urn:li:dashboard:(looker,customer_retention_dashboard)"
+        ],
+        "label": "Cross-domain impact",
+        "points": 10
+      }
+    ],
+    "recommended_strategy": "two_phase_compatibility_migration",
+    "score": 90
+  },
+  "version": 1
+}
