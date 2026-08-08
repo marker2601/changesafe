@@ -1,4 +1,5 @@
 .changesafe-private/
+.worktrees/
 .env
 .env.*
 !.env.example
@@ -17,4 +18,3 @@ dist/
 build/
 playwright-report/
 test-results/
-
