@@ -232,3 +232,12 @@ class RunView(StrictModel):
     error: PublicError | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class RunEvent(StrictModel):
+    run_id: UUID
+    sequence: int = Field(ge=1)
+    state: RunState
+    public_message: str
+    evidence: list[EvidenceRef] = Field(default_factory=list)
+    created_at: datetime

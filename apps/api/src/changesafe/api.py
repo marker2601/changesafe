@@ -1,0 +1,113 @@
+"""FastAPI surface for analysis runs, artifacts, and resumable events."""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncIterator
+from uuid import UUID
+
+from fastapi import FastAPI, Header, HTTPException, Response, status
+from fastapi.responses import StreamingResponse
+
+from changesafe.config import Settings
+from changesafe.context.base import DataHubContextPort
+from changesafe.context.factory import build_context_port
+from changesafe.domain import ChangeRequest, RunState, RunView
+from changesafe.generation.service import ArtifactGenerationService
+from changesafe.orchestrator import ChangeSafeOrchestrator
+from changesafe.store import RunStore
+
+STREAM_END_STATES = {
+    RunState.AWAITING_APPROVAL,
+    RunState.COMPLETED,
+    RunState.FAILED,
+    RunState.PUBLICATION_FAILED,
+}
+
+
+def create_app(
+    *,
+    settings: Settings | None = None,
+    context_port: DataHubContextPort | None = None,
+    generator: ArtifactGenerationService | None = None,
+) -> FastAPI:
+    active_settings = settings or Settings()
+    store = RunStore(active_settings.changesafe_data_path)
+    orchestrator = ChangeSafeOrchestrator(
+        store=store,
+        context_port=context_port or build_context_port(active_settings),
+        generator=generator or ArtifactGenerationService(),
+    )
+    app = FastAPI(title="ChangeSafe API", version="0.1.0")
+    app.state.settings = active_settings
+    app.state.store = store
+    app.state.orchestrator = orchestrator
+
+    @app.get("/healthz")
+    async def health() -> dict[str, str]:
+        await store.initialize()
+        return {"status": "ok"}
+
+    @app.get("/api/public-config")
+    async def public_config() -> dict[str, object]:
+        return active_settings.public_config()
+
+    @app.post("/api/runs", response_model=RunView, status_code=status.HTTP_202_ACCEPTED)
+    async def create_run(change: ChangeRequest) -> RunView:
+        return await orchestrator.start(change)
+
+    @app.get("/api/runs/{run_id}", response_model=RunView)
+    async def get_run(run_id: UUID) -> RunView:
+        run = await store.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run
+
+    @app.get("/api/runs/{run_id}/artifacts/{artifact_path:path}")
+    async def get_artifact(run_id: UUID, artifact_path: str) -> Response:
+        run = await store.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.analysis is None or artifact_path not in run.analysis.artifacts.files:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        artifact = run.analysis.artifacts.files[artifact_path]
+        media_type = (
+            "application/sql" if artifact_path.endswith(".sql") else "text/plain"
+        )
+        return Response(content=artifact.content, media_type=media_type)
+
+    async def event_stream(run_id: UUID, after_sequence: int) -> AsyncIterator[str]:
+        cursor = after_sequence
+        while True:
+            run = await store.get(run_id)
+            if run is None:
+                return
+            events = await store.events(run_id, after_sequence=cursor)
+            for event in events:
+                cursor = event.sequence
+                yield (
+                    f"id: {event.sequence}\n"
+                    "event: run_state\n"
+                    f"data: {event.model_dump_json()}\n\n"
+                )
+            if run.state in STREAM_END_STATES and not await store.events(
+                run_id, after_sequence=cursor
+            ):
+                return
+            if not events:
+                yield ": heartbeat\n\n"
+            await asyncio.sleep(0.1)
+
+    @app.get("/api/runs/{run_id}/events")
+    async def run_events(
+        run_id: UUID, last_event_id: int | None = Header(default=None)
+    ) -> StreamingResponse:
+        if await store.get(run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return StreamingResponse(
+            event_stream(run_id, last_event_id or 0),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    return app
