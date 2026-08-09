@@ -137,6 +137,78 @@ async def test_live_schema_discovery_returns_complete_allowlisted_schema() -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["discover", "load"])
+async def test_live_adapter_rejects_entity_for_a_different_target(
+    operation: str,
+) -> None:
+    wrong_urn = "urn:li:dataset:(urn:li:dataPlatform:dbt,finance.wrong,PROD)"
+    runner = FakeRunner(
+        {"get_entities": [{"urn": wrong_urn, "name": "wrong"}]}
+    )
+    port = LiveDataHubContext(runner, {TARGET})
+
+    with pytest.raises(ContextLoadError, match="requested target"):
+        if operation == "discover":
+            await port.discover_schema(TARGET)
+        else:
+            await port.load(golden_change())
+
+    assert [tool for tool, _ in runner.calls] == ["get_entities"]
+
+
+@pytest.mark.asyncio
+async def test_live_discovery_rejects_multiple_entities_for_one_requested_target(
+) -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [
+                {"urn": TARGET, "name": "order_details"},
+                {"urn": TARGET, "name": "duplicate_order_details"},
+            ]
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match="exactly one"):
+        await LiveDataHubContext(runner, {TARGET}).discover_schema(TARGET)
+
+    assert [tool for tool, _ in runner.calls] == ["get_entities"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["discover", "load"])
+async def test_live_adapter_rejects_schema_for_a_different_target(
+    operation: str,
+) -> None:
+    wrong_urn = "urn:li:dataset:(urn:li:dataPlatform:dbt,finance.wrong,PROD)"
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "order_details"}],
+            "list_schema_fields": {
+                "urn": wrong_urn,
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+        }
+    )
+    port = LiveDataHubContext(runner, {TARGET})
+
+    with pytest.raises(ContextLoadError, match=r"schema.*requested target"):
+        if operation == "discover":
+            await port.discover_schema(TARGET)
+        else:
+            await port.load(golden_change())
+
+    assert [tool for tool, _ in runner.calls] == [
+        "get_entities",
+        "list_schema_fields",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_live_schema_discovery_rejects_non_allowlisted_asset_before_tool_calls(
 ) -> None:
     runner = FakeRunner({})

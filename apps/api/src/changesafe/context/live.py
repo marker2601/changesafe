@@ -259,6 +259,7 @@ class LiveDataHubContext:
             limit=200,
             offset=0,
         )
+        _require_schema_target(schema, asset_urn)
         if not isinstance(schema, dict):
             return schema
 
@@ -316,6 +317,7 @@ class LiveDataHubContext:
             )
             if not isinstance(next_page, dict):
                 raise ContextLoadError("DataHub returned an invalid schema field page")
+            _require_schema_target(next_page, asset_urn)
             next_total = next_page.get("totalFields")
             next_page_offset = next_page.get("offset", next_offset)
             next_fields = _extract_fields(next_page)
@@ -472,6 +474,7 @@ class LiveDataHubContext:
 
         calls: list[ToolEvidence] = []
         entities = await self._call("get_entities", calls, urns=[change.asset_urn])
+        _require_requested_entity(entities, change.asset_urn)
         schema = await self._load_schema_fields(change.asset_urn, calls)
         schema_fields = _normalize_schema_fields(schema)
         if not any(field.name == change.field for field in schema_fields):
@@ -526,13 +529,11 @@ class LiveDataHubContext:
 
         calls: list[ToolEvidence] = []
         entities_raw = await self._call("get_entities", calls, urns=[asset_urn])
+        entity = _require_requested_entity(entities_raw, asset_urn)
         schema_raw = await self._load_schema_fields(asset_urn, calls)
-        entities = _extract_entities(entities_raw)
-        if not entities:
-            raise ContextLoadError("Target asset was not returned by DataHub")
         return SchemaCatalog(
             target_urn=asset_urn,
-            target_name=_display_name(entities[0], "unknown") or "unknown",
+            target_name=_display_name(entity, "unknown") or "unknown",
             schema_fields=_normalize_schema_fields(schema_raw),
             provenance=ContextProvenance(
                 mode=ContextMode.LIVE,
@@ -713,6 +714,33 @@ def _extract_entities(raw: Any) -> list[dict[str, Any]]:
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
     return []
+
+
+def _require_requested_entity(raw: Any, requested_urn: str) -> dict[str, Any]:
+    entities = _extract_entities(raw)
+    if len(entities) != 1:
+        raise ContextLoadError(
+            "DataHub must return exactly one entity for the requested target"
+        )
+    entity = entities[0]
+    returned_urn = _first_present(entity, ("urn", "entityUrn"))
+    if returned_urn != requested_urn:
+        raise ContextLoadError(
+            "DataHub returned an entity for a different requested target"
+        )
+    return entity
+
+
+def _require_schema_target(raw: Any, requested_urn: str) -> None:
+    if not isinstance(raw, dict):
+        return
+    for key in ("urn", "entityUrn", "datasetUrn"):
+        if key in raw:
+            if raw[key] != requested_urn:
+                raise ContextLoadError(
+                    "DataHub schema does not belong to the requested target"
+                )
+            return
 
 
 def _extract_fields(raw: Any) -> list[dict[str, Any]]:
@@ -926,10 +954,7 @@ def _normalize_context(
     queries_raw: Any,
     calls: list[ToolEvidence],
 ) -> ContextBundle:
-    entities = _extract_entities(entities_raw)
-    if not entities:
-        raise ContextLoadError("Target asset was not returned by DataHub")
-    entity = entities[0]
+    entity = _require_requested_entity(entities_raw, change.asset_urn)
     fields = _extract_fields(schema_raw)
     field = next(
         (

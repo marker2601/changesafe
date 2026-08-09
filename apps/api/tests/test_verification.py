@@ -67,6 +67,26 @@ def test_golden_artifacts_pass_every_blocking_check() -> None:
 
 
 @pytest.mark.parametrize(
+    "context_update",
+    [
+        {"target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,finance.wrong,PROD)"},
+        {"field": "order_total"},
+    ],
+)
+def test_context_alignment_rejects_context_for_a_different_request(
+    context_update: dict[str, str],
+) -> None:
+    change, context, _bundle = golden_inputs()
+    mismatched = context.model_copy(update=context_update)
+    bundle = generate_artifacts(change, mismatched, score_change(change, mismatched))
+
+    report = verify_artifacts(bundle, change, mismatched)
+
+    assert report.check("request_context_alignment").passed is False
+    assert report.passed is False
+
+
+@pytest.mark.parametrize(
     ("field", "new_field"),
     [
         ("cust_email", "primary_email"),

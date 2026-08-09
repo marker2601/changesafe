@@ -220,6 +220,10 @@ def _types_match(left: str, right: str) -> bool:
 def _context_alignment(
     change: ChangeRequest, context: ContextBundle
 ) -> tuple[bool, str, Any | None]:
+    if context.target_urn != change.asset_urn:
+        return False, "DataHub context target does not match the request.", None
+    if context.field != change.field:
+        return False, "DataHub context field does not match the request.", None
     matches = [
         field
         for field in context.schema_fields
