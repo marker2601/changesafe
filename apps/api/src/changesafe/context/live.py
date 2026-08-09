@@ -266,12 +266,20 @@ class LiveDataHubContext:
         remaining = schema.get("remainingCount", 0)
         total = schema.get("totalFields")
         returned = schema.get("returned", len(fields))
+        if (
+            not isinstance(returned, int)
+            or isinstance(returned, bool)
+            or returned < 0
+            or returned != len(fields)
+        ):
+            raise ContextLoadError("DataHub schema field page was inconsistent")
         partial = (isinstance(remaining, int) and remaining > 0) or (
             isinstance(total, int)
-            and isinstance(returned, int)
             and returned < total
         )
         if not partial:
+            if isinstance(total, int) and (total < 0 or len(fields) != total):
+                raise ContextLoadError("DataHub schema field page was inconsistent")
             return schema
         if not isinstance(total, int) or total < 0:
             raise ContextLoadError(
@@ -777,6 +785,9 @@ def _normalize_lineage_assets(raw: Any, direction_name: str) -> list[AffectedAss
             field_path = next(
                 (value for value in lineage_columns if isinstance(value, str)), None
             )
+        field_path = field_path.strip() if isinstance(field_path, str) else None
+        if not field_path:
+            field_path = None
         raw_path = item.get("lineagePath") or item.get("paths")
         lineage_path = _collect_urns(raw_path)
         raw_degree = item.get("degree")

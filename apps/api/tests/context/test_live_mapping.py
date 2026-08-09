@@ -280,6 +280,26 @@ async def test_live_schema_discovery_fetches_every_schema_page() -> None:
 
 
 @pytest.mark.asyncio
+async def test_live_schema_discovery_rejects_complete_page_with_missing_fields(
+) -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "orders"}],
+            "list_schema_fields": {
+                "fields": [{"fieldPath": "order_id", "nativeDataType": "NUMBER"}],
+                "totalFields": 2,
+                "returned": 2,
+                "remainingCount": 0,
+                "offset": 0,
+            },
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match="schema field page was inconsistent"):
+        await LiveDataHubContext(runner, {TARGET}).discover_schema(TARGET)
+
+
+@pytest.mark.asyncio
 async def test_live_adapter_classifies_lineage_evidence_precision() -> None:
     direct_urn = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.stg_orders,PROD)"
     endpoint_urn = "urn:li:dashboard:(looker,customer_health)"
@@ -355,6 +375,60 @@ async def test_live_adapter_classifies_lineage_evidence_precision() -> None:
         LineagePrecision.ENDPOINT_FIELD
     )
     assert context.downstream_assets[1].lineage_precision is (
+        LineagePrecision.DATASET_LEVEL
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_treats_blank_lineage_field_as_dataset_level() -> None:
+    upstream_urn = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.stg_orders,PROD)"
+
+    def lineage_result(parameters: dict[str, Any]) -> dict[str, Any]:
+        direction = "upstreams" if parameters["upstream"] else "downstreams"
+        results = (
+            [
+                {
+                    "entity": {
+                        "urn": upstream_urn,
+                        "name": "stg_orders",
+                        "type": "DATASET",
+                        "field": "",
+                    },
+                    "degree": 1,
+                }
+            ]
+            if parameters["upstream"]
+            else []
+        )
+        return {
+            direction: {
+                "searchResults": results,
+                "total": len(results),
+                "returned": len(results),
+                "hasMore": False,
+            }
+        }
+
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+            "get_lineage": lineage_result,
+            "get_dataset_queries": {"queries": []},
+        }
+    )
+
+    context = await LiveDataHubContext(runner, {TARGET}).load(golden_change())
+
+    assert context.upstream_assets[0].field is None
+    assert context.upstream_assets[0].lineage_precision is (
         LineagePrecision.DATASET_LEVEL
     )
 
