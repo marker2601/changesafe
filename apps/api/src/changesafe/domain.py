@@ -329,3 +329,14 @@ class RunEvent(StrictModel):
     public_message: str
     evidence: list[EvidenceRef] = Field(default_factory=list)
     created_at: datetime
+
+
+class JudgeActivity(StrictModel):
+    run_id: UUID
+    session_label: str = Field(pattern=r"^judge-(?:[0-9a-f]{8}|unassigned)$")
+    scenario: str = Field(min_length=1)
+    state: RunState
+    context_mode: ContextMode | None = None
+    publication_mode: Literal["live", "preview"] | None = None
+    created_at: datetime
+    updated_at: datetime

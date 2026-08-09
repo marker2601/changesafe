@@ -156,5 +156,6 @@ class Settings(BaseSettings):
             "llm_available": self.llm_enabled and self.mode is not Mode.REPLAY,
             "github_publication_available": self.github_publication_enabled,
             "datahub_writeback_available": self.datahub_writeback_enabled,
+            "owner_activity_available": self.changesafe_admin_token is not None,
             "openai_model": self.openai_model,
         }

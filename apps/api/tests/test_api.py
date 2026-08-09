@@ -87,6 +87,67 @@ async def test_api_runs_complete_replay_analysis_and_serves_artifact(
 
 
 @pytest.mark.asyncio
+async def test_owner_activity_is_private_and_session_limited(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+        changesafe_admin_token="owner-secret",
+    )
+    app = create_app(
+        settings=settings, context_port=ReplayDataHubContext.from_default()
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/runs",
+            json=GOLDEN_CHANGE,
+            headers={"X-ChangeSafe-Session-ID": "judge_session_0123456789"},
+        )
+        run_id = created.json()["run_id"]
+        await wait_for_state(client, run_id, RunState.AWAITING_APPROVAL)
+        missing = await client.get("/api/owner/activity")
+        wrong = await client.get(
+            "/api/owner/activity",
+            headers={"X-ChangeSafe-Admin-Token": "wrong-secret"},
+        )
+        allowed = await client.get(
+            "/api/owner/activity",
+            headers={"X-ChangeSafe-Admin-Token": "owner-secret"},
+        )
+
+    assert missing.status_code == 403
+    assert wrong.status_code == 403
+    assert allowed.status_code == 200
+    assert allowed.json()[0]["run_id"] == run_id
+    serialized = allowed.text
+    assert "cust_email" not in serialized
+    assert "requested_by" not in serialized
+    assert "judge_session_0123456789" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_malformed_judge_session_id_is_rejected(tmp_path: Path) -> None:
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=tmp_path / "runs.db",
+        ),
+        context_port=ReplayDataHubContext.from_default(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/runs",
+            json=GOLDEN_CHANGE,
+            headers={"X-ChangeSafe-Session-ID": "person@example.com"},
+        )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_run_creation_is_rate_limited_per_client(tmp_path: Path) -> None:
     settings = Settings(
         _env_file=None,

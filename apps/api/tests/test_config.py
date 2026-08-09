@@ -109,6 +109,7 @@ def test_public_config_never_contains_credentials(tmp_path: Path) -> None:
         "llm_available": True,
         "github_publication_available": False,
         "datahub_writeback_available": False,
+        "owner_activity_available": True,
         "openai_model": "gpt-5.6-luna",
     }
     assert "secret" not in str(public).lower()

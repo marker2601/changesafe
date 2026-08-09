@@ -45,9 +45,12 @@ class ChangeSafeOrchestrator:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def start(self, change: ChangeRequest) -> RunView:
+    async def start(
+        self, change: ChangeRequest, *, session_id: str | None = None
+    ) -> RunView:
         run = await self.store.create(
             change,
+            session_id=session_id,
             llm_reservation_usd=self.llm_reservation_usd,
             llm_budget_usd=self.llm_budget_usd,
         )

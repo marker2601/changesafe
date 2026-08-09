@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import secrets
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -22,7 +24,13 @@ from changesafe.config import Mode, Settings
 from changesafe.context.base import DataHubContextPort
 from changesafe.context.factory import build_context_port
 from changesafe.context.replay import ReplayDataHubContext
-from changesafe.domain import ChangeRequest, PublicationReceipt, RunState, RunView
+from changesafe.domain import (
+    ChangeRequest,
+    JudgeActivity,
+    PublicationReceipt,
+    RunState,
+    RunView,
+)
 from changesafe.generation.openai_generator import OpenAIGenerationPlanner
 from changesafe.generation.service import ArtifactGenerationService
 from changesafe.orchestrator import ChangeSafeOrchestrator
@@ -56,6 +64,7 @@ CONTENT_SECURITY_POLICY = (
     "script-src 'self'; "
     "style-src 'self'"
 )
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 
 
 class HttpBoundaryMiddleware:
@@ -253,7 +262,19 @@ def create_app(
         return active_settings.public_config()
 
     @app.post("/api/runs", response_model=RunView, status_code=status.HTTP_202_ACCEPTED)
-    async def create_run(request: Request, change: ChangeRequest) -> RunView:
+    async def create_run(
+        request: Request,
+        change: ChangeRequest,
+        x_changesafe_session_id: str | None = Header(default=None),
+    ) -> RunView:
+        if (
+            x_changesafe_session_id is not None
+            and SESSION_ID_PATTERN.fullmatch(x_changesafe_session_id) is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Judge session ID must be a 16-128 character opaque value.",
+            )
         client = request.client.host if request.client is not None else "unknown"
         if not await run_rate_limiter.allow(client):
             raise HTTPException(
@@ -262,7 +283,9 @@ def create_app(
                 headers={"Retry-After": "60"},
             )
         try:
-            return await orchestrator.start(change)
+            return await orchestrator.start(
+                change, session_id=x_changesafe_session_id
+            )
         except LlmBudgetExceeded as exc:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -275,6 +298,19 @@ def create_app(
         if run is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return run
+
+    @app.get("/api/owner/activity", response_model=list[JudgeActivity])
+    async def owner_activity(
+        x_changesafe_admin_token: str | None = Header(default=None),
+    ) -> list[JudgeActivity]:
+        configured = active_settings.changesafe_admin_token
+        if configured is None or x_changesafe_admin_token is None:
+            raise HTTPException(status_code=403, detail="Owner access is required")
+        if not secrets.compare_digest(
+            x_changesafe_admin_token, configured.get_secret_value()
+        ):
+            raise HTTPException(status_code=403, detail="Owner access is required")
+        return await store.recent_activity(limit=50)
 
     @app.post(
         "/api/runs/{run_id}/continue-with-snapshot",

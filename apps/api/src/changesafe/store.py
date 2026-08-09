@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import UTC, datetime
 from decimal import ROUND_CEILING, Decimal
@@ -12,10 +13,12 @@ from uuid import UUID
 import aiosqlite
 from uuid6 import uuid7
 
+from changesafe.demo import DEMO_DATA_PRODUCT
 from changesafe.domain import (
     AnalysisResult,
     ChangeRequest,
     EvidenceRef,
+    JudgeActivity,
     LlmUsage,
     PublicationLedgerEntry,
     PublicationReceipt,
@@ -94,6 +97,7 @@ class RunStore:
                     CREATE TABLE IF NOT EXISTS runs (
                         run_id TEXT PRIMARY KEY,
                         state TEXT NOT NULL,
+                        session_id TEXT,
                         request_json TEXT NOT NULL,
                         analysis_json TEXT,
                         publication_json TEXT,
@@ -133,6 +137,14 @@ class RunStore:
                     );
                     """
                 )
+                columns_cursor = await connection.execute("PRAGMA table_info(runs)")
+                columns = {
+                    str(row[1]) for row in await columns_cursor.fetchall()
+                }
+                if "session_id" not in columns:
+                    await connection.execute(
+                        "ALTER TABLE runs ADD COLUMN session_id TEXT"
+                    )
                 await connection.commit()
             self._initialized = True
 
@@ -140,6 +152,7 @@ class RunStore:
         self,
         change: ChangeRequest,
         *,
+        session_id: str | None = None,
         llm_reservation_usd: Decimal = Decimal(0),
         llm_budget_usd: Decimal | None = None,
     ) -> RunView:
@@ -175,12 +188,13 @@ class RunStore:
                     )
             await connection.execute(
                 """INSERT INTO runs(
-                    run_id, state, request_json, analysis_json, publication_json,
-                    error_json, created_at, updated_at
-                ) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?)""",
+                    run_id, state, session_id, request_json, analysis_json,
+                    publication_json, error_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, ?)""",
                 (
                     str(run_id),
                     run.state.value,
+                    session_id,
                     change.model_dump_json(),
                     now.isoformat(),
                     now.isoformat(),
@@ -207,6 +221,61 @@ class RunStore:
                 )
             await connection.commit()
         return run
+
+    async def recent_activity(self, *, limit: int = 20) -> list[JudgeActivity]:
+        await self.initialize()
+        bounded_limit = max(1, min(limit, 50))
+        async with aiosqlite.connect(self.database) as connection:
+            connection.row_factory = aiosqlite.Row
+            cursor = await connection.execute(
+                """SELECT run_id, state, session_id, analysis_json,
+                    publication_json, created_at, updated_at
+                    FROM runs ORDER BY created_at DESC LIMIT ?""",
+                (bounded_limit,),
+            )
+            rows = await cursor.fetchall()
+
+        activity: list[JudgeActivity] = []
+        for row in rows:
+            session_id = row["session_id"]
+            session_label = (
+                f"judge-{hashlib.sha256(str(session_id).encode()).hexdigest()[:8]}"
+                if session_id is not None
+                else "judge-unassigned"
+            )
+            analysis = (
+                json.loads(str(row["analysis_json"]))
+                if row["analysis_json"] is not None
+                else None
+            )
+            publication = (
+                json.loads(str(row["publication_json"]))
+                if row["publication_json"] is not None
+                else None
+            )
+            context_mode = (
+                analysis.get("context", {}).get("provenance", {}).get("mode")
+                if isinstance(analysis, dict)
+                else None
+            )
+            publication_mode = (
+                publication.get("mode")
+                if isinstance(publication, dict)
+                else None
+            )
+            activity.append(
+                JudgeActivity(
+                    run_id=row["run_id"],
+                    session_label=session_label,
+                    scenario=DEMO_DATA_PRODUCT,
+                    state=row["state"],
+                    context_mode=context_mode,
+                    publication_mode=publication_mode,
+                    created_at=row["created_at"],
+                    updated_at=row["updated_at"],
+                )
+            )
+        return activity
 
     async def record_llm_usage(
         self, run_id: UUID | str, usage: LlmUsage
