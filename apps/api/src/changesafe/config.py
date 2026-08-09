@@ -7,6 +7,7 @@ from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import (
     AliasChoices,
@@ -61,6 +62,7 @@ class Settings(BaseSettings):
     )
     datahub_gms_url: AnyHttpUrl | None = None
     datahub_gms_token: SecretStr | None = None
+    datahub_ui_url: AnyHttpUrl | None = None
     datahub_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
     datahub_retry_count: int = Field(default=1, ge=0, le=2)
     save_document_restrict_updates: bool = True
@@ -87,6 +89,7 @@ class Settings(BaseSettings):
     @field_validator(
         "datahub_gms_url",
         "datahub_gms_token",
+        "datahub_ui_url",
         "openai_api_key",
         "github_token",
         "changesafe_github_repository",
@@ -97,6 +100,15 @@ class Settings(BaseSettings):
     def blank_optional_values_are_unconfigured(cls, value: Any) -> Any:
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("datahub_ui_url")
+    @classmethod
+    def datahub_ui_url_must_not_contain_credentials(
+        cls, value: AnyHttpUrl | None
+    ) -> AnyHttpUrl | None:
+        if value is not None and (value.username or value.password):
+            raise ValueError("DATAHUB_UI_URL must not contain credentials")
         return value
 
     @model_validator(mode="after")
@@ -149,10 +161,23 @@ class Settings(BaseSettings):
             and self.changesafe_admin_token
         )
 
+    @property
+    def datahub_ui_origin(self) -> str | None:
+        if self.datahub_ui_url is None:
+            return None
+        parsed = urlsplit(str(self.datahub_ui_url))
+        host = parsed.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        default_port = 443 if parsed.scheme == "https" else 80
+        port = f":{parsed.port}" if parsed.port and parsed.port != default_port else ""
+        return f"{parsed.scheme}://{host}{port}"
+
     def public_config(self) -> dict[str, Any]:
         return {
             "mode": self.mode.value,
             "live_context_available": self.live_context_enabled,
+            "datahub_ui_url": self.datahub_ui_origin,
             "llm_available": self.llm_enabled and self.mode is not Mode.REPLAY,
             "github_publication_available": self.github_publication_enabled,
             "datahub_writeback_available": self.datahub_writeback_enabled,

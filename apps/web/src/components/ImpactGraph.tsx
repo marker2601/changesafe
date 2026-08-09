@@ -1,51 +1,161 @@
-import { Database } from "lucide-react";
+import {
+  ArrowRight,
+  BarChart3,
+  Boxes,
+  Database,
+  PanelsTopLeft,
+  Warehouse,
+} from "lucide-react";
+import { useState, type ComponentType } from "react";
 
-import type { ContextBundle } from "../types";
-import { AffectedAssets } from "./AffectedAssets";
+import type {
+  AffectedAsset,
+  ContextBundle,
+  ImpactAssessment,
+} from "../types";
+import { EvidenceDrawer } from "./EvidenceDrawer";
 
 interface ImpactGraphProps {
   context: ContextBundle;
+  activeImpact: ImpactAssessment | null;
+  dataHubOrigin?: string | null;
 }
 
-export function ImpactGraph({ context }: ImpactGraphProps) {
+function assetIcon(asset: AffectedAsset): ComponentType<{ "aria-hidden"?: boolean }> {
+  const urn = asset.urn.toLowerCase();
+  if (urn.includes("powerbi")) return BarChart3;
+  if (urn.includes("looker")) return PanelsTopLeft;
+  if (urn.includes("snowflake")) return Warehouse;
+  return Boxes;
+}
+
+function pathLabel(asset: AffectedAsset): string {
+  if (asset.lineage_path.length === 2) return "direct";
+  if (asset.lineage_path.length > 2) return "multi-hop";
+  return "relationship only";
+}
+
+function safeDataHubLink(origin: string | null | undefined, urn: string) {
+  if (!origin) return null;
+  return new URL(`/dataset/${encodeURIComponent(urn)}`, origin).toString();
+}
+
+export function ImpactGraph({
+  context,
+  activeImpact,
+  dataHubOrigin,
+}: ImpactGraphProps) {
+  const [selectedAsset, setSelectedAsset] = useState<AffectedAsset | null>(null);
+  const highlighted = new Set(activeImpact?.evidence_urns ?? []);
   return (
-    <section className="lineage-section" aria-labelledby="lineage-heading">
-      <div className="section-heading inline-heading">
+    <section className="dependency-panel" aria-labelledby="dependency-heading">
+      <header className="dependency-heading">
         <div>
-          <h3 id="lineage-heading">Lineage</h3>
+          <span>Live dependency evidence</span>
+          <h2 id="dependency-heading">Tracing what depends on cust_email</h2>
           <p>
-            {context.target_name} is upstream of {context.downstream_assets.length}{" "}
-            assets
+            We&apos;re finding the models, reports and teams that rely on this field
+            before preparing the change.
           </p>
         </div>
-        <span className="evidence-source">
-          {context.provenance.mode === "snapshot"
-            ? "Checksummed snapshot"
-            : "Live DataHub evidence"}
-        </span>
-      </div>
-      <div className="lineage-canvas">
-        <div className="source-node">
-          <Database aria-hidden="true" />
-          <span>
-            <strong>{context.target_name}</strong>
-            <small>{context.target_domain ?? "Dataset"}</small>
-          </span>
+        <strong>
+          {context.provenance.mode === "live"
+            ? "Live DataHub"
+            : "Checksummed replay"}
+        </strong>
+      </header>
+
+      <div className="dependency-map">
+        <section className="asset-column upstream-column" aria-label="Upstream inputs">
+          <h3>Upstream inputs</h3>
+          {context.upstream_assets.map((asset) => {
+            const Icon = assetIcon(asset);
+            return (
+              <button
+                aria-label={`${asset.name}, ${pathLabel(asset)} evidence`}
+                className={highlighted.has(asset.urn) ? "is-highlighted" : ""}
+                key={asset.urn}
+                onClick={() => setSelectedAsset(asset)}
+                type="button"
+              >
+                <Icon aria-hidden />
+                <span>
+                  <small>{asset.entity_type.replaceAll("_", " ")}</small>
+                  <strong>{asset.name}</strong>
+                  <em>{pathLabel(asset)}</em>
+                </span>
+              </button>
+            );
+          })}
+        </section>
+
+        <div className="map-direction" aria-hidden="true">
+          <ArrowRight />
         </div>
-        <svg
-          aria-hidden="true"
-          className="lineage-connectors"
-          preserveAspectRatio="none"
-          viewBox="0 0 220 300"
+
+        <article className="target-node">
+          <span className="target-platform">dbt governed model</span>
+          <Database aria-hidden="true" />
+          <strong>{context.target_name}</strong>
+          <small>{context.target_domain ?? "Data product model"}</small>
+          <em>PII · Governed</em>
+        </article>
+
+        <div className="map-direction" aria-hidden="true">
+          <ArrowRight />
+        </div>
+
+        <section
+          className="asset-column downstream-column"
+          aria-label="Recorded dependents"
         >
-          <path d="M0 150 C90 150 80 36 220 36" />
-          <path d="M0 150 C90 150 92 112 220 112" />
-          <path d="M0 150 C90 150 92 188 220 188" />
-          <path d="M0 150 C90 150 80 264 220 264" />
-          <circle cx="2" cy="150" r="5" />
-        </svg>
-        <AffectedAssets assets={context.downstream_assets} />
+          <h3>Recorded dependents</h3>
+          {context.downstream_assets.map((asset) => {
+            const Icon = assetIcon(asset);
+            return (
+              <button
+                aria-label={`${asset.name}, ${asset.entity_type}, ${pathLabel(asset)} evidence`}
+                className={highlighted.has(asset.urn) ? "is-highlighted" : ""}
+                key={asset.urn}
+                onClick={() => setSelectedAsset(asset)}
+                type="button"
+              >
+                <Icon aria-hidden />
+                <span>
+                  <small>{asset.entity_type.replaceAll("_", " ")}</small>
+                  <strong>{asset.name}</strong>
+                  <em>{pathLabel(asset)}</em>
+                </span>
+              </button>
+            );
+          })}
+        </section>
       </div>
+
+      <details className="accessible-dependencies">
+        <summary>Accessible dependency list</summary>
+        <ul>
+          {context.downstream_assets.map((asset) => (
+            <li key={asset.urn}>
+              <strong>{asset.name}</strong>
+              <span>
+                {asset.entity_type.replaceAll("_", " ")} · {pathLabel(asset)} ·
+                field {asset.field ?? "not recorded"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
+
+      <EvidenceDrawer
+        asset={selectedAsset}
+        dataHubUrl={
+          selectedAsset
+            ? safeDataHubLink(dataHubOrigin, selectedAsset.urn)
+            : null
+        }
+        onClose={() => setSelectedAsset(null)}
+      />
     </section>
   );
 }

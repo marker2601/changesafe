@@ -1,29 +1,23 @@
-import { ArrowRight, ShieldCheck } from "lucide-react";
+import { ArrowRight, Database, ShieldCheck } from "lucide-react";
+import { useState } from "react";
 
 import { browserApi } from "./api";
 import { ApprovalPanel } from "./components/ApprovalPanel";
 import { ArtifactExplorer } from "./components/ArtifactExplorer";
 import { ChangeForm } from "./components/ChangeForm";
+import { CommandRail } from "./components/CommandRail";
 import { Header } from "./components/Header";
+import { ImpactClassification } from "./components/ImpactClassification";
 import { ImpactGraph } from "./components/ImpactGraph";
+import { LiveProcess } from "./components/LiveProcess";
+import { OwnerActivity } from "./components/OwnerActivity";
 import { RiskCard } from "./components/RiskCard";
-import { RunTimeline } from "./components/RunTimeline";
 import { ValidationPanel } from "./components/ValidationPanel";
 import { useRun } from "./hooks/useRun";
-import type { ChangeRequest, ChangeSafeApi } from "./types";
+import type { ChangeSafeApi, ImpactAssessment } from "./types";
 
 interface AppProps {
   api?: ChangeSafeApi;
-}
-
-function transitionLabel(change: ChangeRequest): string {
-  if (change.operation === "rename") {
-    return `${change.field} → ${change.new_field ?? "new field"}`;
-  }
-  if (change.operation === "type_change") {
-    return `${change.field}: ${change.old_type ?? "current"} → ${change.new_type ?? "new"}`;
-  }
-  return `Remove ${change.field}`;
 }
 
 export function App({ api = browserApi }: AppProps) {
@@ -38,98 +32,164 @@ export function App({ api = browserApi }: AppProps) {
     continueWithSnapshot,
     reset,
   } = useRun(api);
-  const liveEnvironment = run?.analysis
-    ? run.analysis.context.provenance.mode === "live"
+  const [selectedImpact, setSelectedImpact] = useState<ImpactAssessment | null>(
+    null,
+  );
+  const [ownerActivityOpen, setOwnerActivityOpen] = useState(false);
+  const analysis = run?.analysis;
+  const activeImpact =
+    analysis?.impacts.find(
+      (impact) => impact.category === selectedImpact?.category,
+    ) ?? null;
+  const liveEnvironment = analysis
+    ? analysis.context.provenance.mode === "live"
     : Boolean(config?.mode !== "replay" && config?.live_context_available);
   const patchUrl = run
     ? (api.patchUrl?.(run.run_id) ?? `/api/runs/${run.run_id}/publication.patch`)
     : "#";
+  const blocking =
+    analysis?.validation.checks.filter((check) => check.blocking) ?? [];
 
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
         Skip to analysis
       </a>
-      <Header config={config} run={run} />
+      <Header
+        config={config}
+        onOpenOwnerActivity={() => setOwnerActivityOpen(true)}
+        run={run}
+      />
+      {ownerActivityOpen ? (
+        <OwnerActivity
+          loadActivity={(token) => api.getOwnerActivity(token)}
+          onClose={() => setOwnerActivityOpen(false)}
+        />
+      ) : null}
+
+      <section className="product-hero">
+        <div>
+          <span className="hero-kicker">Data contract change intelligence</span>
+          <h1>Change data safely, with every dependency in view.</h1>
+          <p>
+            ChangeSafe uses DataHub context to find affected systems and teams,
+            generate a compatible migration, verify every artifact, and publish only
+            after owner approval.
+          </p>
+          <span className="official-badge">
+            <ShieldCheck aria-hidden="true" />
+            Official DataHub showcase-ecommerce
+          </span>
+        </div>
+        <aside aria-label="Scenario systems">
+          <strong>{liveEnvironment ? "Live context" : "Replay context"}</strong>
+          <span>DataHub · Snowflake · dbt</span>
+          <span>Looker · Power BI</span>
+        </aside>
+      </section>
+
       <main id="main-content">
-        <div className="analysis-grid">
+        {error ? (
+          <div className="global-error" role="alert">
+            <ShieldCheck aria-hidden="true" />
+            <span>
+              <strong>ChangeSafe stopped safely</strong>
+              {error}
+            </span>
+          </div>
+        ) : null}
+
+        <div className="command-center">
           <aside className="request-rail">
             <ChangeForm busy={busy} onSubmit={analyze} />
+            {analysis ? (
+              <>
+                <ImpactClassification
+                  impacts={analysis.impacts}
+                  onSelect={setSelectedImpact}
+                  selected={activeImpact}
+                />
+                <RiskCard risk={analysis.risk} />
+              </>
+            ) : (
+              <section className="impact-placeholder" aria-label="Impact areas">
+                <span>After context arrives</span>
+                <strong>Six impact areas will be classified with evidence.</strong>
+              </section>
+            )}
           </aside>
 
           <section className="analysis-canvas" aria-live="polite">
-            {error ? (
-              <div className="global-error" role="alert">
-                <strong>ChangeSafe stopped safely</strong>
-                <span>{error}</span>
-              </div>
-            ) : null}
-            {run ? (
-              <>
-                <header className="analysis-heading">
-                  <span>Change analysis</span>
-                  <h1>{transitionLabel(run.request)}</h1>
-                </header>
-                {run.analysis ? (
-                  <>
-                    <RiskCard risk={run.analysis.risk} />
-                    <ImpactGraph context={run.analysis.context} />
-                  </>
-                ) : run.state === "context_fallback_required" ? (
-                  <div className="analysis-stage fallback-stage">
-                    <span className="stage-mark">
-                      <ShieldCheck aria-hidden="true" />
-                    </span>
-                    <h2>Live context is unavailable</h2>
-                    <p>
-                      {run.error?.message ??
-                        "Confirm the checksummed snapshot before analysis continues."}
-                    </p>
-                    <button
-                      className="button button-primary"
-                      disabled={busy}
-                      onClick={() => void continueWithSnapshot()}
-                      type="button"
-                    >
-                      Continue with labeled snapshot
-                    </button>
-                  </div>
-                ) : (
-                  <div className="analysis-stage">
-                    <span className="stage-mark">
-                      <ShieldCheck aria-hidden="true" />
-                    </span>
-                    <h2>Gathering governed context</h2>
-                    <p>
-                      {events.at(-1)?.public_message ??
-                        "The run is queued and waiting for its first evidence event."}
-                    </p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="empty-state">
-                <span>
-                  <ShieldCheck aria-hidden="true" />
-                </span>
-                <h1>Ready for change analysis</h1>
+            {analysis ? (
+              <ImpactGraph
+                activeImpact={activeImpact}
+                context={analysis.context}
+                dataHubOrigin={config?.datahub_ui_url}
+              />
+            ) : run?.state === "context_fallback_required" ? (
+              <div className="analysis-stage fallback-stage">
+                <ShieldCheck aria-hidden="true" />
+                <span>Context decision required</span>
+                <h2>Live DataHub is unavailable</h2>
                 <p>
-                  Submit the seeded rename to inspect its real metadata blast radius,
-                  safety score, and migration artifacts.
+                  {run.error?.message ??
+                    "Confirm the checksum-pinned replay before analysis continues."}
                 </p>
-                <ArrowRight aria-hidden="true" />
+                <button
+                  className="button button-primary"
+                  disabled={busy}
+                  onClick={() => void continueWithSnapshot()}
+                  type="button"
+                >
+                  Continue with labeled snapshot
+                </button>
+              </div>
+            ) : run ? (
+              <div className="analysis-stage">
+                <Database aria-hidden="true" />
+                <span>Analysis in progress</span>
+                <h2>{events.at(-1)?.public_message ?? "Run accepted"}</h2>
+                <p>
+                  Real server events update this workspace as DataHub context,
+                  generation, and verification complete.
+                </p>
+              </div>
+            ) : (
+              <div className="scenario-ready">
+                <span>Official judge scenario ready</span>
+                <Database aria-hidden="true" />
+                <h2>order_details</h2>
+                <p>
+                  Rename <strong>cust_email</strong> to <strong>primary_email</strong>
+                  while keeping every recorded consumer working.
+                </p>
+                <div>
+                  <span>Order Entry Analytics</span>
+                  <ArrowRight aria-hidden="true" />
+                  <span>Safe migration proof</span>
+                </div>
               </div>
             )}
           </section>
 
-          <RunTimeline events={events} runState={run?.state ?? null} />
+          <LiveProcess events={events} runState={run?.state ?? null} />
         </div>
 
-        {run?.analysis ? (
-          <div className="delivery-grid">
-            <ArtifactExplorer key={run.run_id} artifacts={run.analysis.artifacts} />
+        <CommandRail
+          artifactCount={analysis ? Object.keys(analysis.artifacts.files).length : 0}
+          passedChecks={blocking.filter((check) => check.passed).length}
+          runState={run?.state ?? null}
+          totalChecks={blocking.length}
+        />
+
+        {analysis ? (
+          <section
+            className="delivery-workspace"
+            aria-label="Verified change package"
+          >
+            <ArtifactExplorer key={run.run_id} artifacts={analysis.artifacts} />
             <aside className="governance-rail">
-              <ValidationPanel validation={run.analysis.validation} />
+              <ValidationPanel validation={analysis.validation} />
               <ApprovalPanel
                 busy={busy}
                 config={config}
@@ -139,15 +199,14 @@ export function App({ api = browserApi }: AppProps) {
                 run={run}
               />
             </aside>
-          </div>
+          </section>
         ) : null}
       </main>
+
       <footer className="app-footer">
         <span>Run ID: {run?.run_id.slice(0, 8) ?? "not started"}</span>
         <span>Environment: {liveEnvironment ? "LIVE" : "REPLAY"}</span>
-        <span>
-          Evidence adapter: {run?.analysis?.context.provenance.mode ?? "waiting"}
-        </span>
+        <span>Evidence: {analysis?.context.provenance.mode ?? "waiting"}</span>
       </footer>
     </div>
   );

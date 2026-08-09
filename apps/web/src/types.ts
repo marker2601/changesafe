@@ -200,6 +200,7 @@ export interface RunEvent {
 export interface PublicConfig {
   mode: "replay" | "live" | "auto";
   live_context_available: boolean;
+  datahub_ui_url: string | null;
   llm_available: boolean;
   github_publication_available: boolean;
   datahub_writeback_available: boolean;

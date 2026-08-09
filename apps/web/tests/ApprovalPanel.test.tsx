@@ -32,9 +32,11 @@ describe("ApprovalPanel", () => {
     const config: PublicConfig = {
       mode: "live",
       live_context_available: true,
+      datahub_ui_url: "https://datahub.example.com",
       llm_available: false,
       github_publication_available: true,
       datahub_writeback_available: true,
+      owner_activity_available: true,
       openai_model: "gpt-5.6-luna",
     };
 

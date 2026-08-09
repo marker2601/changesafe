@@ -106,6 +106,7 @@ def test_public_config_never_contains_credentials(tmp_path: Path) -> None:
     assert public == {
         "mode": "auto",
         "live_context_available": True,
+        "datahub_ui_url": None,
         "llm_available": True,
         "github_publication_available": False,
         "datahub_writeback_available": False,
@@ -113,6 +114,21 @@ def test_public_config_never_contains_credentials(tmp_path: Path) -> None:
         "openai_model": "gpt-5.6-luna",
     }
     assert "secret" not in str(public).lower()
+
+
+def test_public_config_exposes_only_normalized_datahub_ui_origin(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        changesafe_data_path=tmp_path / "changesafe.db",
+        datahub_ui_url="https://datahub.example.com/catalog/search?source=changesafe",
+    )
+
+    public = settings.public_config()
+
+    assert public["datahub_ui_url"] == "https://datahub.example.com"
+    assert "/catalog" not in str(public["datahub_ui_url"])
 
 
 def test_private_env_file_is_preferred_when_present(tmp_path: Path) -> None:

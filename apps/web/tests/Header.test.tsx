@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 
 import { Header } from "../src/components/Header";
 import type { PublicConfig } from "../src/types";
@@ -9,9 +10,11 @@ function config(overrides: Partial<PublicConfig>): PublicConfig {
   return {
     mode: "replay",
     live_context_available: false,
+    datahub_ui_url: null,
     llm_available: false,
     github_publication_available: false,
     datahub_writeback_available: false,
+    owner_activity_available: false,
     openai_model: "gpt-5.6-luna",
     ...overrides,
   };
@@ -63,5 +66,21 @@ describe("runtime mode header", () => {
     );
 
     expect(screen.getByText("Owner-gated publishing")).toBeVisible();
+  });
+
+  it("offers private activity only when the owner capability is available", async () => {
+    const user = userEvent.setup();
+    const onOpenOwnerActivity = vi.fn();
+    render(
+      <Header
+        config={config({ owner_activity_available: true })}
+        onOpenOwnerActivity={onOpenOwnerActivity}
+        run={null}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Owner activity" }));
+
+    expect(onOpenOwnerActivity).toHaveBeenCalledOnce();
   });
 });

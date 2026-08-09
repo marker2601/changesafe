@@ -35,14 +35,16 @@ describe("ChangeSafe workspace", () => {
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: /customer_email.*primary_email/,
+        name: "Change data safely, with every dependency in view.",
       }),
     ).toBeVisible();
-    expect(subscribe).toHaveBeenCalledWith(
-      RUN_ID,
-      0,
-      expect.any(Function),
-      expect.any(Function),
+    await waitFor(() =>
+      expect(subscribe).toHaveBeenCalledWith(
+        RUN_ID,
+        0,
+        expect.any(Function),
+        expect.any(Function),
+      ),
     );
   });
 
@@ -69,6 +71,7 @@ describe("ChangeSafe workspace", () => {
       getPublicConfig: vi.fn(async (): Promise<PublicConfig> => ({
         mode: "live",
         live_context_available: true,
+        datahub_ui_url: "https://datahub.example.com",
         llm_available: false,
         github_publication_available: true,
         datahub_writeback_available: true,
@@ -94,7 +97,7 @@ describe("ChangeSafe workspace", () => {
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: /customer_email.*primary_email/,
+        name: "Change data safely, with every dependency in view.",
       }),
     ).toBeVisible();
     await waitFor(() =>
@@ -126,6 +129,7 @@ describe("ChangeSafe workspace", () => {
       getPublicConfig: vi.fn(async (): Promise<PublicConfig> => ({
         mode: "live",
         live_context_available: true,
+        datahub_ui_url: "https://datahub.example.com",
         llm_available: false,
         github_publication_available: true,
         datahub_writeback_available: true,
@@ -151,11 +155,13 @@ describe("ChangeSafe workspace", () => {
     expect(
       await screen.findByText("The branch no longer matches verified artifacts."),
     ).toBeVisible();
-    expect(subscribe).toHaveBeenCalledWith(
-      RUN_ID,
-      0,
-      expect.any(Function),
-      expect.any(Function),
+    await waitFor(() =>
+      expect(subscribe).toHaveBeenCalledWith(
+        RUN_ID,
+        0,
+        expect.any(Function),
+        expect.any(Function),
+      ),
     );
     expect(screen.getByText(`Run ID: ${RUN_ID.slice(0, 8)}`)).toBeVisible();
   });
@@ -166,10 +172,18 @@ describe("ChangeSafe workspace", () => {
 
     await user.click(screen.getByRole("button", { name: "Analyze change" }));
 
-    expect(await screen.findByText("90")).toBeVisible();
-    expect(screen.getByText("Critical risk")).toBeVisible();
-    expect(screen.getAllByTestId("risk-factor")).toHaveLength(6);
-    expect(screen.getByText("executive_customer_health")).toBeVisible();
+    expect(
+      await screen.findByRole("heading", {
+        name: "Change data safely, with every dependency in view.",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("Official DataHub showcase-ecommerce")).toBeVisible();
+    expect(screen.getAllByText("Order Entry Analytics").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("cust_email").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("primary_email").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("impact-category")).toHaveLength(6);
+    expect(screen.getByText("Potentially high, not quantified")).toBeVisible();
+    expect(screen.getAllByText("Customer Analytics Measures").length).toBeGreaterThan(0);
     expect(screen.getByText("12 / 12")).toBeVisible();
     expect(screen.getByText("Snapshot replay")).toBeVisible();
     expect(screen.getByText("Preview only / snapshot mode")).toBeVisible();
@@ -199,7 +213,7 @@ describe("ChangeSafe workspace", () => {
     render(<App api={api} />);
     await user.click(screen.getByRole("button", { name: "Analyze change" }));
 
-    expect(await screen.findByText(/customer_email as primary_email/)).toBeVisible();
+    expect(await screen.findByText(/cust_email as primary_email/)).toBeVisible();
     await user.click(screen.getByRole("tab", { name: "PR_BODY.md" }));
     expect(screen.getByText(/<img src=x onerror=/)).toBeVisible();
     expect(document.querySelector(".artifact-code img")).toBeNull();
@@ -235,6 +249,7 @@ describe("ChangeSafe workspace", () => {
       getPublicConfig: vi.fn(async (): Promise<PublicConfig> => ({
         mode: "auto",
         live_context_available: true,
+        datahub_ui_url: null,
         llm_available: false,
         github_publication_available: false,
         datahub_writeback_available: false,
@@ -263,9 +278,9 @@ describe("ChangeSafe workspace", () => {
     expect(
       screen.getByText("Preview only / publication disabled"),
     ).toBeVisible();
-    expect(screen.getByText("Context loaded").closest("li")).toHaveTextContent(
-      "Pending",
-    );
+    expect(
+      screen.getByText("Reading the existing data contract").closest("li"),
+    ).toHaveTextContent("Interrupted");
     expect(continueWithSnapshot).not.toHaveBeenCalled();
 
     await user.click(confirm);

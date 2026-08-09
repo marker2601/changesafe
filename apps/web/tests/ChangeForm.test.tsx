@@ -10,18 +10,19 @@ describe("ChangeForm", () => {
     const onSubmit = vi.fn();
     render(<ChangeForm busy={false} onSubmit={onSubmit} />);
 
-    expect(screen.getByLabelText("Current field")).toHaveValue(
-      "customer_email",
-    );
+    expect(screen.getByLabelText("Current field")).toHaveValue("cust_email");
     expect(screen.getByLabelText("New field")).toHaveValue("primary_email");
     await user.click(screen.getByRole("button", { name: "Analyze change" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: "rename",
-        field: "customer_email",
+        asset_urn: expect.stringContaining("ORDER_ENTRY_DB.analytics.order_details"),
+        field: "cust_email",
         new_field: "primary_email",
-        source_commit: "demo-unsafe-change",
+        old_type: null,
+        new_type: null,
+        source_commit: "showcase-ecommerce-safe-rename",
       }),
     );
   });

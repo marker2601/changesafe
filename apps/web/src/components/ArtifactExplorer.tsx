@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import type { ArtifactBundle } from "../types";
 
-const PREFERRED_PATH = "models/marts/dim_customers.sql";
+const PREFERRED_PATH = "models/marts/order_details.sql";
 
 interface ArtifactExplorerProps {
   artifacts: ArtifactBundle;

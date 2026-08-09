@@ -1,10 +1,10 @@
-import { Play } from "lucide-react";
+import { ArrowRight, Database, Play, ShieldCheck, Snowflake } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import type { ChangeOperation, ChangeRequest } from "../types";
 
 const TARGET =
-  "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)";
+  "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)";
 
 interface ChangeFormProps {
   busy: boolean;
@@ -14,11 +14,13 @@ interface ChangeFormProps {
 export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
   const [assetUrn, setAssetUrn] = useState(TARGET);
   const [operation, setOperation] = useState<ChangeOperation>("rename");
-  const [field, setField] = useState("customer_email");
+  const [field, setField] = useState("cust_email");
   const [newField, setNewField] = useState("primary_email");
-  const [oldType, setOldType] = useState("STRING");
-  const [newType, setNewType] = useState("VARCHAR");
-  const [sourceCommit, setSourceCommit] = useState("demo-unsafe-change");
+  const [oldType, setOldType] = useState("TEXT");
+  const [newType, setNewType] = useState("VARCHAR(320)");
+  const [sourceCommit, setSourceCommit] = useState(
+    "showcase-ecommerce-safe-rename",
+  );
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -27,31 +29,21 @@ export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
       operation,
       field,
       new_field: operation === "rename" ? newField : null,
-      old_type:
-        operation === "type_change" ? oldType : operation === "rename" ? "STRING" : null,
-      new_type:
-        operation === "type_change" ? newType : operation === "rename" ? "STRING" : null,
+      old_type: operation === "type_change" ? oldType : null,
+      new_type: operation === "type_change" ? newType : null,
       source_commit: sourceCommit,
-      requested_by: "demo-user",
+      requested_by: "judge-demo",
     });
   };
 
   return (
     <form className="change-form" onSubmit={submit}>
-      <div className="section-heading">
-        <h2>Propose a schema change</h2>
-        <p>Analyze the metadata blast radius before merge.</p>
-      </div>
+      <header className="panel-heading">
+        <span>Official ecommerce scenario</span>
+        <h2>Change summary</h2>
+        <p>Propose the rename. ChangeSafe will discover who and what it affects.</p>
+      </header>
 
-      <label>
-        Dataset URN
-        <input
-          required
-          value={assetUrn}
-          onChange={(event) => setAssetUrn(event.target.value)}
-          spellCheck={false}
-        />
-      </label>
       <label>
         Operation
         <select
@@ -60,29 +52,44 @@ export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
             setOperation(event.target.value as ChangeOperation)
           }
         >
-          <option value="rename">Rename</option>
-          <option value="remove">Remove</option>
-          <option value="type_change">Type change</option>
+          <option value="rename">Rename field</option>
+          <option value="remove">Remove field</option>
+          <option value="type_change">Change type</option>
         </select>
       </label>
-      <label>
-        Current field
-        <input
-          required
-          value={field}
-          onChange={(event) => setField(event.target.value)}
-        />
-      </label>
-      {operation === "rename" ? (
+
+      <p className="change-route" aria-label="Proposed field transition">
+        <strong>{field}</strong>
+        <ArrowRight aria-hidden="true" />
+        <strong>{operation === "rename" ? newField : operation.replace("_", " ")}</strong>
+      </p>
+
+      <div className="rename-pair">
         <label>
-          New field
+          Current field
           <input
             required
-            value={newField}
-            onChange={(event) => setNewField(event.target.value)}
+            value={field}
+            onChange={(event) => setField(event.target.value)}
           />
         </label>
-      ) : null}
+        <ArrowRight aria-hidden="true" />
+        {operation === "rename" ? (
+          <label>
+            New field
+            <input
+              required
+              value={newField}
+              onChange={(event) => setNewField(event.target.value)}
+            />
+          </label>
+        ) : (
+          <span className="operation-destination">
+            {operation === "remove" ? "Retain temporarily" : "Compatible alias"}
+          </span>
+        )}
+      </div>
+
       {operation === "type_change" ? (
         <div className="field-pair">
           <label>
@@ -103,14 +110,49 @@ export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
           </label>
         </div>
       ) : null}
-      <label>
-        Source commit
-        <input
-          required
-          value={sourceCommit}
-          onChange={(event) => setSourceCommit(event.target.value)}
-        />
-      </label>
+
+      <dl className="scenario-facts">
+        <div>
+          <dt>
+            <Database aria-hidden="true" /> Data product
+          </dt>
+          <dd>Order Entry Analytics</dd>
+        </div>
+        <div>
+          <dt>
+            <ShieldCheck aria-hidden="true" /> Field policy
+          </dt>
+          <dd>PII · Governed</dd>
+        </div>
+        <div>
+          <dt>
+            <Snowflake aria-hidden="true" /> Source system
+          </dt>
+          <dd>Snowflake · dbt</dd>
+        </div>
+      </dl>
+
+      <details className="advanced-change-fields">
+        <summary>Advanced request fields</summary>
+        <label>
+          Dataset URN
+          <input
+            required
+            value={assetUrn}
+            onChange={(event) => setAssetUrn(event.target.value)}
+            spellCheck={false}
+          />
+        </label>
+        <label>
+          Source commit
+          <input
+            required
+            value={sourceCommit}
+            onChange={(event) => setSourceCommit(event.target.value)}
+          />
+        </label>
+      </details>
+
       <button className="button button-primary" disabled={busy} type="submit">
         <Play aria-hidden="true" />
         {busy ? "Analyzing…" : "Analyze change"}

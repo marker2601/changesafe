@@ -1,13 +1,14 @@
-import { History, ShieldCheck } from "lucide-react";
+import { Activity, Database, History, Network, ShieldCheck } from "lucide-react";
 
 import type { PublicConfig, RunView } from "../types";
 
 interface HeaderProps {
   config: PublicConfig | null;
+  onOpenOwnerActivity?: () => void;
   run: RunView | null;
 }
 
-export function Header({ config, run }: HeaderProps) {
+export function Header({ config, onOpenOwnerActivity, run }: HeaderProps) {
   const provenance = run?.analysis?.context.provenance.mode;
   const fallbackRequired = run?.state === "context_fallback_required";
   const replay = provenance
@@ -34,12 +35,14 @@ export function Header({ config, run }: HeaderProps) {
   return (
     <header className="app-header">
       <a className="brand" href="#main-content" aria-label="ChangeSafe home">
-        <ShieldCheck aria-hidden="true" strokeWidth={1.8} />
+        <span className="brand-mark">
+          <Network aria-hidden="true" />
+        </span>
         <span>ChangeSafe</span>
       </a>
       <div className="environment-status" aria-label="Runtime mode">
         <span>
-          <History aria-hidden="true" />
+          {replay ? <History aria-hidden="true" /> : <Database aria-hidden="true" />}
           {contextLabel}
         </span>
         <span>
@@ -47,6 +50,16 @@ export function Header({ config, run }: HeaderProps) {
           {publicationLabel}
         </span>
       </div>
+      {config?.owner_activity_available && onOpenOwnerActivity ? (
+        <button
+          className="owner-activity-trigger"
+          onClick={onOpenOwnerActivity}
+          type="button"
+        >
+          <Activity aria-hidden="true" />
+          Owner activity
+        </button>
+      ) : null}
     </header>
   );
 }
