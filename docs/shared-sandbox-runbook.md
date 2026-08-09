@@ -1,6 +1,6 @@
-# Shared judge sandbox runbook
+# Shared review sandbox runbook
 
-This runbook hosts one ChangeSafe instance for judges while keeping every service credential on the server. It is intentionally conservative: replay is public, external writes are private and off by default.
+This runbook hosts one ChangeSafe instance for reviewers while keeping every service credential on the server. It is intentionally conservative: recorded-evidence review is public, external writes are private and off by default.
 
 ## Supported topology
 
@@ -8,20 +8,20 @@ This runbook hosts one ChangeSafe instance for judges while keeping every servic
 - One persistent volume mounted at `/data` for `changesafe.db`.
 - Read-only container filesystem with `/tmp` as tmpfs.
 - Reverse proxy or hosting edge with TLS, request-size enforcement, and distributed rate limiting.
-- `CHANGESAFE_MODE=replay` for the public judging path.
+- `CHANGESAFE_MODE=replay` for the public review path.
 - `PUBLIC_PR_ENABLED=false` and `PUBLIC_WRITEBACK_ENABLED=false` unless the operator is actively demonstrating an owner-controlled sandbox publication.
 
-SQLite and in-process tasks are safe for this single-replica judging topology. Do not scale horizontally without moving runs, events, budget reservations, and jobs to shared transactional/durable infrastructure.
+SQLite and in-process tasks are safe for this single-replica review topology. Do not scale horizontally without moving runs, events, budget reservations, and jobs to shared transactional/durable infrastructure.
 
-## Judge experience
+## Reviewer experience
 
-Judges open the shared URL and click **Analyze change**. They do not enter a DataHub login, GitHub token, OpenAI key, or owner token. Each browser tab receives an opaque random session ID; the server stores only a one-way hashed session label alongside run state and timestamps.
+Reviewers open the shared URL and click **Analyze change**. They do not enter a DataHub login, GitHub token, OpenAI key, or owner token. Each browser tab receives an opaque random session ID; the server stores only a one-way hashed session label alongside run state and timestamps.
 
 The public workflow uses a SHA-256-verified snapshot of DataHub's official `showcase-ecommerce` scenario. It runs the real orchestration and stops at preview approval. The receipt explicitly says no DataHub or GitHub write occurred.
 
 ## Private operator view
 
-Set `CHANGESAFE_ADMIN_TOKEN` to a long random value. This makes **Owner activity** available, but the endpoint still requires the token on every request. Enter it only in the drawer; the browser keeps it in component memory and does not write it to session storage, local storage, a URL, or global application state.
+Set `CHANGESAFE_ADMIN_TOKEN` to a long random value. This makes **Review activity** available, but the endpoint still requires the token on every request. Enter it only in the drawer; the browser keeps it in component memory and does not write it to session storage, local storage, a URL, or global application state.
 
 The activity response is intentionally limited to:
 
@@ -59,7 +59,7 @@ Before enabling live mode:
 2. Run `datahub datapack load showcase-ecommerce`.
 3. Run `scripts/seed_datahub.py --apply` with a token allowed to add the ChangeSafe overlay.
 4. Run `scripts/seed_datahub.py --verify-only`.
-5. Keep `PUBLIC_WRITEBACK_ENABLED=false` for judge traffic unless a dedicated mutation demonstration is required.
+5. Keep `PUBLIC_WRITEBACK_ENABLED=false` for reviewer traffic unless a dedicated mutation demonstration is required.
 
 ## Optional GitHub sandbox
 
@@ -70,7 +70,7 @@ When enabled, approval additionally requires `CHANGESAFE_ADMIN_TOKEN`. ChangeSaf
 ## Health and monitoring
 
 - Probe `GET /healthz`.
-- Use the owner activity drawer for privacy-limited run state.
+- Use the review activity drawer for privacy-limited run state.
 - Alert on repeated `publication_failed`, `failed`, 429, or 5xx responses.
 - Back up the persistent SQLite volume before maintenance.
 - Never log request authorization headers or the private environment.
@@ -82,6 +82,6 @@ When enabled, approval additionally requires `CHANGESAFE_ADMIN_TOKEN`. ChangeSaf
 - Retryable publication failures resume only the missing checkpoint.
 - Non-retryable authorization, destination, branch-tree, or contract failures require operator correction.
 
-## Reset after judging
+## Reset after review
 
 Disable both mutation flags, revoke temporary DataHub/GitHub tokens, rotate the owner token, archive the sandbox repository, and retain or securely delete the SQLite volume according to the submission record policy.

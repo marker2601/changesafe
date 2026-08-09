@@ -50,6 +50,10 @@ export function App({ api = browserApi }: AppProps) {
   const blocking =
     analysis?.validation.checks.filter((check) => check.blocking) ?? [];
   const displayedChange = run?.request ?? draft;
+  const resetAnalysis = () => {
+    setSelectedImpact(null);
+    reset();
+  };
 
   return (
     <div className="app-shell">
@@ -202,7 +206,7 @@ export function App({ api = browserApi }: AppProps) {
                 busy={busy}
                 config={config}
                 onApprove={approve}
-                onReset={reset}
+                onReset={resetAnalysis}
                 patchUrl={patchUrl}
                 run={run}
               />

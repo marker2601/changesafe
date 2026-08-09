@@ -13,6 +13,7 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
   const desktop = await desktopContext.newPage();
   await desktop.goto("/");
   await desktop.getByRole("button", { name: "Analyze change" }).click();
+  await expect(desktop.getByText(/^Completed in /)).toBeVisible();
   await expect(desktop.getByTestId("impact-category")).toHaveCount(6);
   await expect(desktop.getByTestId("artifact-file")).toHaveCount(7);
   await expect(desktop.getByText("12 / 12", { exact: true })).toBeVisible();
@@ -36,6 +37,7 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
   const mobile = await mobileContext.newPage();
   await mobile.goto("/");
   await mobile.getByRole("button", { name: "Analyze change" }).click();
+  await expect(mobile.getByText(/^Completed in /)).toBeVisible();
   await expect(mobile.getByText("12 / 12", { exact: true })).toBeVisible();
   await mobile.getByRole("button", { name: "Approve preview" }).click();
   await expect(mobile.getByText("Preview ready", { exact: true })).toBeVisible();

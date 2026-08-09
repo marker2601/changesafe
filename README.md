@@ -2,9 +2,9 @@
 
 ChangeSafe is a metadata-aware, pre-merge safety agent for analytics schema changes. It turns a proposed column rename, removal, or type change into an evidence-backed impact decision and a verified seven-file migration package before anything can be published.
 
-The default replay experience is credential-free and deterministic. The live adapters can read DataHub context, use a bounded OpenAI planning call, create a GitHub pull request, and write an approval record back to DataHub when an owner explicitly enables those operations.
+The default recorded-evidence experience is credential-free and deterministic. It replays a checksummed DataHub evidence bundle through the real ChangeSafe pipeline; it is not a simulated UI. The live adapters can read DataHub context, use a bounded OpenAI planning call, create a GitHub pull request, and write an approval record back to DataHub when an owner explicitly enables those operations.
 
-![ChangeSafe desktop replay workflow](docs/screenshots/changesafe-desktop-replay.png)
+![ChangeSafe desktop recorded-evidence workflow](docs/screenshots/changesafe-desktop-replay.png)
 
 ## What the golden workflow proves
 
@@ -13,12 +13,13 @@ The golden workflow uses DataHub's official `showcase-ecommerce` datapack. It ev
 - Seven recorded downstream assets across Snowflake, Power BI, and Looker, with direct and multi-hop relationships labeled separately.
 - Six plain-language impact classifications covering data integrity, privacy compliance, operational continuity, decision trust, financial exposure, and organizational impact.
 - A deterministic score of 80/100 (Critical), with every point tied to metadata evidence.
+- A directional dependency map with moving lineage signals, evidence tracing, and an accessible list for nonvisual review.
 - A conservative two-phase migration that keeps `cust_email` while introducing `primary_email`.
-- Seven generated artifacts with exact SHA-256 hashes.
+- Seven generated artifacts with exact SHA-256 hashes and a plain-language explanation of what each file does and which failure it prevents.
 - Twelve blocking validation checks covering metadata alignment, unique outputs, paths, SQL, dbt YAML, compatibility, rollback, and the manifest.
 - An approval receipt and downloadable unified patch labeled `NOT WRITTEN - SNAPSHOT MODE`.
 
-Replay approval never contacts or mutates GitHub, DataHub, a warehouse, or OpenAI.
+The visible process is reconstructed from persisted backend events and reports measured elapsed time. It can finish in a fraction of a second on a local recorded bundle because there is no network wait. Repeating the same request against the same evidence intentionally produces the same verified result; changing the operation, target name, or type changes the assessment and artifacts. Replay approval never contacts or mutates GitHub, DataHub, a warehouse, or OpenAI.
 
 ## Fastest start: Docker replay
 
@@ -28,7 +29,7 @@ Prerequisite: Docker Desktop with Compose.
 docker compose up --build
 ```
 
-Open [http://localhost:8000](http://localhost:8000), click **Analyze change**, inspect the result, and click **Approve preview**. No API keys are required.
+Open [http://localhost:8000](http://localhost:8000), click **Analyze change**, watch the evidence process update, inspect the result, and click **Approve preview**. No API keys are required.
 
 Stop the service with `Ctrl+C`; the SQLite run ledger remains in the named `changesafe-data` volume. To remove only that project-owned volume later, run `docker compose down --volumes`.
 
@@ -83,7 +84,7 @@ Never copy the private file into this repository. `.env*`, databases, test artif
 
 ## Do I need a DataHub token?
 
-No token is needed to run or judge the complete replay workflow. Replay uses the committed, SHA-256-verified snapshot of the official ecommerce scenario and exercises the real API, event stream, policy engine, generator, verifier, approval gate, patch creation, and durable run ledger.
+No token is needed to run or review the complete replay workflow. Replay uses the committed, SHA-256-verified snapshot of the official ecommerce scenario and exercises the real API, event stream, policy engine, generator, verifier, approval gate, patch creation, and durable run ledger.
 
 A DataHub personal access token is required only when `CHANGESAFE_MODE=live` or `auto` should read a real DataHub instance. The hackathon resource page provides the `showcase-ecommerce` datapack, not a shared DataHub login or token. Create the token in the DataHub instance you control. Live writeback needs additional metadata permissions and remains disabled unless you deliberately enable it.
 
@@ -126,9 +127,9 @@ See [.env.example](.env.example) for every supported setting.
 | `OPENAI_API_KEY` | Optional. Create a project key in the OpenAI Platform. Leave blank to use reviewed deterministic templates only. |
 | `GITHUB_TOKEN` | Optional. Create a fine-grained GitHub token restricted to the one sandbox repository, with Contents and Pull requests read/write. |
 | `CHANGESAFE_GITHUB_REPOSITORY` | The existing target repository in `owner/name` form, for example `marker2601/changesafe-sandbox`. |
-| `CHANGESAFE_ADMIN_TOKEN` | Generate this yourself as a long random secret. It is separate from every service token and gates owner activity plus external publication. |
+| `CHANGESAFE_ADMIN_TOKEN` | Generate this yourself as a long random secret. It is separate from every service token and gates private review activity plus external publication. |
 
-The browser never receives any service token. Judges use the shared UI without credentials; only the operator enters `CHANGESAFE_ADMIN_TOKEN` into the private owner drawer or an owner-gated publication action.
+The browser never receives any service token. Reviewers use the shared UI without credentials; only the operator enters `CHANGESAFE_ADMIN_TOKEN` into the private review-activity drawer or an owner-gated publication action.
 
 ### Seed and verify a live DataHub instance
 
@@ -280,9 +281,9 @@ docs/                         Architecture, demo, submission, and design evidenc
 - [Privacy-safe shared sandbox runbook](docs/shared-sandbox-runbook.md)
 - [Editable Figma implementation capture](https://www.figma.com/design/6PeVH3STqBzH9hK6TrOalu?node-id=2-2)
 
-The mobile completion state is also captured here:
+The mobile recorded-evidence experience is also captured here:
 
-![ChangeSafe mobile replay receipt](docs/screenshots/changesafe-mobile-replay.png)
+![ChangeSafe mobile recorded-evidence analysis](docs/screenshots/changesafe-mobile-replay.png)
 
 ## License
 

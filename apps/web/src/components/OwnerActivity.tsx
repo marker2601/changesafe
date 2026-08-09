@@ -45,7 +45,7 @@ export function OwnerActivity({ loadActivity, onClose }: OwnerActivityProps) {
       setError(
         reason instanceof Error
           ? reason.message
-          : "Owner activity could not be loaded.",
+          : "Review activity could not be loaded.",
       );
     } finally {
       setBusy(false);
@@ -55,7 +55,7 @@ export function OwnerActivity({ loadActivity, onClose }: OwnerActivityProps) {
   return (
     <div className="owner-activity-backdrop">
       <section
-        aria-label="Private owner activity"
+        aria-label="Private review activity"
         aria-modal="true"
         className="owner-activity-drawer"
         role="dialog"
@@ -65,7 +65,7 @@ export function OwnerActivity({ loadActivity, onClose }: OwnerActivityProps) {
             <Activity aria-hidden="true" />
             Private owner view
           </span>
-          <button aria-label="Close owner activity" onClick={onClose} type="button">
+          <button aria-label="Close review activity" onClick={onClose} type="button">
             <X aria-hidden="true" />
           </button>
         </header>
@@ -98,7 +98,7 @@ export function OwnerActivity({ loadActivity, onClose }: OwnerActivityProps) {
             </button>
           </div>
           {error ? (
-            <p aria-label="Owner activity error" className="owner-activity-error" role="alert">
+            <p aria-label="Review activity error" className="owner-activity-error" role="alert">
               {error}
             </p>
           ) : null}

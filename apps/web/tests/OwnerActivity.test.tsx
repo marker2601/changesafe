@@ -56,7 +56,7 @@ describe("OwnerActivity", () => {
     await user.click(screen.getByRole("button", { name: "Load activity" }));
 
     expect(
-      await screen.findByRole("alert", { name: "Owner activity error" }),
+      await screen.findByRole("alert", { name: "Review activity error" }),
     ).toHaveTextContent("Owner token was not accepted (403).");
   });
 });

@@ -213,12 +213,19 @@ describe("ChangeSafe workspace", () => {
     expect(screen.getAllByText("Order Entry Analytics").length).toBeGreaterThan(0);
     expect(screen.getAllByText("cust_email").length).toBeGreaterThan(0);
     expect(screen.getAllByText("primary_email").length).toBeGreaterThan(0);
-    expect(screen.getAllByTestId("impact-category")).toHaveLength(6);
+    const findings = screen.getAllByTestId("impact-category");
+    expect(findings).toHaveLength(6);
+    expect(findings.every((finding) => finding.querySelector("article"))).toBe(true);
     expect(screen.getByText("Potentially high, not quantified")).toBeVisible();
     expect(screen.getAllByText("Customer Analytics Measures").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("lineage-flow")).toHaveLength(2);
+    expect(screen.getAllByTestId("artifact-file")).toHaveLength(7);
+    expect(screen.getByText("What this file does")).toBeVisible();
+    expect(screen.getByText("Failure this prevents")).toBeVisible();
     expect(screen.getByText("12 / 12")).toBeVisible();
     expect(screen.getByText("Recorded DataHub evidence")).toBeVisible();
     expect(screen.getByText("Preview only")).toBeVisible();
+    expect(screen.getByText(/^Completed in /)).toBeVisible();
     expect(
       screen.getByText(
         "Same request + same evidence = same verified result.",
@@ -227,6 +234,7 @@ describe("ChangeSafe workspace", () => {
     expect(
       screen.getByRole("button", { name: "Approve preview" }),
     ).toBeEnabled();
+    expect(document.body).not.toHaveTextContent(/judge/i);
   });
 
   it("approves without credentials and labels snapshot writeback truthfully", async () => {
@@ -242,6 +250,28 @@ describe("ChangeSafe workspace", () => {
     expect(
       screen.getByText("No external systems were changed."),
     ).toBeVisible();
+  });
+
+  it("clears a traced impact before a new analysis", async () => {
+    const user = userEvent.setup();
+    render(<App api={createGoldenApi()} />);
+    await user.click(screen.getByRole("button", { name: "Analyze change" }));
+
+    const trace = await screen.findByRole("button", {
+      name: "Trace supporting evidence for Data integrity",
+    });
+    await user.click(trace);
+    expect(trace).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(screen.getByRole("button", { name: "Approve preview" }));
+    await user.click(await screen.findByRole("button", { name: "New analysis" }));
+    await user.click(screen.getByRole("button", { name: "Analyze change" }));
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Trace supporting evidence for Data integrity",
+      }),
+    ).toHaveAttribute("aria-expanded", "false");
   });
 
   it("renders generated code as text rather than injected HTML", async () => {
