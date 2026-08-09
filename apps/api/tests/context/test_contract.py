@@ -19,6 +19,16 @@ async def test_replay_contract_finds_the_golden_dependencies() -> None:
     assert context.provenance.mode is ContextMode.SNAPSHOT
     assert len(context.provenance.snapshot_hash or "") == 64
     assert len(context.downstream_assets) == 7
+    assert [asset.lineage_degree for asset in context.upstream_assets] == [1, 1]
+    assert [asset.lineage_degree for asset in context.downstream_assets] == [
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        3,
+    ]
     assert {asset.domain for asset in context.downstream_assets if asset.domain} == {
         "Data Platform Team",
         "Ecommerce Operations",

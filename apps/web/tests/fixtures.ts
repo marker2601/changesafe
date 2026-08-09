@@ -45,6 +45,7 @@ const downstream: AffectedAsset[] = [
     field: index >= 2 && index <= 4 ? "CUST_EMAIL" : "cust_email",
     is_executive: false,
     is_production_ml: false,
+    lineage_degree: Number(pathLength) - 1,
     lineage_path: [
       OFFICIAL_TARGET,
       ...Array.from(
@@ -188,6 +189,7 @@ export const goldenRun: RunView = {
           field: "cust_email",
           is_executive: false,
           is_production_ml: false,
+          lineage_degree: 1,
           lineage_path: ["urn:li:dataset:staging", OFFICIAL_TARGET],
         },
       ],

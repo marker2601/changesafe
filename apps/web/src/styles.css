@@ -693,6 +693,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .accessible-dependencies { margin-top: 9px; }
 .accessible-dependencies ul { display: grid; gap: 5px; padding-left: 20px; color: var(--muted); font-size: 10px; }
 .accessible-dependencies li span { display: block; margin-top: 2px; color: var(--quiet); }
+.accessible-dependencies li a { display: inline-block; margin-top: 3px; color: var(--cyan); }
 
 .evidence-drawer {
   position: absolute;

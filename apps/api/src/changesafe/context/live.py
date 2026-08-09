@@ -540,9 +540,7 @@ def _lineage_relationships(
     return [], False
 
 
-def _normalize_lineage_assets(
-    change: ChangeRequest, raw: Any, direction_name: str
-) -> list[AffectedAsset]:
+def _normalize_lineage_assets(raw: Any, direction_name: str) -> list[AffectedAsset]:
     relationships, partial_lineage = _lineage_relationships(raw, direction_name)
     if partial_lineage:
         raise ContextLoadError("DataHub returned a partial lineage page")
@@ -565,12 +563,14 @@ def _normalize_lineage_assets(
             )
         raw_path = item.get("lineagePath") or item.get("paths")
         lineage_path = _collect_urns(raw_path)
-        if not lineage_path and urn and item.get("degree") == 1:
-            lineage_path = (
-                [urn, change.asset_urn]
-                if direction_name == "upstreams"
-                else [change.asset_urn, urn]
-            )
+        raw_degree = item.get("degree")
+        lineage_degree = (
+            raw_degree
+            if isinstance(raw_degree, int)
+            and not isinstance(raw_degree, bool)
+            and raw_degree >= 1
+            else None
+        )
         normalized.append(
             AffectedAsset(
                 urn=urn,
@@ -584,6 +584,7 @@ def _normalize_lineage_assets(
                     and "executive" in str(domain_name).lower()
                 ),
                 is_production_ml=bool(asset.get("isProductionMl")),
+                lineage_degree=lineage_degree,
                 lineage_path=lineage_path,
             )
         )
@@ -733,14 +734,10 @@ def _normalize_context(
     )
     terms = _urns(entity.get("glossaryTerms")) + _urns(field.get("glossaryTerms"))
 
-    upstream = _normalize_lineage_assets(
-        change, upstream_lineage_raw, "upstreams"
-    )
-    downstream = _normalize_lineage_assets(
-        change, downstream_lineage_raw, "downstreams"
-    )
+    upstream = _normalize_lineage_assets(upstream_lineage_raw, "upstreams")
+    downstream = _normalize_lineage_assets(downstream_lineage_raw, "downstreams")
     asset_downstream = _normalize_lineage_assets(
-        change, downstream_asset_lineage_raw, "downstreams"
+        downstream_asset_lineage_raw, "downstreams"
     )
     seen_downstream = {asset.urn for asset in downstream}
     for asset in asset_downstream:

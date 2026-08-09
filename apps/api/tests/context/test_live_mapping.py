@@ -400,15 +400,12 @@ async def test_live_adapter_maps_installed_agent_context_1_7_envelopes() -> None
     assert [field.name for field in context.schema_fields] == ["customer_email"]
     assert len(context.downstream_assets) == 4
     assert context.upstream_assets[0].name == "stg_customers"
-    assert context.upstream_assets[0].lineage_path == [
-        (
-            "urn:li:dataset:(urn:li:dataPlatform:dbt,"
-            "analytics.stg_customers,PROD)"
-        ),
-        TARGET,
-    ]
+    assert context.upstream_assets[0].lineage_degree == 1
+    assert context.upstream_assets[0].lineage_path == []
     assert context.downstream_assets[0].field == "customer_email"
+    assert context.downstream_assets[0].lineage_degree == 2
     assert context.downstream_assets[0].lineage_path == []
+    assert context.model_dump()["downstream_assets"][0]["lineage_degree"] == 2
     assert context.queries == [
         "select customer_email from analytics.dim_customers"
     ]

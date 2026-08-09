@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useState, type ComponentType } from "react";
 
+import { compactLineageLabel } from "../lineageEvidence";
 import type {
   AffectedAsset,
   ChangeRequest,
@@ -31,15 +32,24 @@ function assetIcon(asset: AffectedAsset): ComponentType<{ "aria-hidden"?: boolea
   return Boxes;
 }
 
-function pathLabel(asset: AffectedAsset): string {
-  if (asset.lineage_path.length === 2) return "direct";
-  if (asset.lineage_path.length > 2) return "multi-hop";
-  return "relationship only";
-}
-
 function safeDataHubLink(origin: string | null | undefined, urn: string) {
   if (!origin) return null;
   return new URL(`/dataset/${encodeURIComponent(urn)}`, origin).toString();
+}
+
+function fieldPolicyLabel(context: ContextBundle): string {
+  if (context.field_tags.length > 0) {
+    const rawName = context.field_tags[0].split(":").at(-1) ?? context.field_tags[0];
+    const scopedName = rawName.split(".").at(-1) ?? rawName;
+    const label = scopedName.replaceAll("_", " ").replaceAll("-", " ");
+    return `${label} · Recorded ${context.field_tags.length === 1 ? "tag" : "tags"}`;
+  }
+  if (context.glossary_terms.length > 0) {
+    return `${context.glossary_terms.length} glossary ${
+      context.glossary_terms.length === 1 ? "term" : "terms"
+    } recorded`;
+  }
+  return "No field policy recorded";
 }
 
 export function ImpactGraph({
@@ -51,6 +61,10 @@ export function ImpactGraph({
   const [selectedAsset, setSelectedAsset] = useState<AffectedAsset | null>(null);
   const highlighted = new Set(activeImpact?.evidence_urns ?? []);
   const graphAssets = [...context.upstream_assets, ...context.downstream_assets];
+  const accessibleAssets = [
+    ...context.upstream_assets.map((asset) => ({ asset, direction: "Upstream" })),
+    ...context.downstream_assets.map((asset) => ({ asset, direction: "Downstream" })),
+  ] as const;
   const highlightedAssetCount = graphAssets.filter((asset) =>
     highlighted.has(asset.urn),
   ).length;
@@ -103,7 +117,7 @@ export function ImpactGraph({
             const Icon = assetIcon(asset);
             return (
               <button
-                aria-label={`${asset.name}, ${pathLabel(asset)} evidence`}
+                aria-label={`${asset.name}, ${compactLineageLabel(asset)} evidence`}
                 className={assetClassName(asset)}
                 key={asset.urn}
                 onClick={() => setSelectedAsset(asset)}
@@ -113,7 +127,7 @@ export function ImpactGraph({
                 <span>
                   <small>{asset.entity_type.replaceAll("_", " ")}</small>
                   <strong>{asset.name}</strong>
-                  <em>{pathLabel(asset)}</em>
+                  <em>{compactLineageLabel(asset)}</em>
                 </span>
               </button>
             );
@@ -134,7 +148,7 @@ export function ImpactGraph({
           <Database aria-hidden="true" />
           <strong>{context.target_name}</strong>
           <small>{context.target_domain ?? "Data product model"}</small>
-          <em>PII · Governed</em>
+          <em>{fieldPolicyLabel(context)}</em>
         </article>
 
         <div className="lineage-flow" data-testid="lineage-flow" aria-hidden="true">
@@ -151,7 +165,7 @@ export function ImpactGraph({
             const Icon = assetIcon(asset);
             return (
               <button
-                aria-label={`${asset.name}, ${asset.entity_type}, ${pathLabel(asset)} evidence`}
+                aria-label={`${asset.name}, ${asset.entity_type}, ${compactLineageLabel(asset)} evidence`}
                 className={assetClassName(asset)}
                 key={asset.urn}
                 onClick={() => setSelectedAsset(asset)}
@@ -161,7 +175,7 @@ export function ImpactGraph({
                 <span>
                   <small>{asset.entity_type.replaceAll("_", " ")}</small>
                   <strong>{asset.name}</strong>
-                  <em>{pathLabel(asset)}</em>
+                  <em>{compactLineageLabel(asset)}</em>
                 </span>
               </button>
             );
@@ -171,16 +185,30 @@ export function ImpactGraph({
 
       <details className="accessible-dependencies">
         <summary>Accessible dependency list</summary>
-        <ul>
-          {context.downstream_assets.map((asset) => (
-            <li key={asset.urn}>
-              <strong>{asset.name}</strong>
-              <span>
-                {asset.entity_type.replaceAll("_", " ")} · {pathLabel(asset)} ·
-                field {asset.field ?? "not recorded"}
-              </span>
-            </li>
-          ))}
+        <ul aria-label="All recorded dependencies">
+          {accessibleAssets.map(({ asset, direction }) => {
+            const dataHubUrl = safeDataHubLink(dataHubOrigin, asset.urn);
+            return (
+              <li key={`${direction}-${asset.urn}`}>
+                <strong>{asset.name}</strong>
+                <span>
+                  {direction} · {asset.entity_type.replaceAll("_", " ")} ·{" "}
+                  {compactLineageLabel(asset)} · field {asset.field ?? "not recorded"}
+                  {asset.domain ? ` · domain ${asset.domain}` : ""}
+                </span>
+                {dataHubUrl ? (
+                  <a
+                    aria-label={`Open ${asset.name} in DataHub`}
+                    href={dataHubUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Open in DataHub
+                  </a>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       </details>
 

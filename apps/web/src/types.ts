@@ -39,6 +39,7 @@ export interface AffectedAsset {
   field: string | null;
   is_executive: boolean;
   is_production_ml: boolean;
+  lineage_degree: number | null;
   lineage_path: string[];
 }
 

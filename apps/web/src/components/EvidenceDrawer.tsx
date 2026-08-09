@@ -1,6 +1,7 @@
 import { ExternalLink, Route, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
+import { lineageKind } from "../lineageEvidence";
 import type { AffectedAsset } from "../types";
 
 interface EvidenceDrawerProps {
@@ -10,8 +11,14 @@ interface EvidenceDrawerProps {
 }
 
 function evidenceLabel(asset: AffectedAsset): string {
-  if (asset.lineage_path.length === 2) return "Direct field evidence";
-  if (asset.lineage_path.length > 2) return "Multi-hop field evidence";
+  const kind = lineageKind(asset);
+  if (asset.lineage_path.length > 0) {
+    return kind === "direct" ? "Direct field evidence" : "Multi-hop field evidence";
+  }
+  if (asset.lineage_degree !== null) {
+    const hops = asset.lineage_degree === 1 ? "1 hop" : `${asset.lineage_degree} hops`;
+    return `${kind === "direct" ? "Direct" : "Multi-hop"} relationship evidence; ${hops} recorded, concrete path unavailable`;
+  }
   return "Recorded relationship; path unavailable";
 }
 

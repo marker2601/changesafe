@@ -125,6 +125,7 @@ class AffectedAsset(StrictModel):
     field: str | None = None
     is_executive: bool = False
     is_production_ml: bool = False
+    lineage_degree: int | None = Field(default=None, ge=1)
     lineage_path: list[str] = Field(default_factory=list)
 
 
