@@ -246,12 +246,9 @@ class LiveDataHubContext:
         )
         return result
 
-    async def load(self, change: ChangeRequest) -> ContextBundle:
-        if change.asset_urn not in self.allowlist:
-            raise PermissionError("Asset is outside the configured DataHub allowlist")
-
-        calls: list[ToolEvidence] = []
-        entities = await self._call("get_entities", calls, urns=[change.asset_urn])
+    async def _load_schema_fields(
+        self, change: ChangeRequest, calls: list[ToolEvidence]
+    ) -> Any:
         schema = await self._call(
             "list_schema_fields",
             calls,
@@ -260,35 +257,229 @@ class LiveDataHubContext:
             limit=200,
             offset=0,
         )
-        upstream_lineage = await self._call(
+        if not isinstance(schema, dict):
+            return schema
+
+        fields = _extract_fields(schema)
+        remaining = schema.get("remainingCount", 0)
+        total = schema.get("totalFields")
+        returned = schema.get("returned", len(fields))
+        partial = (isinstance(remaining, int) and remaining > 0) or (
+            isinstance(total, int)
+            and isinstance(returned, int)
+            and returned < total
+        )
+        if not partial:
+            return schema
+        if not isinstance(total, int) or total < 0:
+            raise ContextLoadError(
+                "DataHub returned a partial schema field page without a total"
+            )
+
+        merged_fields = list(fields)
+        page = schema
+        while len(merged_fields) < total:
+            page_fields = _extract_fields(page)
+            page_returned = page.get("returned", len(page_fields))
+            page_offset = page.get("offset", len(merged_fields) - len(page_fields))
+            if (
+                not isinstance(page_returned, int)
+                or page_returned <= 0
+                or page_returned != len(page_fields)
+                or not isinstance(page_offset, int)
+                or page_offset < 0
+            ):
+                raise ContextLoadError(
+                    "DataHub schema pagination did not make forward progress"
+                )
+            next_offset = page_offset + page_returned
+            if next_offset != len(merged_fields):
+                raise ContextLoadError("DataHub schema pagination was inconsistent")
+
+            next_page = await self._call(
+                "list_schema_fields",
+                calls,
+                urn=change.asset_urn,
+                keywords=None,
+                limit=200,
+                offset=next_offset,
+            )
+            if not isinstance(next_page, dict):
+                raise ContextLoadError("DataHub returned an invalid schema field page")
+            next_total = next_page.get("totalFields")
+            next_page_offset = next_page.get("offset", next_offset)
+            next_fields = _extract_fields(next_page)
+            next_returned = next_page.get("returned", len(next_fields))
+            if (
+                next_total != total
+                or next_page_offset != next_offset
+                or not isinstance(next_returned, int)
+                or next_returned <= 0
+                or next_returned != len(next_fields)
+            ):
+                raise ContextLoadError("DataHub schema pagination was inconsistent")
+            merged_fields.extend(next_fields)
+            if len(merged_fields) > total:
+                raise ContextLoadError("DataHub schema pagination exceeded its total")
+            page = next_page
+
+        final_remaining = page.get("remainingCount", 0)
+        if isinstance(final_remaining, int) and final_remaining > 0:
+            raise ContextLoadError("DataHub returned a partial schema field page")
+
+        merged = dict(schema)
+        merged["fields"] = merged_fields
+        merged["totalFields"] = total
+        merged["returned"] = len(merged_fields)
+        merged["remainingCount"] = 0
+        merged["offset"] = 0
+        return merged
+
+    async def _load_lineage(
+        self,
+        change: ChangeRequest,
+        calls: list[ToolEvidence],
+        *,
+        column: str | None,
+        upstream: bool,
+    ) -> Any:
+        lineage = await self._call(
             "get_lineage",
             calls,
             urn=change.asset_urn,
+            column=column,
+            upstream=upstream,
+            max_hops=3,
+            max_results=30,
+            offset=0,
+        )
+        direction_name = "upstreams" if upstream else "downstreams"
+        if not isinstance(lineage, dict):
+            return lineage
+        direction = lineage.get(direction_name)
+        if not isinstance(direction, dict):
+            return lineage
+        raw_results = direction.get("searchResults")
+        results = (
+            [item for item in raw_results if isinstance(item, dict)]
+            if isinstance(raw_results, list)
+            else []
+        )
+        total = direction.get("total")
+        returned = direction.get("returned", len(results))
+        partial = bool(direction.get("hasMore")) or (
+            isinstance(total, int)
+            and isinstance(returned, int)
+            and returned < total
+        )
+        if not partial:
+            return lineage
+        if not isinstance(total, int) or total < 0:
+            raise ContextLoadError(
+                "DataHub returned a partial lineage page without a total"
+            )
+
+        merged_results = list(results)
+        page = direction
+        while len(merged_results) < total:
+            page_results = page.get("searchResults")
+            clean_page_results = (
+                [item for item in page_results if isinstance(item, dict)]
+                if isinstance(page_results, list)
+                else []
+            )
+            page_returned = page.get("returned", len(clean_page_results))
+            page_offset = page.get(
+                "offset", len(merged_results) - len(clean_page_results)
+            )
+            if (
+                not isinstance(page_returned, int)
+                or page_returned <= 0
+                or page_returned != len(clean_page_results)
+                or not isinstance(page_offset, int)
+                or page_offset < 0
+            ):
+                raise ContextLoadError(
+                    "DataHub returned a partial lineage page without forward progress"
+                )
+            next_offset = page_offset + page_returned
+            if next_offset != len(merged_results):
+                raise ContextLoadError("DataHub lineage pagination was inconsistent")
+
+            next_lineage = await self._call(
+                "get_lineage",
+                calls,
+                urn=change.asset_urn,
+                column=column,
+                upstream=upstream,
+                max_hops=3,
+                max_results=total,
+                offset=next_offset,
+            )
+            if not isinstance(next_lineage, dict):
+                raise ContextLoadError("DataHub returned an invalid lineage page")
+            next_direction = next_lineage.get(direction_name)
+            if not isinstance(next_direction, dict):
+                raise ContextLoadError("DataHub returned an invalid lineage page")
+            next_results_raw = next_direction.get("searchResults")
+            next_results = (
+                [item for item in next_results_raw if isinstance(item, dict)]
+                if isinstance(next_results_raw, list)
+                else []
+            )
+            next_total = next_direction.get("total")
+            next_page_offset = next_direction.get("offset", next_offset)
+            next_returned = next_direction.get("returned", len(next_results))
+            if (
+                next_total != total
+                or next_page_offset != next_offset
+                or not isinstance(next_returned, int)
+                or next_returned <= 0
+                or next_returned != len(next_results)
+            ):
+                raise ContextLoadError("DataHub lineage pagination was inconsistent")
+            merged_results.extend(next_results)
+            if len(merged_results) > total:
+                raise ContextLoadError("DataHub lineage pagination exceeded its total")
+            page = next_direction
+
+        if bool(page.get("hasMore")):
+            raise ContextLoadError("DataHub returned a partial lineage page")
+
+        merged_direction = dict(direction)
+        merged_direction["searchResults"] = merged_results
+        merged_direction["total"] = total
+        merged_direction["returned"] = len(merged_results)
+        merged_direction["hasMore"] = False
+        merged_direction["offset"] = 0
+        merged = dict(lineage)
+        merged[direction_name] = merged_direction
+        return merged
+
+    async def load(self, change: ChangeRequest) -> ContextBundle:
+        if change.asset_urn not in self.allowlist:
+            raise PermissionError("Asset is outside the configured DataHub allowlist")
+
+        calls: list[ToolEvidence] = []
+        entities = await self._call("get_entities", calls, urns=[change.asset_urn])
+        schema = await self._load_schema_fields(change, calls)
+        upstream_lineage = await self._load_lineage(
+            change,
+            calls,
             column=change.field,
             upstream=True,
-            max_hops=3,
-            max_results=30,
-            offset=0,
         )
-        downstream_lineage = await self._call(
-            "get_lineage",
+        downstream_lineage = await self._load_lineage(
+            change,
             calls,
-            urn=change.asset_urn,
             column=change.field,
             upstream=False,
-            max_hops=3,
-            max_results=30,
-            offset=0,
         )
-        downstream_asset_lineage = await self._call(
-            "get_lineage",
+        downstream_asset_lineage = await self._load_lineage(
+            change,
             calls,
-            urn=change.asset_urn,
             column=None,
             upstream=False,
-            max_hops=3,
-            max_results=30,
-            offset=0,
         )
         queries = await self._call(
             "get_dataset_queries",

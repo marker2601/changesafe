@@ -196,6 +196,66 @@ async def test_live_adapter_maps_agent_context_tool_envelopes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_live_adapter_fetches_every_schema_page_before_analysis() -> None:
+    def schema_page(parameters: dict[str, Any]) -> dict[str, Any]:
+        offset = parameters["offset"]
+        if offset == 0:
+            return {
+                "urn": TARGET,
+                "fields": [
+                    {
+                        "fieldPath": "customer_email",
+                        "nativeDataType": "STRING",
+                    }
+                ],
+                "totalFields": 2,
+                "returned": 1,
+                "remainingCount": 1,
+                "offset": 0,
+            }
+        if offset == 1:
+            return {
+                "urn": TARGET,
+                "fields": [
+                    {"fieldPath": "customer_id", "nativeDataType": "BIGINT"}
+                ],
+                "totalFields": 2,
+                "returned": 1,
+                "remainingCount": 0,
+                "offset": 1,
+            }
+        raise AssertionError(f"unexpected schema offset {offset}")
+
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": schema_page,
+            "get_lineage": {"relationships": []},
+            "get_dataset_queries": {"queries": []},
+        }
+    )
+
+    context = await LiveDataHubContext(
+        runner=runner, allowlist={TARGET}
+    ).load(golden_change())
+
+    assert [field.name for field in context.schema_fields] == [
+        "customer_email",
+        "customer_id",
+    ]
+    assert [
+        parameters["offset"]
+        for tool, parameters in runner.calls
+        if tool == "list_schema_fields"
+    ] == [0, 1]
+    assert [
+        item.result_count
+        for item in context.tool_evidence
+        if item.tool == "list_schema_fields"
+    ] == [1, 1]
+
+
+@pytest.mark.asyncio
 async def test_live_adapter_maps_installed_agent_context_1_7_envelopes() -> None:
     downstream = [
         {
@@ -475,6 +535,82 @@ async def test_live_adapter_fails_closed_when_native_type_is_missing() -> None:
         await LiveDataHubContext(runner=runner, allowlist={TARGET}).load(
             golden_change()
         )
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_fetches_every_lineage_page_before_analysis() -> None:
+    dashboard_urns = [
+        "urn:li:dashboard:(looker,customer_health)",
+        "urn:li:dashboard:(tableau,customer_growth)",
+    ]
+
+    def lineage_page(parameters: dict[str, Any]) -> dict[str, Any]:
+        direction = "upstreams" if parameters["upstream"] else "downstreams"
+        if parameters["column"] is not None or parameters["upstream"]:
+            return {
+                direction: {
+                    "searchResults": [],
+                    "total": 0,
+                    "returned": 0,
+                    "hasMore": False,
+                    "offset": parameters["offset"],
+                }
+            }
+
+        offset = parameters["offset"]
+        if offset not in (0, 1):
+            raise AssertionError(f"unexpected lineage offset {offset}")
+        urn = dashboard_urns[offset]
+        return {
+            "downstreams": {
+                "searchResults": [
+                    {
+                        "entity": {
+                            "urn": urn,
+                            "name": urn.rsplit(",", 1)[-1].rstrip(")"),
+                            "type": "DASHBOARD",
+                        },
+                        "degree": offset + 1,
+                    }
+                ],
+                "total": 2,
+                "returned": 1,
+                "hasMore": offset == 0,
+                "offset": offset,
+            }
+        }
+
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                "fields": [
+                    {
+                        "fieldPath": "customer_email",
+                        "nativeDataType": "STRING",
+                    }
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+            "get_lineage": lineage_page,
+            "get_dataset_queries": {"queries": []},
+        }
+    )
+
+    context = await LiveDataHubContext(
+        runner=runner, allowlist={TARGET}
+    ).load(golden_change())
+
+    assert [asset.urn for asset in context.downstream_assets] == dashboard_urns
+    asset_lineage_calls = [
+        parameters
+        for tool, parameters in runner.calls
+        if tool == "get_lineage" and parameters["column"] is None
+    ]
+    assert [call["offset"] for call in asset_lineage_calls] == [0, 1]
+    assert asset_lineage_calls[1]["max_results"] == 2
 
 
 @pytest.mark.asyncio
