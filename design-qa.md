@@ -38,6 +38,7 @@ The final explicit capture run passed on 2026-08-09. The capture command keeps `
 - The evidence drawer exposed source and destination fields, full URNs, precision, retrieval time, recorded checksum, and the configured DataHub link. Its full-screen backdrop covered background controls; Escape closed it and returned focus to the originating route.
 - The hero measured **403.83 px** before and after analysis at 1440 px (0 px change). Page containment measured **1425 / 1425** at 1440 px, **1265 / 1265** at 1280 px, and **415 / 415** at the 430 px phone viewport (`clientWidth / scrollWidth`).
 - AUTO mode was exercised with Live DataHub deliberately unavailable. Analyze stayed disabled until the reviewer explicitly chose recorded fields; analysis then paused at `Live DataHub is unavailable` and completed only after `Continue with labeled snapshot` was confirmed. The final provenance read `Recorded evidence after live fallback`.
+- The final production image also passed a read-only live smoke against the local DataHub showcase instance: schema discovery returned 55 fields with `live` provenance; `cust_email` returned 6 upstream / 25 downstream and 85 / Critical; `order_total` returned 6 / 31 and 75 / High; both produced seven artifacts, 12 / 12 checks, and a preview receipt with both mutation flags disabled.
 - Standard motion showed the directional travelling light. A reduced-motion browser regression confirms the exact route and static arrow remain visible while `.lineage-flow-light` is `display: none`.
 - The final in-app Browser console log was empty. The generated package displayed seven exact artifacts, 12 / 12 blocking checks, and a non-mutating `Preview ready` receipt.
 
@@ -62,6 +63,7 @@ These labels are evidence precision, not severity. A field name that appears sim
 | Responsive containment | 1440 px, 1280 px, and 430 px have no page-level horizontal overflow | Passed |
 | Motion and health | Reduced-motion equivalent preserves the route without the travelling light; final console log is empty | Passed |
 | Recorded fallback | Live failure is explicit and recorded evidence requires two deliberate confirmations | Passed |
+| Live DataHub smoke | Production image returns the 55-field schema and field-specific `cust_email` / `order_total` contexts without enabling mutations | Passed |
 | Final raster proof | All four checked-in PNGs depict the final field-driven routes and compatibility package without cropped panels | Passed |
 
 No P0, P1, or P2 visual defect remained after the final recheck.
