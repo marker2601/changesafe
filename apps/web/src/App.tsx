@@ -40,6 +40,21 @@ export function App({ api = browserApi }: AppProps) {
   const [draft, setDraft] = useState(DEFAULT_CHANGE_DRAFT);
   const [ownerActivityOpen, setOwnerActivityOpen] = useState(false);
   const analysis = run?.analysis;
+  const timelinePublicationMode =
+    run?.publication?.mode ??
+    (run?.state === "preparing_preview"
+      ? "preview"
+      : run?.state === "publishing" || run?.state === "publication_failed"
+        ? "live"
+        : analysis?.context.provenance.mode === "snapshot"
+          ? "preview"
+          : analysis?.context.provenance.mode === "live" &&
+              Boolean(
+                config?.github_publication_available ||
+                  config?.datahub_writeback_available,
+              )
+            ? "live"
+            : null);
   const activeImpact =
     analysis?.impacts.find(
       (impact) => impact.category === selectedImpact?.category,
@@ -85,7 +100,7 @@ export function App({ api = browserApi }: AppProps) {
             Official DataHub showcase-ecommerce
           </span>
         </div>
-        <RunProvenance busy={busy} config={config} events={events} run={run} />
+        <RunProvenance config={config} events={events} run={run} />
       </section>
 
       <main id="main-content">
@@ -183,6 +198,7 @@ export function App({ api = browserApi }: AppProps) {
           <LiveProcess
             events={events}
             field={displayedChange.field}
+            publicationMode={timelinePublicationMode}
             runState={run?.state ?? null}
           />
         </div>

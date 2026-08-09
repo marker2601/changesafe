@@ -1,6 +1,6 @@
 import { Check, Circle, CircleDot, TriangleAlert } from "lucide-react";
 
-import type { RunEvent, RunState } from "../types";
+import type { PublicationReceipt, RunEvent, RunState } from "../types";
 
 const STEPS = [
   {
@@ -30,19 +30,20 @@ const STEPS = [
   },
   {
     label: "Waiting for the accountable owner",
-    detail: "Nothing publishes without authorization.",
+    detail: "The final action waits for authorization.",
     eventState: "awaiting_approval",
   },
   {
-    label: "Publishing the approved change and evidence",
-    detail: "Exact verified bytes and an auditable decision.",
-    eventState: "publishing",
+    label: "Finalizing the approved change package",
+    detail: "The persisted run determines the authorized final action.",
+    eventState: "completed",
   },
 ] as const;
 
 interface RunTimelineProps {
   events: RunEvent[];
   field: string;
+  publicationMode?: PublicationReceipt["mode"] | null;
   runState: RunState | null;
 }
 
@@ -56,6 +57,34 @@ function activeIndex(state: RunState | null): number {
   if (state === "publication_failed") return 6;
   if (state === "created" || state === "loading_context") return 0;
   return -1;
+}
+
+function phaseIndex(state: RunState): number | null {
+  if (state === "created" || state === "loading_context") return 0;
+  if (state === "scoring_risk") return 2;
+  if (state === "generating") return 3;
+  if (state === "validating") return 4;
+  if (state === "awaiting_approval") return 5;
+  if (state === "preparing_preview" || state === "publishing") return 6;
+  return null;
+}
+
+function latestPersistedPhase(events: RunEvent[], fallback: number): number {
+  const ordered = [...events].sort((left, right) => right.sequence - left.sequence);
+  for (const event of ordered) {
+    const index = phaseIndex(event.state);
+    if (index !== null) return index;
+  }
+  return fallback;
+}
+
+function interruptedIndex(state: RunState | null, events: RunEvent[]): number | null {
+  if (state === "context_fallback_required") {
+    return latestPersistedPhase(events, 0);
+  }
+  if (state === "failed") return latestPersistedPhase(events, 0);
+  if (state === "publication_failed") return latestPersistedPhase(events, 6);
+  return null;
 }
 
 function eventMetadata(events: RunEvent[], eventState: string): string | null {
@@ -74,27 +103,61 @@ function eventMetadata(events: RunEvent[], eventState: string): string | null {
   return `${eventLabel} · +${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 }
 
-export function RunTimeline({ events, field, runState }: RunTimelineProps) {
-  const progress = activeIndex(runState);
-  const fallback = runState === "context_fallback_required";
-  const failed = runState === "publication_failed";
-  const steps = STEPS.map((step, index) =>
-    index === 1
-      ? { ...step, label: `Finding everything that depends on ${field}` }
-      : step,
-  );
+export function RunTimeline({
+  events,
+  field,
+  publicationMode = null,
+  runState,
+}: RunTimelineProps) {
+  const durableMode =
+    runState === "preparing_preview"
+      ? "preview"
+      : runState === "publishing" || runState === "publication_failed"
+        ? "live"
+        : publicationMode;
+  const interruption = interruptedIndex(runState, events);
+  const progress = interruption ?? activeIndex(runState);
+  const finalStep =
+    durableMode === "preview"
+      ? {
+          label: "Preparing the approved preview and evidence",
+          detail: "A downloadable patch and non-mutating receipt; no systems change.",
+          eventState: "preparing_preview",
+        }
+      : durableMode === "live"
+        ? {
+            label: "Publishing the approved change and evidence",
+            detail: "Exact verified bytes and an auditable decision.",
+            eventState: "publishing",
+          }
+        : STEPS.at(-1)!;
+  const steps = STEPS.map((step, index) => {
+    if (index === 1) {
+      return { ...step, label: `Finding everything that depends on ${field}` };
+    }
+    if (index === 5) {
+      const detail =
+        durableMode === "live"
+          ? "Nothing publishes without authorization."
+          : durableMode === "preview"
+            ? "The verified preview waits for authorization."
+            : step.detail;
+      return { ...step, detail };
+    }
+    return index === STEPS.length - 1 ? finalStep : step;
+  });
   return (
     <aside className="timeline-panel" aria-labelledby="progress-heading">
       <header>
         <span>Persisted server events</span>
-        <h2 id="progress-heading">Live change process</h2>
+        <h2 id="progress-heading">Change process</h2>
         <strong aria-live="polite">
           {runState ? runState.replaceAll("_", " ") : "Not started"}
         </strong>
       </header>
       <ol>
         {steps.map((step, index) => {
-          const interrupted = (fallback && index === 0) || (failed && index === 6);
+          const interrupted = index === interruption;
           const complete = !interrupted && index < progress;
           const active = !interrupted && index === progress;
           const status = interrupted

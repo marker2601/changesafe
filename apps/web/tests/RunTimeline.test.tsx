@@ -20,6 +20,7 @@ describe("RunTimeline", () => {
       <RunTimeline
         events={goldenEvents}
         field="cust_email"
+        publicationMode="live"
         runState="awaiting_approval"
       />,
     );
@@ -99,5 +100,93 @@ describe("RunTimeline", () => {
 
     expect(screen.getByText("Event 08 · +0 ms")).toBeVisible();
     expect(screen.getAllByText("Event 09 · +0 ms").length).toBeGreaterThan(0);
+  });
+
+  it("describes a persisted preview without publication language", () => {
+    const { rerender } = render(
+      <RunTimeline
+        events={goldenEvents}
+        field="cust_email"
+        publicationMode="preview"
+        runState="preparing_preview"
+      />,
+    );
+
+    expect(
+      screen.getByText("Preparing the approved preview and evidence").closest("li"),
+    ).toHaveTextContent("In progress");
+    expect(
+      screen.queryByText("Publishing the approved change and evidence"),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <RunTimeline
+        events={goldenEvents}
+        field="cust_email"
+        publicationMode="preview"
+        runState="completed"
+      />,
+    );
+
+    expect(
+      screen.getByText("Preparing the approved preview and evidence").closest("li"),
+    ).toHaveTextContent("Complete");
+  });
+
+  it("uses live publication language only for a live publication intent", () => {
+    const { rerender } = render(
+      <RunTimeline
+        events={goldenEvents}
+        field="cust_email"
+        publicationMode={null}
+        runState="awaiting_approval"
+      />,
+    );
+
+    expect(screen.getByText("Finalizing the approved change package")).toBeVisible();
+    expect(
+      screen.queryByText("Publishing the approved change and evidence"),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <RunTimeline
+        events={goldenEvents}
+        field="cust_email"
+        publicationMode="live"
+        runState="awaiting_approval"
+      />,
+    );
+
+    expect(
+      screen.getByText("Publishing the approved change and evidence"),
+    ).toBeVisible();
+  });
+
+  it("interrupts the latest persisted phase when analysis fails", () => {
+    const failedEvents: RunEvent[] = [
+      { ...loadingEvent, sequence: 1, state: "created" },
+      { ...loadingEvent, sequence: 2 },
+      { ...loadingEvent, sequence: 3, state: "scoring_risk" },
+      { ...loadingEvent, sequence: 4, state: "generating" },
+      { ...loadingEvent, sequence: 5, state: "failed" },
+    ];
+
+    render(
+      <RunTimeline
+        events={failedEvents}
+        field="cust_email"
+        publicationMode="preview"
+        runState="failed"
+      />,
+    );
+
+    expect(screen.getByText("Preparing a compatible migration").closest("li"))
+      .toHaveTextContent("Interrupted");
+    expect(
+      screen.getByText("Classifying business and technical impact").closest("li"),
+    ).toHaveTextContent("Complete");
+    expect(
+      screen.getByText("Proving the generated change is safe").closest("li"),
+    ).toHaveTextContent("Pending");
   });
 });
