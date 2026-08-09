@@ -9,10 +9,7 @@
 The governed base model remains unchanged in phase one: `order_details`.
 ChangeSafe adds compatibility relation `order_details__changesafe`.
 Downstream owners must switch to `order_details__changesafe` and migrate to `primary_email`.
-
-Keep `cust_email` and introduce `primary_email` during phase one. Update the dbt contract and enforce the operation-specific compatibility invariant.
-
-`cust_email` remains available for a 30-day deprecation window and is removed only after every recorded downstream consumer migrates.
+`cust_email` remains available for the 30-day deprecation window.
 
 ## Downstream evidence
 

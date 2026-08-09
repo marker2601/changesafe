@@ -107,7 +107,7 @@ def test_public_config_never_contains_credentials(tmp_path: Path) -> None:
         "mode": "auto",
         "live_context_available": True,
         "datahub_ui_url": None,
-        "llm_available": True,
+        "llm_available": False,
         "github_publication_available": False,
         "datahub_writeback_available": False,
         "owner_activity_available": True,

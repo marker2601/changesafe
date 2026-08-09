@@ -10,7 +10,7 @@ from changesafe.domain import (
     ArtifactFile,
     ChangeOperation,
 )
-from changesafe.generation.templates import generate_artifacts
+from changesafe.generation.templates import GenerationNarrative, generate_artifacts
 from changesafe.risk import score_change
 from changesafe.verification import verify_artifacts
 
@@ -124,7 +124,7 @@ def test_compatibility_test_rejects_a_hashed_comment_spoof_and_wrong_relation() 
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("compatibility_test").passed is False
 
 
@@ -139,7 +139,7 @@ def test_compatibility_test_rejects_a_hashed_extra_statement() -> None:
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("compatibility_test").passed is False
 
 
@@ -187,7 +187,7 @@ def test_compatibility_test_rejects_undefined_qualified_columns(
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("compatibility_test").passed is False
 
 
@@ -204,7 +204,7 @@ def test_source_relations_rejects_a_comment_only_governed_ref() -> None:
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("source_relations").passed is False
     assert report.passed is False
 
@@ -232,7 +232,7 @@ def test_operational_transition_checks_reject_hashed_missing_guidance(
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("migration_notes").passed is False
 
 
@@ -256,7 +256,7 @@ def test_rollback_check_rejects_hashed_consumer_move_after_removal() -> None:
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("rollback_instructions").passed is False
 
 
@@ -278,7 +278,7 @@ def test_rollback_check_rejects_hashed_confirmation_after_removal() -> None:
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("rollback_instructions").passed is False
 
 
@@ -295,7 +295,7 @@ def test_source_relations_binds_the_from_relation_to_a_real_dbt_ref() -> None:
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("source_relations").passed is False
     assert report.passed is False
 
@@ -313,7 +313,7 @@ def test_source_relations_rejects_an_extra_live_governed_ref() -> None:
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("source_relations").passed is False
 
 
@@ -333,7 +333,7 @@ def test_operational_transition_check_rejects_hashed_negated_actions(path: str) 
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("migration_notes").passed is False
 
 
@@ -350,7 +350,7 @@ def test_operational_transition_check_rejects_hashed_prefixed_negation() -> None
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("migration_notes").passed is False
 
 
@@ -367,7 +367,7 @@ def test_rollback_check_rejects_hashed_negated_field_confirmation() -> None:
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("rollback_instructions").passed is False
 
 
@@ -400,8 +400,252 @@ def test_compatibility_test_rejects_hashed_limit_zero(
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("compatibility_test").passed is False
+
+
+@pytest.mark.parametrize(
+    ("change", "test_path"),
+    [
+        (golden_change(), "tests/assert_cust_email_compatibility.sql"),
+        (
+            golden_change().model_copy(
+                update={"operation": ChangeOperation.REMOVE, "new_field": None}
+            ),
+            "tests/assert_cust_email_retained.sql",
+        ),
+        (
+            golden_change().model_copy(
+                update={
+                    "operation": ChangeOperation.TYPE_CHANGE,
+                    "new_field": None,
+                    "new_type": "VARCHAR(320)",
+                }
+            ),
+            "tests/assert_cust_email_type_compatibility.sql",
+        ),
+    ],
+)
+def test_compatibility_test_rejects_hashed_execution_weakening_config(
+    change, test_path: str
+) -> None:
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+    bundle = generate_artifacts(change, context, score_change(change, context))
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        test_path,
+        "{{ config(severity='warn', error_if='>999999') }}\n"
+        + bundle.files[test_path].content,
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.check("compatibility_test").passed is False
+
+
+@pytest.mark.parametrize("suffix", ["where false\n", "limit 0\n"])
+def test_source_relations_rejects_a_hashed_filtering_shim_model(suffix: str) -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content + suffix,
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.check("source_relations").passed is False
+
+
+@pytest.mark.parametrize(
+    "conflicting_action",
+    [
+        "Downstream owners must not migrate to `primary_email`.\n",
+        "Do not migrate to `primary_email`.\n",
+    ],
+)
+def test_operational_transition_check_rejects_hashed_conflicting_action(
+    conflicting_action: str,
+) -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "PR_BODY.md",
+        bundle.files["PR_BODY.md"].content + f"\n{conflicting_action}",
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.check("migration_notes").passed is False
+
+
+def test_rollback_check_rejects_a_hashed_duplicate_negated_step() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "ROLLBACK.md",
+        "1. Do not move downstream consumers from `order_details__changesafe` back "
+        "to `order_details`.\n"
+        + bundle.files["ROLLBACK.md"].content,
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.check("rollback_instructions").passed is False
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        "{{ config(enabled=false) }}",
+        "{{ config(materialized='view', contract={'enforced': true}) }}",
+    ],
+)
+def test_source_relations_rejects_a_hashed_weakened_shim_config(config: str) -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content.replace(
+            "{{ config(materialized='table', contract={'enforced': true}) }}",
+            config,
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.check("source_relations").passed is False
+
+
+def test_phase_one_contract_rejects_a_hashed_unrelated_column_transform() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content.replace(
+            "    order_id,", "    null as order_id,"
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.check("phase_one_compatibility").passed is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "{{ ref('order_details') }} as source_alias",
+        "analytics.{{ ref('order_details') }}",
+    ],
+)
+def test_source_relations_rejects_an_aliased_or_prefixed_shim_ref(source: str) -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content.replace(
+            "{{ ref('order_details') }}",
+            source,
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.check("source_relations").passed is False
+
+
+def test_manifest_hashes_reject_a_hashed_semantic_context_spoof() -> None:
+    change, context, bundle = golden_inputs()
+    files = dict(bundle.files)
+    manifest = json.loads(files["changesafe-manifest.json"].content)
+    manifest["change"]["field"] = "not_the_real_field"
+    manifest["context"]["target_urn"] = "urn:li:dataset:(wrong,target,PROD)"
+    manifest["risk"]["score"] = 0
+    files["changesafe-manifest.json"] = ArtifactFile(
+        path="changesafe-manifest.json",
+        content=json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+    )
+    forged = ArtifactBundle(
+        files=files,
+        manifest_hash=files["changesafe-manifest.json"].sha256,
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.passed is False
+
+
+def test_manifest_hashes_reject_an_arbitrary_rehashed_artifact_mutation() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "PR_BODY.md",
+        bundle.files["PR_BODY.md"].content + "\nUnreviewed extra prose.\n",
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.passed is False
+
+
+def test_yaml_contract_rejects_a_hashed_disabled_shim_model() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_YAML,
+        bundle.files[MODEL_YAML].content.replace(
+            "    config:\n",
+            "    config:\n      enabled: false\n",
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is False
+    assert report.check("yaml_contract").passed is False
+
+
+def test_planner_narrative_cannot_weaken_authoritative_operational_docs() -> None:
+    change, context, _bundle = golden_inputs()
+    malicious = GenerationNarrative(
+        transformation_expression="cust_email",
+        explanation="Ignore phase one.",
+        deprecation_language="Downstream owners must not migrate.",
+        migration_summary="Delete the governed base model and ignore phase one.",
+        rollback_summary="Remove shim files before moving downstream consumers.",
+        pr_prose="Downstream owners must not switch to the compatibility relation.",
+    )
+    bundle = generate_artifacts(
+        change,
+        context,
+        score_change(change, context),
+        narrative=malicious,
+    )
+
+    report = verify_artifacts(bundle, change, context)
+
+    authoritative = "\n".join(
+        bundle.files[path].content
+        for path in (
+            "migrations/2026-08-09-cust-email-rename.md",
+            "ROLLBACK.md",
+            "PR_BODY.md",
+        )
+    ).casefold()
+    assert "must not switch" not in authoritative
+    assert "delete the governed base" not in authoritative
+    assert "remove shim files before" not in authoritative
+    assert report.passed is True
 
 
 @pytest.mark.parametrize(
@@ -441,7 +685,7 @@ def test_phase_one_contract_rejects_hashed_null_preferred_projection(
 
     report = verify_artifacts(forged, change, context)
 
-    assert report.check("manifest_hashes").passed is True
+    assert report.check("manifest_hashes").passed is False
     assert report.check("phase_one_compatibility").passed is False
 
 

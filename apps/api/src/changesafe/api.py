@@ -37,7 +37,6 @@ from changesafe.domain import (
     RunView,
     SchemaCatalog,
 )
-from changesafe.generation.openai_generator import OpenAIGenerationPlanner
 from changesafe.generation.service import ArtifactGenerationService
 from changesafe.orchestrator import ChangeSafeOrchestrator
 from changesafe.publication.service import (
@@ -191,43 +190,14 @@ def create_app(
         )
         else None
     )
-    active_generator = generator
-    if (
-        active_generator is None
-        and active_settings.openai_api_key is not None
-        and active_settings.mode is not Mode.REPLAY
-    ):
-        active_generator = ArtifactGenerationService(
-            planner=OpenAIGenerationPlanner(
-                api_key=active_settings.openai_api_key.get_secret_value(),
-                model=active_settings.openai_model,
-                input_cost_per_million_usd=(
-                    active_settings.openai_input_cost_per_million_usd
-                ),
-                output_cost_per_million_usd=(
-                    active_settings.openai_output_cost_per_million_usd
-                ),
-                max_input_tokens=active_settings.openai_max_input_tokens_per_call,
-                max_output_tokens=active_settings.openai_max_output_tokens_per_call,
-            )
-        )
-    active_generator = active_generator or ArtifactGenerationService()
-    llm_planning_enabled = active_generator.planner is not None
+    active_generator = generator or ArtifactGenerationService()
     orchestrator = ChangeSafeOrchestrator(
         store=store,
         context_port=active_context,
         generator=active_generator,
         snapshot_context_port=snapshot_context,
-        llm_reservation_usd=(
-            active_settings.llm_max_run_cost_usd
-            if llm_planning_enabled
-            else Decimal(0)
-        ),
-        llm_budget_usd=(
-            active_settings.changesafe_llm_budget_usd
-            if llm_planning_enabled
-            else None
-        ),
+        llm_reservation_usd=Decimal(0),
+        llm_budget_usd=None,
     )
     publication_service = PublicationService(
         store=store,

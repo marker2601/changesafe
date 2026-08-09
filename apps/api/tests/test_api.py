@@ -12,7 +12,6 @@ from changesafe.context.base import ContextTransportError, DecisionWriteback
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import DEMO_TARGET_URN, golden_change
 from changesafe.domain import ChangeRequest, DataHubReceipt, RunState, SchemaCatalog
-from changesafe.generation.openai_generator import OpenAIGenerationPlanner
 from changesafe.publication.service import PublicationFailure
 
 GOLDEN_CHANGE = golden_change().model_dump(mode="json")
@@ -497,7 +496,7 @@ async def test_app_lifespan_closes_the_context_adapter(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_creation_fails_before_llm_call_when_budget_is_exhausted(
+async def test_run_creation_ignores_unused_llm_budget_when_generation_is_deterministic(
     tmp_path: Path,
 ) -> None:
     settings = Settings(
@@ -515,10 +514,7 @@ async def test_run_creation_fails_before_llm_call_when_budget_is_exhausted(
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/api/runs", json=GOLDEN_CHANGE)
 
-    assert response.status_code == 429
-    assert response.json()["detail"] == (
-        "The configured project LLM budget is exhausted."
-    )
+    assert response.status_code == 202
 
 
 @pytest.mark.asyncio
@@ -656,7 +652,9 @@ async def test_production_app_serves_built_web_assets_without_shadowing_api(
     assert config.headers["content-type"].startswith("application/json")
 
 
-def test_app_activates_bounded_openai_planner_when_configured(tmp_path: Path) -> None:
+def test_app_keeps_artifact_generation_deterministic_when_openai_is_configured(
+    tmp_path: Path,
+) -> None:
     settings = Settings(
         _env_file=None,
         mode=Mode.AUTO,
@@ -671,9 +669,8 @@ def test_app_activates_bounded_openai_planner_when_configured(tmp_path: Path) ->
         web_dist=tmp_path / "missing-web",
     )
 
-    planner = app.state.orchestrator.generator.planner
-    assert isinstance(planner, OpenAIGenerationPlanner)
-    assert planner.model == "configured-test-model"
+    assert app.state.orchestrator.generator.planner is None
+    assert settings.public_config()["llm_available"] is False
 
 
 def test_replay_mode_never_activates_paid_planning(tmp_path: Path) -> None:

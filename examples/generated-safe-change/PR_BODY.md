@@ -1,7 +1,5 @@
 # ChangeSafe: rename `cust_email` to `primary_email`
 
-This phase-one compatibility layer preserves the existing interface and includes deterministic validation, deprecation evidence, and rollback steps.
-
 ## Phase-one compatibility relation
 
 The governed base model remains unchanged in phase one: `order_details`.

@@ -24,13 +24,16 @@ from changesafe.generation.templates import (
     PR_BODY,
     ROLLBACK,
     expected_artifact_paths,
+    generate_artifacts,
 )
+from changesafe.risk import score_change
 from changesafe.sql_types import canonical_sql_type, type_change_kind
 
 REF_PATTERN = re.compile(r"\{\{\s*ref\(['\"]([^'\"]+)['\"]\)\s*\}\}")
 CONFIG_PATTERN = re.compile(r"^\s*\{\{\s*config\(.*?\)\s*\}\}\s*$", re.MULTILINE)
 SQL_COMMENT_PATTERN = re.compile(r"--[^\r\n]*|/\*.*?\*/", re.DOTALL)
 NUMBERED_STEP_PATTERN = re.compile(r"(?m)^(\d+)\.\s+(.+)$")
+SAFE_MODEL_CONFIG = "{{ config(materialized='table', contract={'enforced': true}) }}"
 
 
 def _check(code: str, label: str, passed: bool, detail: str) -> ValidationCheck:
@@ -45,6 +48,36 @@ def _dbt_refs(content: str) -> set[str]:
     normalized, refs = _replace_dbt_refs_with_sentinels(content)
     del normalized
     return set(refs.values())
+
+
+def _live_jinja_directives(content: str) -> list[str]:
+    """Return interpolation directives that execute outside SQL comments/strings."""
+    source = _sql_without_comments(content)
+    directives: list[str] = []
+    cursor = 0
+    while cursor < len(source):
+        character = source[cursor]
+        if character in {"'", '"'}:
+            quote = character
+            cursor += 1
+            while cursor < len(source):
+                if source[cursor] == quote:
+                    if cursor + 1 < len(source) and source[cursor + 1] == quote:
+                        cursor += 2
+                        continue
+                    cursor += 1
+                    break
+                cursor += 1
+            continue
+        if source.startswith("{{", cursor):
+            end = source.find("}}", cursor + 2)
+            if end < 0:
+                return ["<unterminated-jinja>"]
+            directives.append(source[cursor : end + 2].strip())
+            cursor = end + 2
+            continue
+        cursor += 1
+    return directives
 
 
 def _replace_dbt_refs_with_sentinels(content: str) -> tuple[str, dict[str, str]]:
@@ -247,10 +280,31 @@ def _select_output_names(expressions: list[exp.Expression]) -> list[str]:
     return [projection.alias_or_name for projection in select.expressions]
 
 
-def _manifest_matches(bundle: ArtifactBundle) -> bool:
+def _manifest_matches(
+    bundle: ArtifactBundle, change: ChangeRequest, context: ContextBundle
+) -> bool:
     try:
         manifest = json.loads(bundle.files[MANIFEST].content)
     except (KeyError, json.JSONDecodeError):
+        return False
+    try:
+        expected_risk = score_change(change, context).model_dump(mode="json")
+    except ValueError:
+        return False
+    expected_context = {
+        "mode": context.provenance.mode.value,
+        "snapshot_hash": context.provenance.snapshot_hash,
+        "target_urn": context.target_urn,
+    }
+    if (
+        set(manifest)
+        != {"version", "change", "context", "risk", "deprecation_status", "files"}
+        or manifest.get("version") != 1
+        or manifest.get("change") != change.model_dump(mode="json")
+        or manifest.get("context") != expected_context
+        or manifest.get("risk") != expected_risk
+        or manifest.get("deprecation_status") != "phase_one"
+    ):
         return False
     declared = manifest.get("files")
     if not isinstance(declared, dict):
@@ -261,7 +315,22 @@ def _manifest_matches(bundle: ArtifactBundle) -> bool:
     hashes_match = all(
         bundle.files[path].sha256 == digest for path, digest in declared.items()
     )
-    return hashes_match and bundle.manifest_hash == bundle.files[MANIFEST].sha256
+    try:
+        expected_bundle = generate_artifacts(
+            change, context, score_change(change, context)
+        )
+    except ValueError:
+        return False
+    expected_hashes = {
+        path: artifact.sha256 for path, artifact in expected_bundle.files.items()
+    }
+    actual_hashes = {path: artifact.sha256 for path, artifact in bundle.files.items()}
+    return (
+        hashes_match
+        and bundle.manifest_hash == bundle.files[MANIFEST].sha256
+        and actual_hashes == expected_hashes
+        and bundle.manifest_hash == expected_bundle.manifest_hash
+    )
 
 
 def _column_is(expression: exp.Expression, name: str) -> bool:
@@ -279,49 +348,75 @@ def _unqualified_column_is(expression: exp.Expression, name: str) -> bool:
     )
 
 
-def _phase_one_projection_valid(
-    expressions: list[exp.Expression], change: ChangeRequest
+def _model_select_contract_valid(
+    expressions: list[exp.Expression],
+    change: ChangeRequest,
+    context: ContextBundle,
 ) -> bool:
     if len(expressions) != 1 or not isinstance(expressions[0], exp.Select):
         return False
-    projections = expressions[0].expressions
-    if not any(
-        _unqualified_column_is(projection, change.field) for projection in projections
+    select = expressions[0]
+    if any(
+        value is not None
+        for name, value in select.args.items()
+        if name not in {"expressions", "from_"}
     ):
         return False
+    projections = list(select.expressions)
     preferred = _preferred_field(change)
-    if preferred is None:
-        return True
-    preferred_projection = next(
-        (
-            projection
-            for projection in projections
-            if projection.alias_or_name.casefold() == preferred.casefold()
-        ),
-        None,
-    )
-    if not isinstance(preferred_projection, exp.Alias):
+    expected_count = len(context.schema_fields) + (1 if preferred else 0)
+    if len(projections) != expected_count:
         return False
-    if change.operation is ChangeOperation.RENAME:
-        return _unqualified_column_is(preferred_projection.this, change.field)
-    if not isinstance(preferred_projection.this, exp.Cast):
-        return False
-    if not _unqualified_column_is(preferred_projection.this.this, change.field):
-        return False
-    assert change.new_type is not None
-    try:
-        return canonical_sql_type(
-            preferred_projection.this.to.sql(dialect="snowflake")
-        ) == canonical_sql_type(change.new_type)
-    except ValueError:
-        return False
+    position = 0
+    for schema_field in context.schema_fields:
+        projection = projections[position]
+        if not _unqualified_column_is(projection, schema_field.name):
+            return False
+        position += 1
+        if schema_field.name.casefold() != change.field.casefold() or preferred is None:
+            continue
+        preferred_projection = projections[position]
+        if (
+            not isinstance(preferred_projection, exp.Alias)
+            or preferred_projection.alias_or_name.casefold() != preferred.casefold()
+        ):
+            return False
+        if change.operation is ChangeOperation.RENAME:
+            if not _unqualified_column_is(preferred_projection.this, change.field):
+                return False
+        else:
+            if not isinstance(preferred_projection.this, exp.Cast):
+                return False
+            if not _unqualified_column_is(
+                preferred_projection.this.this, change.field
+            ):
+                return False
+            assert change.new_type is not None
+            try:
+                if canonical_sql_type(
+                    preferred_projection.this.to.sql(dialect="snowflake")
+                ) != canonical_sql_type(change.new_type):
+                    return False
+            except ValueError:
+                return False
+        position += 1
+    return True
+
+
+def _phase_one_projection_valid(
+    expressions: list[exp.Expression], change: ChangeRequest, context: ContextBundle
+) -> bool:
+    return _model_select_contract_valid(expressions, change, context)
 
 
 def _compatibility_test_valid(
     expressions: list[exp.Expression],
     change: ChangeRequest,
     shim_model: str,
+    content: str,
 ) -> bool:
+    if _live_jinja_directives(content) != [f"{{{{ ref('{shim_model}') }}}}"]:
+        return False
     if len(expressions) != 1 or not isinstance(expressions[0], exp.Select):
         return False
     select = expressions[0]
@@ -365,11 +460,117 @@ def _compatibility_test_valid(
     try:
         return canonical_sql_type(
             where.this.this.to.sql(dialect="snowflake")
-        ) == canonical_sql_type(
-            change.new_type
-        )
+        ) == canonical_sql_type(change.new_type)
     except ValueError:
         return False
+
+
+def _yaml_structure_matches(
+    content: str, model_name: str, change: ChangeRequest, context: ContextBundle
+) -> bool:
+    try:
+        document = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return False
+    if not isinstance(document, dict) or set(document) != {"version", "models"}:
+        return False
+    models = document.get("models")
+    if document.get("version") != 2 or not isinstance(models, list) or len(models) != 1:
+        return False
+    model = models[0]
+    if not isinstance(model, dict) or set(model) != {
+        "name",
+        "description",
+        "config",
+        "columns",
+    }:
+        return False
+    if (
+        model.get("name") != model_name
+        or model.get("description")
+        != "Phase-one compatibility layer over the governed model."
+        or model.get("config") != {"contract": {"enforced": True}}
+    ):
+        return False
+    columns = model.get("columns")
+    if not isinstance(columns, list):
+        return False
+    preferred = _preferred_field(change)
+    expected_fields = [
+        {
+            "name": field.name,
+            "data_type": field.data_type,
+            "nullable": field.nullable,
+        }
+        for field in context.schema_fields
+    ]
+    changed = next(
+        (
+            field
+            for field in expected_fields
+            if str(field["name"]).casefold() == change.field.casefold()
+        ),
+        None,
+    )
+    if changed is None:
+        return False
+    if preferred is not None:
+        preferred_type = (
+            change.new_type
+            if change.operation is ChangeOperation.TYPE_CHANGE
+            else str(changed["data_type"])
+        )
+        assert preferred_type is not None
+        preferred_field = {
+            "name": preferred,
+            "data_type": preferred_type,
+            "nullable": changed["nullable"],
+        }
+        index = next(
+            index
+            for index, field in enumerate(expected_fields)
+            if str(field["name"]).casefold() == change.field.casefold()
+        )
+        expected_fields = [
+            *expected_fields[: index + 1],
+            preferred_field,
+            *expected_fields[index + 1 :],
+        ]
+    if len(columns) != len(expected_fields):
+        return False
+    for column, expected in zip(columns, expected_fields, strict=True):
+        if not isinstance(column, dict):
+            return False
+        name = str(expected["name"])
+        data_type = str(expected["data_type"])
+        nullable = bool(expected["nullable"])
+        allowed_keys = {"name", "data_type", "description"}
+        if not nullable:
+            allowed_keys.add("tests")
+        if (
+            set(column) - allowed_keys
+            or column.get("name") != name
+            or column.get("data_type") != data_type
+        ):
+            return False
+        expected_description: str | None = None
+        if str(name).casefold() == change.field.casefold():
+            expected_description = (
+                "Deprecated compatibility field retained during phase one."
+            )
+        elif preferred is not None and str(name).casefold() == preferred.casefold():
+            expected_description = "Preferred field for migrated consumers."
+        if expected_description is None:
+            if "description" in column:
+                return False
+        elif column.get("description") != expected_description:
+            return False
+        if nullable:
+            if "tests" in column:
+                return False
+        elif column.get("tests") != ["not_null"]:
+            return False
+    return True
 
 
 def _transition_guidance_valid(
@@ -406,18 +607,15 @@ def _transition_guidance_valid(
             ),
         ]
     )
-    protected_actions = (
-        "governed base model",
-        "compatibility relation",
-        "downstream owners",
-        "recorded consumers must complete migration",
-    )
-    has_negated_action = any(
-        re.search(r"\b(?:do not|never)\b", line, flags=re.IGNORECASE)
-        and any(action in line.casefold() for action in protected_actions)
+    operational_phrases = ("switch to", "migrate to", "retaining", "phase two")
+    has_conflicting_action = any(
+        line not in required
+        and any(phrase in line.casefold() for phrase in operational_phrases)
         for line in lines
     )
-    return not has_negated_action and all(lines.count(item) == 1 for item in required)
+    return not has_conflicting_action and all(
+        lines.count(item) == 1 for item in required
+    )
 
 
 def _rollback_instructions_valid(
@@ -429,21 +627,24 @@ def _rollback_instructions_valid(
     model_yaml: str,
     test_path: str,
 ) -> bool:
-    steps = {
-        int(number): action.strip()
+    steps = [
+        (int(number), action.strip())
         for number, action in NUMBERED_STEP_PATTERN.findall(content)
-    }
-    return steps == {
-        1: (
+    ]
+    return steps == [
+        (1, (
             f"Move downstream consumers from `{shim_model}` back to "
             f"`{governed_model}` before removing generated artifacts."
+        )),
+        (
+            2,
+            f"Confirm `{change.field}` remains available to every downstream consumer.",
         ),
-        2: f"Confirm `{change.field}` remains available to every downstream consumer.",
-        3: f"Revert `{model_sql}`.",
-        4: f"Revert `{model_yaml}`.",
-        5: f"Remove `{test_path}`.",
-        6: "Run `dbt parse` and the project test suite before republishing.",
-    }
+        (3, f"Revert `{model_sql}`."),
+        (4, f"Revert `{model_yaml}`."),
+        (5, f"Remove `{test_path}`."),
+        (6, "Run `dbt parse` and the project test suite before republishing."),
+    ]
 
 
 def verify_artifacts(
@@ -515,7 +716,7 @@ def verify_artifacts(
             alignment_detail,
         )
     )
-    compatible = _phase_one_projection_valid(model_expressions, change)
+    compatible = _phase_one_projection_valid(model_expressions, change, context)
     checks.append(
         _check(
             "phase_one_compatibility",
@@ -562,6 +763,9 @@ def verify_artifacts(
     )
     yaml_valid = (
         yaml_structure_valid
+        and _yaml_structure_matches(
+            yaml_artifact.content if yaml_artifact else "", model_name, change, context
+        )
         and required_fields.issubset(column_keys)
         and tests_valid
         and types_valid
@@ -651,13 +855,22 @@ def verify_artifacts(
     sentinel_tables, sentinel_refs = _sentinel_ref_tables(model_text)
     source_valid = (
         model_refs == {governed_model}
+        and _live_jinja_directives(model_text)
+        == [SAFE_MODEL_CONFIG, f"{{{{ ref('{governed_model}') }}}}"]
+        and _model_select_contract_valid(model_expressions, change, context)
         and len(model_tables) == 1
         and model_tables[0].name.casefold() == governed_model.casefold()
+        and model_tables[0].args.get("alias") is None
+        and model_tables[0].args.get("db") is None
+        and model_tables[0].args.get("catalog") is None
         and len(sentinel_refs) == 1
         and len(sentinel_tables) == 1
         and sentinel_tables[0].name.casefold() in sentinel_refs
         and sentinel_refs[sentinel_tables[0].name.casefold()].casefold()
         == governed_model.casefold()
+        and sentinel_tables[0].args.get("alias") is None
+        and sentinel_tables[0].args.get("db") is None
+        and sentinel_tables[0].args.get("catalog") is None
         and model_name != governed_model
     )
     sources_valid = not unsafe_statement and not unknown_relations and source_valid
@@ -689,6 +902,11 @@ def verify_artifacts(
         parsed.get(compatibility_test, []),
         change,
         model_name,
+        (
+            bundle.files[compatibility_test].content
+            if compatibility_test in bundle.files
+            else ""
+        ),
     )
     if change.operation is ChangeOperation.REMOVE:
         compatibility_label = "Phase-one removal guard references the field"
@@ -774,7 +992,7 @@ def verify_artifacts(
         )
     )
 
-    manifest_valid = _manifest_matches(bundle)
+    manifest_valid = _manifest_matches(bundle, change, context)
     checks.append(
         _check(
             "manifest_hashes",

@@ -178,7 +178,7 @@ class Settings(BaseSettings):
             "mode": self.mode.value,
             "live_context_available": self.live_context_enabled,
             "datahub_ui_url": self.datahub_ui_origin,
-            "llm_available": self.llm_enabled and self.mode is not Mode.REPLAY,
+            "llm_available": False,
             "github_publication_available": self.github_publication_enabled,
             "datahub_writeback_available": self.datahub_writeback_enabled,
             "owner_activity_available": self.changesafe_admin_token is not None,

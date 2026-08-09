@@ -1,4 +1,4 @@
-"""Reviewed operation-specific templates; LLM output can supply prose only."""
+"""Reviewed deterministic templates; untrusted narrative input cannot alter bytes."""
 
 from __future__ import annotations
 
@@ -342,6 +342,7 @@ def _migration_notes(
     risk: RiskResult,
     narrative: GenerationNarrative,
 ) -> str:
+    del narrative
     owner = _owner(context)
     governed_model = _target_model_name(context)
     shim_model = _model_name(context)
@@ -364,9 +365,8 @@ def _migration_notes(
         "## Phase one\n\n"
         f"The governed base model remains unchanged in phase one: `{governed_model}`.\n"
         f"ChangeSafe adds compatibility relation `{shim_model}`.\n"
-        f"Downstream owners must {owner_transition}.\n\n"
-        f"{narrative.migration_summary}\n\n"
-        f"{narrative.deprecation_language}\n\n"
+        f"Downstream owners must {owner_transition}.\n"
+        f"`{change.field}` remains available for the 30-day deprecation window.\n\n"
         "## Downstream evidence\n\n"
         f"{downstream}\n\n"
         "## Exit criteria\n\n"
@@ -382,13 +382,13 @@ def _rollback(
     context: ContextBundle,
     narrative: GenerationNarrative,
 ) -> str:
+    del narrative
     model_sql, model_yaml = _model_paths(context)
     test_path = _test_path(change)
     governed_model = _target_model_name(context)
     shim_model = _model_name(context)
     return (
         "# ChangeSafe rollback\n\n"
-        f"{narrative.rollback_summary}\n\n"
         f"1. Move downstream consumers from `{shim_model}` back to `{governed_model}` "
         "before removing generated artifacts.\n"
         f"2. Confirm `{change.field}` remains available to every downstream consumer.\n"
@@ -405,6 +405,7 @@ def _pr_body(
     risk: RiskResult,
     narrative: GenerationNarrative,
 ) -> str:
+    del narrative
     factor_lines = "\n".join(
         f"- **+{factor.points}** {factor.label}" for factor in risk.factors
     )
@@ -419,7 +420,6 @@ def _pr_body(
         owner_transition += f" while retaining `{change.field}` until phase two"
     return (
         f"# ChangeSafe: {_change_title(change)}\n\n"
-        f"{narrative.pr_prose}\n\n"
         "## Phase-one compatibility relation\n\n"
         f"The governed base model remains unchanged in phase one: `{governed_model}`.\n"
         f"ChangeSafe adds compatibility relation `{shim_model}`.\n"

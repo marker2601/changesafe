@@ -103,7 +103,11 @@ async def test_openai_planner_uses_strict_bounded_response_schema() -> None:
 
 
 class FailingPlanner:
+    def __init__(self) -> None:
+        self.calls = 0
+
     async def plan(self, change, context, risk):
+        self.calls += 1
         raise TimeoutError("simulated external timeout")
 
 
@@ -146,7 +150,7 @@ async def test_openai_planner_wraps_malformed_usage_as_planning_failure(
 
 
 @pytest.mark.asyncio
-async def test_unknown_repair_usage_retains_the_full_budget_reservation(
+async def test_generation_service_never_executes_optional_planner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     planner = OpenAIGenerationPlanner(api_key="test-key", model="gpt-5.6-luna")
@@ -173,7 +177,7 @@ async def test_unknown_repair_usage_retains_the_full_budget_reservation(
 
     result = await service.generate_with_usage(change, context, risk)
 
-    assert call_count == 2
+    assert call_count == 0
     assert result.usage is None
     assert result.release_reservation is False
 
@@ -181,7 +185,8 @@ async def test_unknown_repair_usage_retains_the_full_budget_reservation(
 @pytest.mark.asyncio
 async def test_generation_service_falls_back_to_conservative_templates() -> None:
     change, context, risk = await inputs()
-    service = ArtifactGenerationService(planner=FailingPlanner())
+    planner = FailingPlanner()
+    service = ArtifactGenerationService(planner=planner)
 
     bundle = await service.generate(change, context, risk)
 
@@ -190,3 +195,4 @@ async def test_generation_service_falls_back_to_conservative_templates() -> None
         "cust_email as primary_email"
         in bundle.files["models/marts/order_details__changesafe.sql"].content.lower()
     )
+    assert planner.calls == 0
