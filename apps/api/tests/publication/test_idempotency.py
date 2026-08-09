@@ -14,7 +14,14 @@ from changesafe.context.base import (
 )
 from changesafe.context.live import LiveDataHubContext
 from changesafe.context.replay import ReplayDataHubContext
-from changesafe.domain import AnalysisResult, ContextMode, DataHubReceipt, RunState
+from changesafe.demo import golden_change
+from changesafe.domain import (
+    AnalysisResult,
+    ContextMode,
+    DataHubReceipt,
+    RunState,
+    SchemaCatalog,
+)
 from changesafe.publication.base import GitHubResult
 from changesafe.publication.github import GitHubPublicationError
 from changesafe.publication.service import (
@@ -74,6 +81,17 @@ class FlakyWritebackContext(ReplayDataHubContext):
                     update={"mode": ContextMode.LIVE, "snapshot_hash": None}
                 )
             }
+        )
+
+    async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
+        context = await self.load(golden_change())
+        if context.target_urn != asset_urn:
+            raise ContextLoadError("Snapshot does not contain the requested asset")
+        return SchemaCatalog(
+            target_urn=context.target_urn,
+            target_name=context.target_name,
+            schema_fields=context.schema_fields,
+            provenance=context.provenance,
         )
 
     async def writeback(

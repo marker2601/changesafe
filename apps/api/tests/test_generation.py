@@ -11,6 +11,7 @@ from changesafe.domain import (
     AffectedAsset,
     ChangeOperation,
     ChangeRequest,
+    LineagePrecision,
     SchemaField,
 )
 from changesafe.generation.templates import (
@@ -210,6 +211,7 @@ def test_custom_seeded_field_and_model_names_are_not_hard_coded() -> None:
                     name="stg_orders",
                     entity_type="dataset",
                     field="loyalty_code",
+                    lineage_precision=LineagePrecision.ENDPOINT_FIELD,
                 )
             ],
         }

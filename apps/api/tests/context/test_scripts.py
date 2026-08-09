@@ -14,7 +14,8 @@ from scripts.seed_datahub import (
 )
 
 from changesafe.context import live
-from changesafe.domain import ContextBundle
+from changesafe.context.base import ContextLoadError
+from changesafe.domain import ContextBundle, SchemaCatalog
 
 
 def test_snapshot_capture_writes_canonical_redacted_bytes(tmp_path: Path) -> None:
@@ -115,6 +116,16 @@ def test_seed_verification_closes_the_synchronous_live_runner(
 
         async def load(self, _change: object) -> ContextBundle:
             return context
+
+        async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
+            if context.target_urn != asset_urn:
+                raise ContextLoadError("Snapshot does not contain the requested asset")
+            return SchemaCatalog(
+                target_urn=context.target_urn,
+                target_name=context.target_name,
+                schema_fields=context.schema_fields,
+                provenance=context.provenance,
+            )
 
     monkeypatch.setattr(
         live.AgentContextToolRunner,

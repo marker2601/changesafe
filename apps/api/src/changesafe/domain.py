@@ -33,6 +33,12 @@ class ContextMode(StrEnum):
     SNAPSHOT = "snapshot"
 
 
+class LineagePrecision(StrEnum):
+    EXACT_FIELD = "exact_field"
+    ENDPOINT_FIELD = "endpoint_field"
+    DATASET_LEVEL = "dataset_level"
+
+
 class RiskBand(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -127,6 +133,7 @@ class AffectedAsset(StrictModel):
     is_production_ml: bool = False
     lineage_degree: int | None = Field(default=None, ge=1)
     lineage_path: list[str] = Field(default_factory=list)
+    lineage_precision: LineagePrecision
 
 
 class Owner(StrictModel):
@@ -154,6 +161,20 @@ class ContextProvenance(StrictModel):
     retrieved_at: datetime
     adapter_version: str
     snapshot_hash: str | None = None
+
+
+class SchemaCatalog(StrictModel):
+    target_urn: str = Field(min_length=8, pattern=r"^urn:li:")
+    target_name: str = Field(min_length=1)
+    schema_fields: list[SchemaField] = Field(min_length=1)
+    provenance: ContextProvenance
+
+    @model_validator(mode="after")
+    def require_unique_fields(self) -> SchemaCatalog:
+        names = [field.name.casefold() for field in self.schema_fields]
+        if len(names) != len(set(names)):
+            raise ValueError("schema_fields contains duplicate field names")
+        return self
 
 
 class ContextBundle(StrictModel):

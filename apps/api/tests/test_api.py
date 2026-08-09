@@ -10,7 +10,7 @@ from changesafe.config import Mode, Settings
 from changesafe.context.base import ContextTransportError, DecisionWriteback
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import golden_change
-from changesafe.domain import ChangeRequest, DataHubReceipt, RunState
+from changesafe.domain import ChangeRequest, DataHubReceipt, RunState, SchemaCatalog
 from changesafe.generation.openai_generator import OpenAIGenerationPlanner
 from changesafe.publication.service import PublicationFailure
 
@@ -20,6 +20,10 @@ GOLDEN_CHANGE = golden_change().model_dump(mode="json")
 class UnavailableLiveContext:
     async def load(self, change: ChangeRequest):
         del change
+        raise ContextTransportError("private upstream failure")
+
+    async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
+        del asset_urn
         raise ContextTransportError("private upstream failure")
 
     async def writeback(
@@ -37,6 +41,17 @@ class ClosableReplayContext:
 
     async def load(self, change: ChangeRequest):
         return await self.delegate.load(change)
+
+    async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
+        context = await self.delegate.load(golden_change())
+        if context.target_urn != asset_urn:
+            raise ContextTransportError("Snapshot does not contain the requested asset")
+        return SchemaCatalog(
+            target_urn=context.target_urn,
+            target_name=context.target_name,
+            schema_fields=context.schema_fields,
+            provenance=context.provenance,
+        )
 
     async def writeback(self, decision, **kwargs):
         return await self.delegate.writeback(decision, **kwargs)

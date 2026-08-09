@@ -10,6 +10,7 @@ from changesafe.domain import (
     ContextMode,
     ContextProvenance,
     EvidenceRef,
+    LineagePrecision,
     Owner,
     RiskBand,
 )
@@ -40,6 +41,7 @@ def golden_context() -> ContextBundle:
             domain="Analytics",
             field="customer_email",
             lineage_path=[TARGET, "urn:li:dataset:customer_360"],
+            lineage_precision=LineagePrecision.ENDPOINT_FIELD,
         ),
         AffectedAsset(
             urn="urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
@@ -48,6 +50,7 @@ def golden_context() -> ContextBundle:
             domain="Marketing",
             field="customer_email",
             lineage_path=[TARGET, "urn:li:dataset:campaign_audiences"],
+            lineage_precision=LineagePrecision.ENDPOINT_FIELD,
         ),
         AffectedAsset(
             urn="urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
@@ -56,6 +59,7 @@ def golden_context() -> ContextBundle:
             domain="Support",
             field="customer_email",
             lineage_path=[TARGET, "urn:li:dataset:customer_contact_queue"],
+            lineage_precision=LineagePrecision.ENDPOINT_FIELD,
         ),
         AffectedAsset(
             urn="urn:li:dashboard:(looker,customer_retention_dashboard)",
@@ -65,6 +69,7 @@ def golden_context() -> ContextBundle:
             field="customer_email",
             is_executive=True,
             lineage_path=[TARGET, "urn:li:dashboard:customer_retention_dashboard"],
+            lineage_precision=LineagePrecision.ENDPOINT_FIELD,
         ),
     ]
     evidence = [

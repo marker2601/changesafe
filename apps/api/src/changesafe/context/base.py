@@ -15,6 +15,7 @@ from changesafe.domain import (
     EvidenceRef,
     RiskBand,
     RiskFactor,
+    SchemaCatalog,
     StrictModel,
     ValidationCheck,
 )
@@ -57,6 +58,8 @@ WritebackProgress = Callable[[DataHubReceipt], Awaitable[None]]
 
 class DataHubContextPort(Protocol):
     async def load(self, change: ChangeRequest) -> ContextBundle: ...
+
+    async def discover_schema(self, asset_urn: str) -> SchemaCatalog: ...
 
     async def writeback(
         self,

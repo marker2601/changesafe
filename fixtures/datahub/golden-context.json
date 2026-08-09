@@ -5,6 +5,7 @@
       "entity_type": "dataset",
       "field": "cust_email",
       "lineage_degree": 1,
+      "lineage_precision": "exact_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)"
@@ -17,6 +18,7 @@
       "entity_type": "dataset",
       "field": "cust_email",
       "lineage_degree": 2,
+      "lineage_precision": "endpoint_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
@@ -30,6 +32,7 @@
       "entity_type": "semantic_model",
       "field": "CUST_EMAIL",
       "lineage_degree": 2,
+      "lineage_precision": "endpoint_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
@@ -43,6 +46,7 @@
       "entity_type": "semantic_model",
       "field": "CUST_EMAIL",
       "lineage_degree": 2,
+      "lineage_precision": "endpoint_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
@@ -56,6 +60,7 @@
       "entity_type": "semantic_model",
       "field": "CUST_EMAIL",
       "lineage_degree": 2,
+      "lineage_precision": "endpoint_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
@@ -69,6 +74,7 @@
       "entity_type": "view",
       "field": "cust_email",
       "lineage_degree": 2,
+      "lineage_precision": "endpoint_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
@@ -82,6 +88,7 @@
       "entity_type": "explore",
       "field": "order_details.cust_email",
       "lineage_degree": 3,
+      "lineage_precision": "endpoint_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
@@ -574,6 +581,7 @@
       "entity_type": "dataset",
       "field": "cust_email",
       "lineage_degree": 1,
+      "lineage_precision": "exact_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,changesafe.showcase_ecommerce.stg_order_details,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
@@ -586,6 +594,7 @@
       "entity_type": "dataset",
       "field": "cust_email",
       "lineage_degree": 1,
+      "lineage_precision": "exact_field",
       "lineage_path": [
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.order_entry_db.order_entry.customers,PROD)",
         "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"

@@ -7,14 +7,56 @@ from pydantic import ValidationError
 
 from changesafe.demo import DEMO_TARGET_URN
 from changesafe.domain import (
+    AffectedAsset,
     ChangeOperation,
     ChangeRequest,
     ContextBundle,
     ContextMode,
     ContextProvenance,
+    LineagePrecision,
+    SchemaCatalog,
+    SchemaField,
 )
 
 TARGET = DEMO_TARGET_URN
+
+
+def test_schema_catalog_requires_a_nonempty_unique_schema() -> None:
+    provenance = ContextProvenance(
+        mode=ContextMode.SNAPSHOT,
+        retrieved_at="2026-08-08T20:00:00Z",
+        adapter_version="recorded-catalog/2",
+        snapshot_hash="a" * 64,
+    )
+    with pytest.raises(ValidationError, match="schema_fields"):
+        SchemaCatalog(
+            target_urn="urn:li:dataset:demo",
+            target_name="demo",
+            schema_fields=[],
+            provenance=provenance,
+        )
+    with pytest.raises(ValidationError, match="duplicate"):
+        SchemaCatalog(
+            target_urn="urn:li:dataset:demo",
+            target_name="demo",
+            schema_fields=[
+                SchemaField(name="order_id", data_type="NUMBER", nullable=False),
+                SchemaField(name="ORDER_ID", data_type="NUMBER", nullable=False),
+            ],
+            provenance=provenance,
+        )
+
+
+def test_affected_asset_requires_explicit_lineage_precision() -> None:
+    asset = AffectedAsset(
+        urn="urn:li:dataset:upstream",
+        name="upstream",
+        entity_type="dataset",
+        field="order_id",
+        lineage_degree=1,
+        lineage_precision=LineagePrecision.EXACT_FIELD,
+    )
+    assert asset.lineage_precision is LineagePrecision.EXACT_FIELD
 
 
 def test_rename_requires_new_field() -> None:
