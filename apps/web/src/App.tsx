@@ -176,7 +176,11 @@ export function App({ api = browserApi }: AppProps) {
             )}
           </section>
 
-          <LiveProcess events={events} runState={run?.state ?? null} />
+          <LiveProcess
+            events={events}
+            field={displayedChange.field}
+            runState={run?.state ?? null}
+          />
         </div>
 
         <CommandRail

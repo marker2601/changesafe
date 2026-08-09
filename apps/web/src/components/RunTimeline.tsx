@@ -42,6 +42,7 @@ const STEPS = [
 
 interface RunTimelineProps {
   events: RunEvent[];
+  field: string;
   runState: RunState | null;
 }
 
@@ -57,22 +58,31 @@ function activeIndex(state: RunState | null): number {
   return -1;
 }
 
-function eventTime(events: RunEvent[], eventState: string): string | null {
-  const event = events.find((candidate) => candidate.state === eventState);
+function eventMetadata(events: RunEvent[], eventState: string): string | null {
+  const ordered = [...events].sort((left, right) => left.sequence - right.sequence);
+  const event = ordered.find((candidate) => candidate.state === eventState);
   if (!event) return null;
-  return new Intl.DateTimeFormat("en", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-    timeZone: "UTC",
-  }).format(new Date(event.created_at));
+  const eventLabel = `Event ${String(event.sequence).padStart(2, "0")}`;
+  const eventTimestamp = Date.parse(event.created_at);
+  const baseline = ordered
+    .map((candidate) => Date.parse(candidate.created_at))
+    .find((value) => Number.isFinite(value));
+  if (!Number.isFinite(eventTimestamp) || baseline === undefined) return eventLabel;
+  const milliseconds = Math.max(0, eventTimestamp - baseline);
+  if (milliseconds < 1_000) return `${eventLabel} · +${milliseconds} ms`;
+  const seconds = milliseconds / 1_000;
+  return `${eventLabel} · +${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 }
 
-export function RunTimeline({ events, runState }: RunTimelineProps) {
+export function RunTimeline({ events, field, runState }: RunTimelineProps) {
   const progress = activeIndex(runState);
   const fallback = runState === "context_fallback_required";
   const failed = runState === "publication_failed";
+  const steps = STEPS.map((step, index) =>
+    index === 1
+      ? { ...step, label: `Finding everything that depends on ${field}` }
+      : step,
+  );
   return (
     <aside className="timeline-panel" aria-labelledby="progress-heading">
       <header>
@@ -83,7 +93,7 @@ export function RunTimeline({ events, runState }: RunTimelineProps) {
         </strong>
       </header>
       <ol>
-        {STEPS.map((step, index) => {
+        {steps.map((step, index) => {
           const interrupted = (fallback && index === 0) || (failed && index === 6);
           const complete = !interrupted && index < progress;
           const active = !interrupted && index === progress;
@@ -121,7 +131,7 @@ export function RunTimeline({ events, runState }: RunTimelineProps) {
               </span>
               <span className="timeline-content">
                 <small>
-                  {eventTime(events, step.eventState) ?? `Step 0${index + 1}`}
+                  {eventMetadata(events, step.eventState) ?? `Step 0${index + 1}`}
                 </small>
                 <strong>{step.label}</strong>
                 <p>{step.detail}</p>

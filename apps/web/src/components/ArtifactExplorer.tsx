@@ -1,6 +1,7 @@
 import { Check, Copy, FileCode2 } from "lucide-react";
 import { useState } from "react";
 
+import { artifactExplanation } from "../artifactCatalog";
 import type { ArtifactBundle } from "../types";
 
 const PREFERRED_PATH = "models/marts/order_details.sql";
@@ -20,6 +21,7 @@ export function ArtifactExplorer({ artifacts }: ArtifactExplorerProps) {
   const [copied, setCopied] = useState(false);
 
   const file = selected ? artifacts.files[selected] : undefined;
+  const explanation = artifactExplanation(selected ?? "");
   const copy = async () => {
     if (!file || !navigator.clipboard) return;
     await navigator.clipboard.writeText(file.content);
@@ -59,6 +61,19 @@ export function ArtifactExplorer({ artifacts }: ArtifactExplorerProps) {
             {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
           </button>
         </header>
+        <section className="artifact-explanation" aria-live="polite">
+          <strong>{explanation.label}</strong>
+          <dl>
+            <div>
+              <dt>What this file does</dt>
+              <dd>{explanation.purpose}</dd>
+            </div>
+            <div>
+              <dt>Failure this prevents</dt>
+              <dd>{explanation.prevents}</dd>
+            </div>
+          </dl>
+        </section>
         <pre className="artifact-code" id="artifact-code" role="tabpanel">
           <code>{file?.content ?? "No artifact selected."}</code>
         </pre>
