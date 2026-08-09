@@ -18,6 +18,7 @@ from changesafe.domain import (
     ContextBundle,
     ContextMode,
     DataHubReceipt,
+    SchemaCatalog,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -66,6 +67,27 @@ class ReplayDataHubContext:
         payload["provenance"] = provenance
         try:
             return ContextBundle.model_validate(payload)
+        except ValueError as exc:
+            raise ContextLoadError(
+                "DataHub snapshot failed contract validation"
+            ) from exc
+
+    async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
+        payload, digest = self._load_payload()
+        if payload.get("target_urn") != asset_urn:
+            raise ContextLoadError("Snapshot does not contain the requested asset")
+
+        provenance = dict(payload.get("provenance", {}))
+        provenance.update({"mode": ContextMode.SNAPSHOT, "snapshot_hash": digest})
+        payload["provenance"] = provenance
+        try:
+            context = ContextBundle.model_validate(payload)
+            return SchemaCatalog(
+                target_urn=context.target_urn,
+                target_name=context.target_name,
+                schema_fields=context.schema_fields,
+                provenance=context.provenance,
+            )
         except ValueError as exc:
             raise ContextLoadError(
                 "DataHub snapshot failed contract validation"

@@ -18,6 +18,7 @@ from changesafe.domain import (
     ChangeOperation,
     ChangeRequest,
     ContextMode,
+    LineagePrecision,
     RiskBand,
 )
 from changesafe.risk import score_change
@@ -90,6 +91,129 @@ def golden_change() -> ChangeRequest:
         new_type="STRING",
         source_commit="demo-unsafe-change",
         requested_by="demo-user",
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_schema_discovery_returns_complete_allowlisted_schema() -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": {"entities": [{"urn": TARGET, "name": "order_details"}]},
+            "list_schema_fields": {
+                "fields": [
+                    {
+                        "fieldPath": "order_id",
+                        "nativeDataType": "NUMBER",
+                        "nullable": False,
+                    },
+                    {
+                        "fieldPath": "customer_email",
+                        "nativeDataType": "TEXT",
+                        "nullable": True,
+                    },
+                ],
+                "totalFields": 2,
+                "returned": 2,
+                "remainingCount": 0,
+                "offset": 0,
+            },
+        }
+    )
+    port = LiveDataHubContext(runner, {TARGET})
+
+    catalog = await port.discover_schema(TARGET)
+
+    assert catalog.target_urn == TARGET
+    assert catalog.target_name == "order_details"
+    assert [
+        (item.name, item.data_type, item.nullable) for item in catalog.schema_fields
+    ] == [
+        ("order_id", "NUMBER", False),
+        ("customer_email", "TEXT", True),
+    ]
+    assert catalog.provenance.mode is ContextMode.LIVE
+    assert [call[0] for call in runner.calls] == [
+        "get_entities",
+        "list_schema_fields",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_classifies_lineage_evidence_precision() -> None:
+    direct_urn = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.stg_orders,PROD)"
+    endpoint_urn = "urn:li:dashboard:(looker,customer_health)"
+    dataset_urn = "urn:li:dashboard:(tableau,customer_growth)"
+
+    def lineage_result(parameters: dict[str, Any]) -> dict[str, Any]:
+        direction = "upstreams" if parameters["upstream"] else "downstreams"
+        if parameters["upstream"]:
+            results = [
+                {
+                    "entity": {
+                        "urn": direct_urn,
+                        "name": "stg_orders",
+                        "type": "DATASET",
+                        "field": "customer_email",
+                    },
+                    "degree": 1,
+                }
+            ]
+        elif parameters["column"] is not None:
+            results = [
+                {
+                    "entity": {
+                        "urn": endpoint_urn,
+                        "name": "customer_health",
+                        "type": "DASHBOARD",
+                        "field": "customer_email",
+                    },
+                    "degree": 2,
+                }
+            ]
+        else:
+            results = [
+                {
+                    "entity": {
+                        "urn": dataset_urn,
+                        "name": "customer_growth",
+                        "type": "DASHBOARD",
+                    },
+                    "degree": 1,
+                }
+            ]
+        return {
+            direction: {
+                "searchResults": results,
+                "total": len(results),
+                "returned": len(results),
+                "hasMore": False,
+            }
+        }
+
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+            "get_lineage": lineage_result,
+            "get_dataset_queries": {"queries": []},
+        }
+    )
+
+    context = await LiveDataHubContext(runner, {TARGET}).load(golden_change())
+
+    assert context.upstream_assets[0].lineage_precision is LineagePrecision.EXACT_FIELD
+    assert context.downstream_assets[0].lineage_precision is (
+        LineagePrecision.ENDPOINT_FIELD
+    )
+    assert context.downstream_assets[1].lineage_precision is (
+        LineagePrecision.DATASET_LEVEL
     )
 
 

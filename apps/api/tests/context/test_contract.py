@@ -11,6 +11,30 @@ TARGET = DEMO_TARGET_URN
 
 
 @pytest.mark.asyncio
+async def test_replay_discovery_returns_the_checksummed_schema() -> None:
+    catalog = await ReplayDataHubContext.from_default().discover_schema(TARGET)
+
+    assert catalog.target_urn == TARGET
+    assert catalog.target_name == "order_details"
+    assert len(catalog.schema_fields) == 55
+    assert [(field.name, field.data_type) for field in catalog.schema_fields[:3]] == [
+        ("order_id", "NUMBER"),
+        ("order_date", "TEXT"),
+        ("order_mode", "TEXT"),
+    ]
+    assert catalog.provenance.mode is ContextMode.SNAPSHOT
+    assert len(catalog.provenance.snapshot_hash or "") == 64
+
+
+@pytest.mark.asyncio
+async def test_replay_discovery_rejects_a_different_asset() -> None:
+    port = ReplayDataHubContext.from_default()
+
+    with pytest.raises(ContextLoadError, match="requested asset"):
+        await port.discover_schema("urn:li:dataset:other")
+
+
+@pytest.mark.asyncio
 async def test_replay_contract_finds_the_golden_dependencies() -> None:
     port = ReplayDataHubContext.from_default()
 
@@ -68,7 +92,7 @@ async def test_replay_rejects_snapshot_checksum_drift(tmp_path: Path) -> None:
     port = ReplayDataHubContext(snapshot, checksum)
 
     with pytest.raises(ContextLoadError, match="checksum"):
-        await port.load(golden_change())
+        await port.discover_schema(TARGET)
 
 
 def test_replay_default_paths_can_be_overridden_for_packaged_runtime(

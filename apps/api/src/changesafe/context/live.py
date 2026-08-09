@@ -26,7 +26,9 @@ from changesafe.domain import (
     ContextProvenance,
     DataHubReceipt,
     EvidenceRef,
+    LineagePrecision,
     Owner,
+    SchemaCatalog,
     SchemaField,
     ToolEvidence,
 )
@@ -247,12 +249,12 @@ class LiveDataHubContext:
         return result
 
     async def _load_schema_fields(
-        self, change: ChangeRequest, calls: list[ToolEvidence]
+        self, asset_urn: str, calls: list[ToolEvidence]
     ) -> Any:
         schema = await self._call(
             "list_schema_fields",
             calls,
-            urn=change.asset_urn,
+            urn=asset_urn,
             keywords=None,
             limit=200,
             offset=0,
@@ -299,7 +301,7 @@ class LiveDataHubContext:
             next_page = await self._call(
                 "list_schema_fields",
                 calls,
-                urn=change.asset_urn,
+                urn=asset_urn,
                 keywords=None,
                 limit=200,
                 offset=next_offset,
@@ -462,7 +464,7 @@ class LiveDataHubContext:
 
         calls: list[ToolEvidence] = []
         entities = await self._call("get_entities", calls, urns=[change.asset_urn])
-        schema = await self._load_schema_fields(change, calls)
+        schema = await self._load_schema_fields(change.asset_urn, calls)
         upstream_lineage = await self._load_lineage(
             change,
             calls,
@@ -506,6 +508,27 @@ class LiveDataHubContext:
             raise ContextLoadError(
                 "DataHub response did not satisfy the ChangeSafe context contract"
             ) from exc
+
+    async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
+        if asset_urn not in self.allowlist:
+            raise PermissionError("Asset is outside the configured DataHub allowlist")
+
+        calls: list[ToolEvidence] = []
+        entities_raw = await self._call("get_entities", calls, urns=[asset_urn])
+        schema_raw = await self._load_schema_fields(asset_urn, calls)
+        entities = _extract_entities(entities_raw)
+        if not entities:
+            raise ContextLoadError("Target asset was not returned by DataHub")
+        return SchemaCatalog(
+            target_urn=asset_urn,
+            target_name=_display_name(entities[0], "unknown") or "unknown",
+            schema_fields=_normalize_schema_fields(schema_raw),
+            provenance=ContextProvenance(
+                mode=ContextMode.LIVE,
+                retrieved_at=datetime.now(UTC),
+                adapter_version="datahub-agent-context/1.7.0",
+            ),
+        )
 
     async def writeback(
         self,
@@ -764,6 +787,12 @@ def _normalize_lineage_assets(raw: Any, direction_name: str) -> list[AffectedAss
             and raw_degree >= 1
             else None
         )
+        if field_path is None:
+            lineage_precision = LineagePrecision.DATASET_LEVEL
+        elif lineage_degree == 1:
+            lineage_precision = LineagePrecision.EXACT_FIELD
+        else:
+            lineage_precision = LineagePrecision.ENDPOINT_FIELD
         normalized.append(
             AffectedAsset(
                 urn=urn,
@@ -779,6 +808,7 @@ def _normalize_lineage_assets(raw: Any, direction_name: str) -> list[AffectedAss
                 is_production_ml=bool(asset.get("isProductionMl")),
                 lineage_degree=lineage_degree,
                 lineage_path=lineage_path,
+                lineage_precision=lineage_precision,
             )
         )
     return normalized
@@ -835,6 +865,43 @@ def _structured_properties(raw: Any) -> dict[str, list[str | int | float]]:
     return normalized
 
 
+def _normalize_schema_fields(schema_raw: Any) -> list[SchemaField]:
+    fields = _extract_fields(schema_raw)
+    normalized: list[SchemaField] = []
+    seen: set[str] = set()
+    for item in fields:
+        raw_name = _first_present(item, ("fieldPath", "name", "field"))
+        if not isinstance(raw_name, str) or not raw_name:
+            continue
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", raw_name):
+            if _is_nested_schema_field(item, raw_name):
+                continue
+            raise ContextLoadError(
+                "DataHub schema contains an unsupported top-level field identifier"
+            )
+        key = raw_name.casefold()
+        if key in seen:
+            raise ContextLoadError(
+                "DataHub schema contains duplicate field identifiers"
+            )
+        seen.add(key)
+        data_type = _field_type(item)
+        if data_type == "UNKNOWN":
+            raise ContextLoadError(
+                "DataHub schema field is missing a concrete native type"
+            )
+        normalized.append(
+            SchemaField(
+                name=raw_name,
+                data_type=data_type,
+                nullable=bool(item.get("nullable", True)),
+            )
+        )
+    if not normalized:
+        raise ContextLoadError("DataHub returned an empty supported schema")
+    return normalized
+
+
 def _normalize_context(
     change: ChangeRequest,
     entities_raw: Any,
@@ -850,19 +917,6 @@ def _normalize_context(
         raise ContextLoadError("Target asset was not returned by DataHub")
     entity = entities[0]
     fields = _extract_fields(schema_raw)
-    if isinstance(schema_raw, dict):
-        remaining = schema_raw.get("remainingCount", 0)
-        total = schema_raw.get("totalFields")
-        returned = schema_raw.get("returned", len(fields))
-        if (
-            (isinstance(remaining, int) and remaining > 0)
-            or (
-                isinstance(total, int)
-                and isinstance(returned, int)
-                and returned < total
-            )
-        ):
-            raise ContextLoadError("DataHub returned a partial schema field page")
     field = next(
         (
             item
@@ -873,29 +927,7 @@ def _normalize_context(
     )
     if field is None:
         raise ContextLoadError("Target field is absent from the DataHub schema")
-    schema_fields: list[SchemaField] = []
-    for item in fields:
-        raw_name = _first_present(item, ("fieldPath", "name", "field"))
-        if not isinstance(raw_name, str) or not raw_name:
-            continue
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", raw_name):
-            if _is_nested_schema_field(item, raw_name):
-                continue
-            raise ContextLoadError(
-                "DataHub schema contains an unsupported top-level field identifier"
-            )
-        data_type = _field_type(item)
-        if data_type == "UNKNOWN":
-            raise ContextLoadError(
-                "DataHub schema field is missing a concrete native type"
-            )
-        schema_fields.append(
-            SchemaField(
-                name=raw_name,
-                data_type=data_type,
-                nullable=bool(item.get("nullable", True)),
-            )
-        )
+    schema_fields = _normalize_schema_fields(schema_raw)
 
     target_domain = _domain_name(entity.get("domain"))
     owner_items = entity.get("owners") or _nested(entity, "ownership", "owners") or []
