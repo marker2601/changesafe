@@ -954,10 +954,8 @@ def _normalize_context(
             )
         )
 
-    field_tags = list(
-        dict.fromkeys([*_urns(entity.get("tags")), *_urns(field.get("tags"))])
-    )
-    terms = _urns(entity.get("glossaryTerms")) + _urns(field.get("glossaryTerms"))
+    field_tags = list(dict.fromkeys(_urns(field.get("tags"))))
+    terms = list(dict.fromkeys(_urns(field.get("glossaryTerms"))))
 
     upstream = _normalize_lineage_assets(upstream_lineage_raw, "upstreams")
     downstream = _normalize_lineage_assets(downstream_lineage_raw, "downstreams")
@@ -1031,7 +1029,7 @@ def _normalize_context(
         downstream_assets=downstream,
         owners=owners,
         field_tags=field_tags,
-        glossary_terms=list(dict.fromkeys(terms)),
+        glossary_terms=terms,
         structured_properties=_structured_properties(
             entity.get("structuredProperties", {})
         ),

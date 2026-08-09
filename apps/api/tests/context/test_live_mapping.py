@@ -139,6 +139,147 @@ async def test_live_schema_discovery_returns_complete_allowlisted_schema() -> No
 
 
 @pytest.mark.asyncio
+async def test_live_schema_discovery_rejects_non_allowlisted_asset_before_tool_calls(
+) -> None:
+    runner = FakeRunner({})
+    port = LiveDataHubContext(runner, {TARGET})
+
+    with pytest.raises(PermissionError, match="allowlist"):
+        await port.discover_schema("urn:li:dataset:outside-allowlist")
+
+    assert runner.calls == []
+
+
+@pytest.mark.asyncio
+async def test_live_schema_discovery_rejects_duplicate_case_insensitive_fields(
+) -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "orders"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": "order_id", "nativeDataType": "NUMBER"},
+                    {"fieldPath": "ORDER_ID", "nativeDataType": "NUMBER"},
+                ],
+                "totalFields": 2,
+                "returned": 2,
+                "remainingCount": 0,
+            },
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match="duplicate field identifiers"):
+        await LiveDataHubContext(runner, {TARGET}).discover_schema(TARGET)
+
+
+@pytest.mark.asyncio
+async def test_live_schema_discovery_rejects_quoted_top_level_field() -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "orders"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": '"order id"', "nativeDataType": "NUMBER"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match="unsupported top-level"):
+        await LiveDataHubContext(runner, {TARGET}).discover_schema(TARGET)
+
+
+@pytest.mark.asyncio
+async def test_live_schema_discovery_ignores_identified_nested_paths() -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "orders"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": "order_id", "nativeDataType": "NUMBER"},
+                    {
+                        "fieldPath": "shipping.address",
+                        "nativeDataType": "STRUCT",
+                        "jsonPath": "$.shipping.address",
+                    },
+                ],
+                "totalFields": 2,
+                "returned": 2,
+                "remainingCount": 0,
+            },
+        }
+    )
+
+    catalog = await LiveDataHubContext(runner, {TARGET}).discover_schema(TARGET)
+
+    assert [field.name for field in catalog.schema_fields] == ["order_id"]
+
+
+@pytest.mark.asyncio
+async def test_live_schema_discovery_rejects_missing_native_type() -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "orders"}],
+            "list_schema_fields": {
+                "fields": [{"fieldPath": "order_id", "nativeDataType": None}],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match="concrete native type"):
+        await LiveDataHubContext(runner, {TARGET}).discover_schema(TARGET)
+
+
+@pytest.mark.asyncio
+async def test_live_schema_discovery_fetches_every_schema_page() -> None:
+    def schema_page(parameters: dict[str, Any]) -> dict[str, Any]:
+        offset = parameters["offset"]
+        if offset == 0:
+            return {
+                "fields": [{"fieldPath": "order_id", "nativeDataType": "NUMBER"}],
+                "totalFields": 2,
+                "returned": 1,
+                "remainingCount": 1,
+                "offset": 0,
+            }
+        if offset == 1:
+            return {
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "TEXT"}
+                ],
+                "totalFields": 2,
+                "returned": 1,
+                "remainingCount": 0,
+                "offset": 1,
+            }
+        raise AssertionError(f"unexpected schema offset {offset}")
+
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "orders"}],
+            "list_schema_fields": schema_page,
+        }
+    )
+
+    catalog = await LiveDataHubContext(runner, {TARGET}).discover_schema(TARGET)
+
+    assert [field.name for field in catalog.schema_fields] == [
+        "order_id",
+        "customer_email",
+    ]
+    schema_calls = [
+        parameters for tool, parameters in runner.calls if tool == "list_schema_fields"
+    ]
+    assert [call["offset"] for call in schema_calls] == [0, 1]
+
+
+@pytest.mark.asyncio
 async def test_live_adapter_classifies_lineage_evidence_precision() -> None:
     direct_urn = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.stg_orders,PROD)"
     endpoint_urn = "urn:li:dashboard:(looker,customer_health)"
@@ -168,6 +309,7 @@ async def test_live_adapter_classifies_lineage_evidence_precision() -> None:
                         "field": "customer_email",
                     },
                     "degree": 2,
+                    "lineagePath": [TARGET, endpoint_urn],
                 }
             ]
         else:
@@ -215,6 +357,65 @@ async def test_live_adapter_classifies_lineage_evidence_precision() -> None:
     assert context.downstream_assets[1].lineage_precision is (
         LineagePrecision.DATASET_LEVEL
     )
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_uses_only_selected_field_governance() -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [
+                {
+                    "urn": TARGET,
+                    "name": "dim_customers",
+                    "tags": {"tags": [{"tag": {"urn": "urn:li:tag:PII"}}]},
+                    "glossaryTerms": {
+                        "terms": [
+                            {"term": {"urn": "urn:li:glossaryTerm:Customer"}}
+                        ]
+                    },
+                }
+            ],
+            "list_schema_fields": {
+                "fields": [
+                    {
+                        "fieldPath": "customer_email",
+                        "nativeDataType": "STRING",
+                        "tags": {
+                            "tags": [
+                                {"tag": {"urn": "urn:li:tag:DataQuality"}}
+                            ]
+                        },
+                        "glossaryTerms": {
+                            "terms": [
+                                {
+                                    "term": {
+                                        "urn": "urn:li:glossaryTerm:EmailQuality"
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+            "get_lineage": {"relationships": []},
+            "get_dataset_queries": {"queries": []},
+        }
+    )
+
+    context = await LiveDataHubContext(runner, {TARGET}).load(golden_change())
+
+    assert context.field_tags == ["urn:li:tag:DataQuality"]
+    assert context.glossary_terms == ["urn:li:glossaryTerm:EmailQuality"]
+    governance_urns = [
+        evidence.urn for evidence in context.evidence if evidence.kind == "governance"
+    ]
+    assert governance_urns == [
+        "urn:li:tag:DataQuality",
+        "urn:li:glossaryTerm:EmailQuality",
+    ]
 
 
 @pytest.mark.asyncio
