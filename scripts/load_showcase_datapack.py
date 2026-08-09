@@ -1,7 +1,7 @@
 """Guarded loader for DataHub's official ``showcase-ecommerce`` data pack.
 
 The command is deliberately a no-I/O preview unless ``--apply`` is supplied.
-Apply mode reuses the installed DataHub CLI's registry, verified download,
+Apply mode reuses the installed DataHub CLI's registry-backed download,
 schema compatibility filter, referential-integrity check, time shifting, and
 load-record format. It replaces the CLI's asynchronous sink with ordered
 RESTLI synchronous writes so a completed record can only follow full success.
@@ -25,6 +25,20 @@ OFFICIAL_PACK_NAME = "showcase-ecommerce"
 
 class RuntimeCompatibilityError(RuntimeError):
     """Raised when the installed DataHub CLI lacks the guarded loader hooks."""
+
+
+class PartialDatapackLoadError(RuntimeError):
+    """Describe a stopped ordered load without echoing its underlying failure."""
+
+    def __init__(self, run_id: str, completed_parts: int, total_parts: int) -> None:
+        self.run_id = run_id
+        self.completed_parts = completed_parts
+        self.total_parts = total_parts
+        super().__init__(
+            f"DataHub datapack run {run_id} stopped after "
+            f"{completed_parts}/{total_parts} ordered parts; no completed "
+            "load record was written for this run."
+        )
 
 
 @dataclass(frozen=True)
@@ -214,7 +228,7 @@ def load_showcase_datapack(
     if not options.apply:
         print(f"Official DataHub data pack: {OFFICIAL_PACK_NAME}")
         print("PREVIEW ONLY — no network or cache access; no DataHub writes.")
-        print("Run again with --apply to resolve and load the verified pack.")
+        print("Run again with --apply to resolve and load the trusted official pack.")
         return LoadResult(
             pack_name=OFFICIAL_PACK_NAME,
             applied=False,
@@ -232,65 +246,75 @@ def load_showcase_datapack(
     client_config = runtime.load_client_config()
     sink_config = _synchronous_sink_config(client_config)
     run_id = runtime.generate_run_id(pack.name)
+    print(f"DataHub load run ID: {run_id}")
+    completed_parts = 0
 
-    with _without_emit_mode_override():
-        for index, entry in enumerate(entries):
-            original_path = Path(entry.path)
-            generated_paths: set[Path] = set()
-            effective_path = original_path
-            try:
-                filtered_path = Path(
-                    runtime.apply_schema_filter(
-                        effective_path, client_config=client_config
-                    )
-                )
-                if filtered_path != original_path:
-                    generated_paths.add(filtered_path)
-                effective_path = filtered_path
-
-                if index == len(entries) - 1:
-                    runtime.check_referential_integrity(
-                        effective_path, client_config=client_config
-                    )
-
-                if not options.no_time_shift and pack.reference_timestamp:
-                    target_timestamp = (
-                        int(options.as_of.timestamp() * 1000) if options.as_of else None
-                    )
-                    shifted_path = Path(
-                        runtime.time_shift_file(
-                            input_path=effective_path,
-                            reference_timestamp=pack.reference_timestamp,
-                            target_timestamp=target_timestamp,
+    try:
+        with _without_emit_mode_override():
+            for index, entry in enumerate(entries):
+                original_path = Path(entry.path)
+                generated_paths: set[Path] = set()
+                effective_path = original_path
+                try:
+                    filtered_path = Path(
+                        runtime.apply_schema_filter(
+                            effective_path, client_config=client_config
                         )
                     )
-                    if shifted_path != original_path:
-                        generated_paths.add(shifted_path)
-                    effective_path = shifted_path
+                    if filtered_path != original_path:
+                        generated_paths.add(filtered_path)
+                    effective_path = filtered_path
 
-                print(
-                    f"Loading ordered part {index + 1}/{len(entries)}: "
-                    f"{original_path.name}"
-                )
-                pipeline = runtime.pipeline_create(
-                    {
-                        "run_id": run_id,
-                        "source": {
-                            "type": "file",
-                            "config": {"path": str(effective_path)},
-                        },
-                        "sink": {
-                            "type": "datahub-rest",
-                            "config": dict(sink_config),
-                        },
-                    }
-                )
-                pipeline.run()
-                pipeline.raise_from_status()
-            finally:
-                _remove_generated_files(generated_paths)
+                    if index == len(entries) - 1:
+                        runtime.check_referential_integrity(
+                            effective_path, client_config=client_config
+                        )
 
-        runtime.save_load_record(pack, run_id)
+                    if not options.no_time_shift and pack.reference_timestamp:
+                        target_timestamp = (
+                            int(options.as_of.timestamp() * 1000)
+                            if options.as_of
+                            else None
+                        )
+                        shifted_path = Path(
+                            runtime.time_shift_file(
+                                input_path=effective_path,
+                                reference_timestamp=pack.reference_timestamp,
+                                target_timestamp=target_timestamp,
+                            )
+                        )
+                        if shifted_path != original_path:
+                            generated_paths.add(shifted_path)
+                        effective_path = shifted_path
+
+                    print(
+                        f"Loading ordered part {index + 1}/{len(entries)}: "
+                        f"{original_path.name}"
+                    )
+                    pipeline = runtime.pipeline_create(
+                        {
+                            "run_id": run_id,
+                            "source": {
+                                "type": "file",
+                                "config": {"path": str(effective_path)},
+                            },
+                            "sink": {
+                                "type": "datahub-rest",
+                                "config": dict(sink_config),
+                            },
+                        }
+                    )
+                    pipeline.run()
+                    pipeline.raise_from_status()
+                    completed_parts += 1
+                finally:
+                    _remove_generated_files(generated_paths)
+
+            runtime.save_load_record(pack, run_id)
+    except Exception as exc:
+        raise PartialDatapackLoadError(
+            run_id, completed_parts, len(entries)
+        ) from exc
     print(
         f"Loaded {len(entries)} ordered parts synchronously. "
         "The completed load record was saved."
@@ -362,6 +386,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Cannot run guarded loader: {exc}", file=sys.stderr)
         print("No completed load record was written.", file=sys.stderr)
         return 2
+    except PartialDatapackLoadError as exc:
+        print(
+            f"Load stopped safely for run_id={exc.run_id} after "
+            f"{exc.completed_parts}/{exc.total_parts} ordered parts. "
+            "No completed load record was written for this run. Earlier "
+            "successful parts may already be durable; use this run ID for "
+            "recovery or cleanup. Any older completed load record belongs to "
+            "an earlier run.",
+            file=sys.stderr,
+        )
+        return 1
     except Exception as exc:
         # Deliberately omit exception text: third-party configuration errors can
         # embed authentication material. The exception type is enough to route

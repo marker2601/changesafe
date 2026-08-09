@@ -4,9 +4,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import scripts.load_showcase_datapack as loader_module
 from scripts.load_showcase_datapack import (
     LoadOptions,
     OfficialRuntime,
+    PartialDatapackLoadError,
     load_showcase_datapack,
 )
 
@@ -186,13 +188,21 @@ def test_apply_preserves_official_order_and_uses_only_restli_sync(
 
 def test_failed_ordered_part_never_saves_a_completed_load_record(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     events: list[tuple[Any, ...]] = []
     runtime = make_runtime(tmp_path, events, fail_on="02-lineage.json")
 
-    with pytest.raises(RuntimeError, match="pipeline failed"):
+    with pytest.raises(PartialDatapackLoadError) as failure:
         load_showcase_datapack(LoadOptions(apply=True), runtime=runtime)
 
+    assert failure.value.run_id == "datapack-showcase-ecommerce-run"
+    assert failure.value.completed_parts == 1
+    assert failure.value.total_parts == 2
+    assert "never-print-this-token" not in str(failure.value)
+    output = capsys.readouterr().out
+    assert "datapack-showcase-ecommerce-run" in output
+    assert "never-print-this-token" not in output
     assert not any(event[0] == "save" for event in events)
     assert ("status", "01-foundation.json") in events
     assert ("status", "02-lineage.json") in events
@@ -231,3 +241,24 @@ def test_apply_disables_inherited_async_emit_mode_and_restores_it(
 
     assert observed_emit_modes == [None, None]
     assert os.environ["DATAHUB_EMIT_MODE"] == "ASYNC_WAIT"
+
+
+def test_cli_reports_partial_run_recovery_without_underlying_secret(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        try:
+            raise RuntimeError("never-print-this-token")
+        except RuntimeError as cause:
+            raise PartialDatapackLoadError("safe-run-id", 1, 3) from cause
+
+    monkeypatch.setattr(loader_module, "load_showcase_datapack", fail)
+
+    assert loader_module.main(["--apply"]) == 1
+
+    output = capsys.readouterr().err
+    assert "run_id=safe-run-id" in output
+    assert "1/3 ordered parts" in output
+    assert "may already be durable" in output
+    assert "never-print-this-token" not in output
