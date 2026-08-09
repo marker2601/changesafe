@@ -21,6 +21,7 @@ from changesafe.domain import (
 )
 from changesafe.generation.templates import (
     MANIFEST,
+    PR_BODY,
     ROLLBACK,
     expected_artifact_paths,
 )
@@ -28,14 +29,23 @@ from changesafe.sql_types import canonical_sql_type, type_change_kind
 
 REF_PATTERN = re.compile(r"\{\{\s*ref\(['\"]([^'\"]+)['\"]\)\s*\}\}")
 CONFIG_PATTERN = re.compile(r"^\s*\{\{\s*config\(.*?\)\s*\}\}\s*$", re.MULTILINE)
+SQL_COMMENT_PATTERN = re.compile(r"--[^\r\n]*|/\*.*?\*/", re.DOTALL)
 
 
 def _check(code: str, label: str, passed: bool, detail: str) -> ValidationCheck:
     return ValidationCheck(code=code, label=label, passed=passed, detail=detail)
 
 
+def _sql_without_comments(content: str) -> str:
+    return SQL_COMMENT_PATTERN.sub("", content)
+
+
+def _dbt_refs(content: str) -> set[str]:
+    return set(REF_PATTERN.findall(_sql_without_comments(content)))
+
+
 def _normalized_sql(content: str) -> str:
-    without_config = CONFIG_PATTERN.sub("", content)
+    without_config = CONFIG_PATTERN.sub("", _sql_without_comments(content))
     return REF_PATTERN.sub(lambda match: match.group(1), without_config)
 
 
@@ -223,6 +233,10 @@ def _compatibility_test_valid(
     tables = list(select.find_all(exp.Table))
     if len(tables) != 1 or tables[0].name.casefold() != shim_model.casefold():
         return False
+    if tables[0].args.get("alias") is not None or any(
+        column.table for column in select.find_all(exp.Column)
+    ):
+        return False
     where = select.args.get("where")
     if not isinstance(where, exp.Where):
         return False
@@ -249,6 +263,61 @@ def _compatibility_test_valid(
         )
     except ValueError:
         return False
+
+
+def _transition_guidance_valid(
+    content: str,
+    change: ChangeRequest,
+    governed_model: str,
+    shim_model: str,
+) -> bool:
+    normalized = content.casefold()
+    required = {
+        f"`{governed_model}`".casefold(),
+        f"`{shim_model}`".casefold(),
+        "governed base model remains unchanged in phase one",
+        f"switch to `{shim_model}`".casefold(),
+        f"through `{shim_model}`".casefold(),
+    }
+    if change.operation is ChangeOperation.REMOVE:
+        required.add(f"while retaining `{change.field}` until phase two".casefold())
+    else:
+        preferred = _preferred_field(change)
+        assert preferred is not None
+        required.add(f"migrate to `{preferred}`".casefold())
+    return all(item in normalized for item in required)
+
+
+def _rollback_instructions_valid(
+    content: str,
+    change: ChangeRequest,
+    governed_model: str,
+    shim_model: str,
+    model_sql: str,
+    model_yaml: str,
+    test_path: str,
+) -> bool:
+    normalized = content.casefold()
+    consumer_move = normalized.find(
+        (
+            f"move downstream consumers from `{shim_model}` back to "
+            f"`{governed_model}`"
+        ).casefold()
+    )
+    old_field_confirmation = normalized.find(
+        f"confirm `{change.field}` remains available".casefold()
+    )
+    removal_steps = [
+        normalized.find(f"revert `{model_sql}`".casefold()),
+        normalized.find(f"revert `{model_yaml}`".casefold()),
+        normalized.find(f"remove `{test_path}`".casefold()),
+    ]
+    return (
+        consumer_move >= 0
+        and old_field_confirmation > consumer_move
+        and all(step >= 0 for step in removal_steps)
+        and old_field_confirmation < min(removal_steps)
+    )
 
 
 def verify_artifacts(
@@ -429,7 +498,7 @@ def verify_artifacts(
         name
         for artifact in bundle.files.values()
         if artifact.path.endswith(".sql")
-        for name in REF_PATTERN.findall(artifact.content)
+        for name in _dbt_refs(artifact.content)
     }
     governed_model = model_name.removesuffix("__changesafe")
     known = {
@@ -456,8 +525,19 @@ def verify_artifacts(
     )
     all_relations = referenced | parsed_relations
     unknown_relations = all_relations - known
-    model_refs = set(REF_PATTERN.findall(model_text))
-    source_valid = model_refs == {governed_model} and model_name != governed_model
+    model_refs = _dbt_refs(model_text)
+    model_tables = [
+        table
+        for expression in model_expressions
+        for table in expression.find_all(exp.Table)
+        if table.name
+    ]
+    source_valid = (
+        model_refs == {governed_model}
+        and len(model_tables) == 1
+        and model_tables[0].name.casefold() == governed_model.casefold()
+        and model_name != governed_model
+    )
     sources_valid = not unsafe_statement and not unknown_relations and source_valid
     checks.append(
         _check(
@@ -515,6 +595,8 @@ def verify_artifacts(
 
     migration = bundle.files.get(migration_notes)
     migration_text = migration.content.lower() if migration else ""
+    pr = bundle.files.get(PR_BODY)
+    pr_text = pr.content if pr else ""
     downstream_named = all(
         asset.name.lower() in migration_text for asset in context.downstream_assets
     )
@@ -522,6 +604,18 @@ def verify_artifacts(
         "owner:" in migration_text
         and "deprecation window:" in migration_text
         and downstream_named
+        and _transition_guidance_valid(
+            migration.content if migration else "",
+            change,
+            governed_model,
+            model_name,
+        )
+        and _transition_guidance_valid(
+            pr_text,
+            change,
+            governed_model,
+            model_name,
+        )
     )
     checks.append(
         _check(
@@ -536,7 +630,15 @@ def verify_artifacts(
 
     rollback = bundle.files.get(ROLLBACK)
     rollback_text = rollback.content if rollback else ""
-    rollback_valid = model_sql in rollback_text and model_yaml in rollback_text
+    rollback_valid = _rollback_instructions_valid(
+        rollback_text,
+        change,
+        governed_model,
+        model_name,
+        model_sql,
+        model_yaml,
+        compatibility_test,
+    )
     checks.append(
         _check(
             "rollback_instructions",

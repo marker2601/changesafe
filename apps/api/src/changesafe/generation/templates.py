@@ -432,7 +432,12 @@ def _pr_body(
         f"{len(domains)} domains were found in DataHub.\n\n"
         "## Validation\n\n"
         "Publication remains blocked until SQL, YAML, compatibility, path, "
-        "rollback, and manifest checks pass.\n"
+        "rollback, and manifest checks pass.\n\n"
+        "## Exit criteria\n\n"
+        f"All {len(context.downstream_assets)} recorded consumers must complete "
+        f"migration through `{shim_model}`, the operation-specific compatibility "
+        "test must remain "
+        "green, and the accountable owner must approve phase two.\n"
     )
 
 

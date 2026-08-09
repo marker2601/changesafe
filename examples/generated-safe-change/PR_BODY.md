@@ -21,3 +21,7 @@ The governed base model remains unchanged in phase one: `order_details`. This pa
 ## Validation
 
 Publication remains blocked until SQL, YAML, compatibility, path, rollback, and manifest checks pass.
+
+## Exit criteria
+
+All 25 recorded consumers must complete migration through `order_details__changesafe`, the operation-specific compatibility test must remain green, and the accountable owner must approve phase two.

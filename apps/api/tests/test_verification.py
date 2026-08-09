@@ -143,6 +143,145 @@ def test_compatibility_test_rejects_a_hashed_extra_statement() -> None:
     assert report.check("compatibility_test").passed is False
 
 
+@pytest.mark.parametrize(
+    ("change", "test_path", "spoofed_sql"),
+    [
+        (
+            golden_change(),
+            "tests/assert_cust_email_compatibility.sql",
+            "select x.cust_email\n"
+            "from {{ ref('order_details__changesafe') }}\n"
+            "where x.cust_email is distinct from x.primary_email\n",
+        ),
+        (
+            golden_change().model_copy(
+                update={"operation": ChangeOperation.REMOVE, "new_field": None}
+            ),
+            "tests/assert_cust_email_retained.sql",
+            "select x.cust_email\n"
+            "from {{ ref('order_details__changesafe') }}\n"
+            "where false\n",
+        ),
+        (
+            golden_change().model_copy(
+                update={
+                    "operation": ChangeOperation.TYPE_CHANGE,
+                    "new_field": None,
+                    "new_type": "VARCHAR(320)",
+                }
+            ),
+            "tests/assert_cust_email_type_compatibility.sql",
+            "select x.cust_email\n"
+            "from {{ ref('order_details__changesafe') }}\n"
+            "where cast(x.cust_email as VARCHAR(320)) "
+            "is distinct from x.cust_email__new_type\n",
+        ),
+    ],
+)
+def test_compatibility_test_rejects_undefined_qualified_columns(
+    change, test_path: str, spoofed_sql: str
+) -> None:
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+    bundle = generate_artifacts(change, context, score_change(change, context))
+    forged = replace_file_with_recomputed_manifest(bundle, test_path, spoofed_sql)
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("compatibility_test").passed is False
+
+
+def test_source_relations_rejects_a_comment_only_governed_ref() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content.replace(
+            "from {{ ref('order_details') }}",
+            "from customers -- {{ ref('order_details') }}",
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("source_relations").passed is False
+    assert report.passed is False
+
+
+@pytest.mark.parametrize(
+    ("path", "needle"),
+    [
+        (
+            "migrations/2026-08-09-cust-email-rename.md",
+            "The governed base model remains unchanged in phase one",
+        ),
+        ("PR_BODY.md", "order_details__changesafe"),
+        ("PR_BODY.md", "Downstream owners must switch to `order_details__changesafe`"),
+    ],
+)
+def test_operational_transition_checks_reject_hashed_missing_guidance(
+    path: str, needle: str
+) -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        path,
+        bundle.files[path].content.replace(needle, "Removed review guidance"),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("migration_notes").passed is False
+
+
+def test_rollback_check_rejects_hashed_consumer_move_after_removal() -> None:
+    change, context, bundle = golden_inputs()
+    rollback = bundle.files["ROLLBACK.md"].content
+    consumer_step = (
+        "1. Move downstream consumers from `order_details__changesafe` back to "
+        "`order_details` before removing generated artifacts.\n"
+    )
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "ROLLBACK.md",
+        rollback.replace(consumer_step, "").replace(
+            "2. Confirm `cust_email` remains available to every downstream consumer.\n",
+            "1. Confirm `cust_email` remains available to every downstream consumer.\n"
+            "6. Move downstream consumers from `order_details__changesafe` back to "
+            "`order_details`.\n",
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("rollback_instructions").passed is False
+
+
+def test_rollback_check_rejects_hashed_confirmation_after_removal() -> None:
+    change, context, bundle = golden_inputs()
+    rollback = bundle.files["ROLLBACK.md"].content
+    confirmation = (
+        "2. Confirm `cust_email` remains available to every downstream consumer.\n"
+    )
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "ROLLBACK.md",
+        rollback.replace(confirmation, "").replace(
+            "6. Run `dbt parse` and the project test suite before republishing.\n",
+            "6. Confirm `cust_email` remains available to every downstream consumer.\n"
+            "7. Run `dbt parse` and the project test suite before republishing.\n",
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("rollback_instructions").passed is False
+
+
 def test_legacy_invalid_type_parameters_fail_context_alignment() -> None:
     rename, context, _bundle = golden_inputs()
     valid = rename.model_copy(

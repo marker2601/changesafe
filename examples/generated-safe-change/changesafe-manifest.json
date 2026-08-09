@@ -16,7 +16,7 @@
   },
   "deprecation_status": "phase_one",
   "files": {
-    "PR_BODY.md": "a202857825f2791de1a5c2263b0cebdc24cfc604e4b814f0745312432b9df2a7",
+    "PR_BODY.md": "c6a642b551384373774524a2cbfed06f2ea6d16ec998ce9fd4b2074878aa0dcd",
     "ROLLBACK.md": "14c707b31d15e071a7e929e3c548139b0c8b7a9e8de7d0fd87085e27f263d6b6",
     "migrations/2026-08-09-cust-email-rename.md": "8baf6fcc71cf4fd5d1d3b4f99f952291617d13e6f24149007cd356d17dec0f9a",
     "models/marts/order_details__changesafe.sql": "c6e99a3fbe339789fb1a636f7123d1ce7c0b3d1c19496bfbb477e83a06016922",
