@@ -15,7 +15,7 @@ SQLite and in-process tasks are safe for this single-replica review topology. Do
 
 ## Reviewer experience
 
-Reviewers open the shared URL and click **Analyze change**. They do not enter a DataHub login, GitHub token, OpenAI key, or owner token. Each browser tab receives an opaque random session ID; the server stores only a one-way hashed session label alongside run state and timestamps.
+Reviewers open the shared URL and click **Analyze change**. They do not enter service credentials or an owner token. Each browser tab receives an opaque random session ID; the server stores only a one-way hashed session label alongside run state and timestamps.
 
 The public workflow uses a SHA-256-verified snapshot of DataHub's official `showcase-ecommerce` scenario. It runs the real orchestration and stops at preview approval. The receipt explicitly says no DataHub or GitHub write occurred.
 

@@ -2,7 +2,7 @@
 
 ChangeSafe is a metadata-aware, pre-merge safety agent for analytics schema changes. It lets an analyst select a supported field, then turns a proposed rename, removal, or type change into an evidence-backed impact decision and a verified seven-file migration package before anything can be published.
 
-The default recorded-evidence experience is credential-free and deterministic. It replays a checksummed DataHub evidence bundle through the real ChangeSafe pipeline; it is not a simulated UI. The live adapters can read DataHub context, use a bounded OpenAI planning call, create a GitHub pull request, and write an approval record back to DataHub when an owner explicitly enables those operations.
+The default recorded-evidence experience is credential-free and deterministic. It replays a checksummed DataHub evidence bundle through the real ChangeSafe pipeline; it is not a simulated UI. The live adapters can read DataHub context, create a GitHub pull request, and write an approval record back to DataHub when an owner explicitly enables those operations.
 
 ![ChangeSafe desktop recorded-evidence workflow](docs/screenshots/changesafe-desktop-replay.png)
 
@@ -24,7 +24,7 @@ The golden workflow uses DataHub's official `showcase-ecommerce` datapack. Recor
 - Twelve blocking validation checks covering metadata alignment, unique outputs, paths, SQL, dbt YAML, compatibility, rollback, and the manifest.
 - An approval receipt and downloadable unified patch labeled `NOT WRITTEN - SNAPSHOT MODE`.
 
-The visible process is reconstructed from persisted backend events and reports measured elapsed time. It can finish in a fraction of a second on a local recorded bundle because there is no network wait. Repeating the same request against the same evidence intentionally produces the same verified result; changing the selected field, operation, target name, or type changes the request-bound assessment and artifacts. Replay approval never contacts or mutates GitHub, DataHub, a warehouse, or OpenAI.
+The visible process is reconstructed from persisted backend events and reports measured elapsed time. It can finish in a fraction of a second on a local recorded bundle because there is no network wait. Repeating the same request against the same evidence intentionally produces the same verified result; changing the selected field, operation, target name, or type changes the request-bound assessment and artifacts. Replay approval never contacts or mutates external systems.
 
 ## What multi-field replay proves
 
@@ -116,12 +116,6 @@ A DataHub personal access token is required only when `CHANGESAFE_MODE=live` or 
 | `DATAHUB_TIMEOUT_SECONDS` | Per-attempt live DataHub timeout, default `8` | None |
 | `DATAHUB_RETRY_COUNT` | Retry count for transport/timeouts, default `1` | None |
 | `SAVE_DOCUMENT_RESTRICT_UPDATES` | Agent Context document guard; set `false` only for ChangeSafe's allowlisted deterministic decision upserts | Required for live writeback |
-| `OPENAI_API_KEY` | Optional bounded prose/transformation planning | Responses API access to `OPENAI_MODEL` |
-| `OPENAI_INPUT_COST_PER_MILLION_USD` | Conservative input-token accounting rate, default `10` | Update when configured model pricing changes |
-| `OPENAI_OUTPUT_COST_PER_MILLION_USD` | Conservative output-token accounting rate, default `60` | Update when configured model pricing changes |
-| `OPENAI_MAX_INPUT_TOKENS_PER_CALL` | Hard byte-conservative input ceiling, default `16000` | None |
-| `OPENAI_MAX_OUTPUT_TOKENS_PER_CALL` | Responses output ceiling, default `1800` | None |
-| `CHANGESAFE_LLM_BUDGET_USD` | Atomic project LLM ceiling, default `5` | None |
 | `CHANGESAFE_RUNS_PER_MINUTE` | Per-client, per-process run limit, default `10` | None |
 | `GITHUB_TOKEN` | Optional owner-gated publication | Contents and pull-request read/write on one repository |
 | `CHANGESAFE_GITHUB_REPOSITORY` | Publication target, such as `owner/repo` | Repository must already exist |
@@ -130,7 +124,7 @@ A DataHub personal access token is required only when `CHANGESAFE_MODE=live` or 
 | `PUBLIC_WRITEBACK_ENABLED` | Enables DataHub decision writeback | Keep `false` until live testing |
 | `DEMO_URN_ALLOWLIST` | Semicolon-separated DataHub targets | Include only seeded demo URNs |
 
-DataHub writeback additionally needs permission for the allowlisted equivalents of `save_document`, `add_structured_properties`, and `add_tags`, plus `SAVE_DOCUMENT_RESTRICT_UPDATES=false` so Agent Context Kit can create ChangeSafe's deterministic, idempotent document URN. ChangeSafe still enforces its owner token and exact target allowlist, and startup fails closed if writeback is enabled without that explicit setting. External mutation flags fail configuration unless `CHANGESAFE_ADMIN_TOKEN` is present. The browser never receives DataHub, OpenAI, or GitHub credentials; in live publication mode the owner enters the separate admin approval token. LLM runs reserve their two-call worst-case estimate atomically before work starts, then persist actual response usage; calls without usage telemetry retain the conservative reservation.
+DataHub writeback additionally needs permission for the allowlisted equivalents of `save_document`, `add_structured_properties`, and `add_tags`, plus `SAVE_DOCUMENT_RESTRICT_UPDATES=false` so Agent Context Kit can create ChangeSafe's deterministic, idempotent document URN. ChangeSafe still enforces its owner token and exact target allowlist, and startup fails closed if writeback is enabled without that explicit setting. External mutation flags fail configuration unless `CHANGESAFE_ADMIN_TOKEN` is present. The browser never receives DataHub or GitHub credentials; in live publication mode the owner enters the separate admin approval token.
 
 See [.env.example](.env.example) for every supported setting.
 
@@ -141,7 +135,6 @@ See [.env.example](.env.example) for every supported setting.
 | `DATAHUB_GMS_URL` | Self-hosted quickstart: `http://localhost:8080`. DataHub Cloud: use the metadata-service URL supplied for your tenant. It must be reachable from the ChangeSafe server. |
 | `DATAHUB_UI_URL` | The URL you open in a browser: quickstart `http://localhost:9002`, or your DataHub Cloud tenant origin such as `https://tenant.acryl.io`. Do not include credentials or a dataset path. |
 | `DATAHUB_GMS_TOKEN` | In DataHub, open **Settings → Access Tokens → Generate new token**. Your DataHub policy must allow token creation and the metadata reads ChangeSafe performs. Store the token only in `changesafe.env`. |
-| `OPENAI_API_KEY` | Optional. Create a project key in the OpenAI Platform. Leave blank to use reviewed deterministic templates only. |
 | `GITHUB_TOKEN` | Optional. Create a fine-grained GitHub token restricted to the one sandbox repository, with Contents and Pull requests read/write. |
 | `CHANGESAFE_GITHUB_REPOSITORY` | The existing target repository in `owner/name` form, for example `marker2601/changesafe-sandbox`. |
 | `CHANGESAFE_ADMIN_TOKEN` | Generate this yourself as a long random secret. It is separate from every service token and gates private review activity plus external publication. |
@@ -185,7 +178,7 @@ The seed token needs metadata proposal/write access. Application writeback remai
 
 ## Safety model
 
-The LLM cannot set or change the score. The versioned rules are:
+The deterministic policy engine sets the score. The versioned rules are:
 
 | Factor | Points |
 | --- | ---: |
@@ -213,8 +206,7 @@ flowchart LR
     C --> R["Checksummed replay snapshot"]
     C --> D["DataHub Agent Context adapter"]
     O --> K["Deterministic risk engine"]
-    O --> G["Reviewed artifact templates"]
-    G -. optional bounded JSON .-> L["OpenAI Responses API"]
+    O --> G["Reviewed deterministic artifact templates"]
     G --> V["Fail-closed verifier"]
     V --> P{"Human approval gate"}
     P -. owner-enabled .-> H["GitHub Git Data API"]

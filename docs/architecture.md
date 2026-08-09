@@ -15,8 +15,7 @@ flowchart TD
     PORT --> LIVE["Live Agent Context adapter"]
     ORCH --> RISK["Deterministic risk rules"]
     ORCH --> IMPACT["Evidence-led impact classifier"]
-    ORCH --> GEN["Template-first generator"]
-    GEN -.->|"optional strict JSON"| OPENAI["OpenAI planner"]
+    ORCH --> GEN["Reviewed deterministic generator"]
     ORCH --> VERIFY["Artifact verifier"]
     API --> PUB["Idempotent publication service"]
     PUB -.->|"owner enabled"| GH["GitHub Git Data API"]
@@ -124,7 +123,7 @@ Each result includes severity, direct/inferred/unavailable confidence, a plain-l
 
 ## Generation and verification
 
-Reviewed operation-specific templates derive the seven paths from the selected field and target model and define safety invariants for rename, removal, and type-change requests. Where a phase-one compatibility layer is required, the generated `models/marts/order_details__changesafe.sql` shim reads from the governed base `ref('order_details')`; consumers migrate through that shim while the base model remains unchanged. The migration note, PR body, rollback guide, manifest, YAML, and tests are all bound to the selected field. When an OpenAI key exists, one strict structured-output call may supply bounded narrative and advisory transformation fields; one repair call is allowed only after schema validation failure. Executable SQL remains deterministic. On timeout or planning failure, the template remains available. The planner cannot change the risk score, remove a required file, introduce a relation, or bypass validation.
+Reviewed operation-specific templates derive the seven paths from the selected field and target model and define safety invariants for rename, removal, and type-change requests. Where a phase-one compatibility layer is required, the generated `models/marts/order_details__changesafe.sql` shim reads from the governed base `ref('order_details')`; consumers migrate through that shim while the base model remains unchanged. The migration note, PR body, rollback guide, manifest, YAML, and tests are all bound to the selected field. Release generation uses only these reviewed deterministic templates; no runtime planning capability is wired into the public or operator workflow. The generator cannot change the risk score, remove a required file, introduce a relation, or bypass validation.
 
 The verifier operates on in-memory bytes and blocks publication on any failed mandatory check. Generated code is parsed but never executed.
 

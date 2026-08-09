@@ -31,8 +31,7 @@ DataHub already helps people discover metadata. ChangeSafe turns that context in
 - React 19, TypeScript, Vite, semantic HTML, Lucide icons, and a responsive command-center interface.
 - FastAPI, Pydantic, SQLite, UUIDv7 run IDs, and resumable server-sent events.
 - `datahub-agent-context` for live schema discovery plus field-scoped governance, ownership, query, and lineage context, with a checksummed contract-compatible replay catalog.
-- A deterministic risk engine and an evidence-led six-category impact classifier; the LLM cannot change either policy result.
-- OpenAI Responses structured output for optional bounded planning fields, with deterministic fallback and a project cost reservation ledger.
+- A deterministic risk engine, evidence-led six-category impact classifier, and reviewed templates for every generated migration artifact.
 - `sqlglot`, safe YAML parsing, semantic SQL type validation, path confinement, and SHA-256 manifests.
 - GitHub Git Data API publication with artifact/tree reconciliation and a destination-bound durable idempotency ledger.
 - Playwright, Vitest, pytest, Ruff, mypy, dbt, Docker, and GitHub Actions.
@@ -71,7 +70,7 @@ Metadata becomes more valuable when it is executable decision context rather tha
 
 ## Technologies
 
-DataHub Agent Context Kit, official `showcase-ecommerce` datapack, OpenAI Responses API, Python, FastAPI, Pydantic, SQLite, React, TypeScript, Vite, sqlglot, PyYAML, httpx, Playwright, Vitest, pytest, Ruff, mypy, dbt, Docker, Docker Compose, and GitHub Actions.
+DataHub Agent Context Kit, official `showcase-ecommerce` datapack, Python, FastAPI, Pydantic, SQLite, React, TypeScript, Vite, sqlglot, PyYAML, httpx, Playwright, Vitest, pytest, Ruff, mypy, dbt, Docker, Docker Compose, and GitHub Actions.
 
 ## Testing instructions
 

@@ -20,7 +20,7 @@ Start replay development with `.\scripts\dev.ps1`. Do not require credentials fo
 
 - Add or update a failing test before changing behavior.
 - Preserve strict Pydantic models and the live/replay context contract.
-- Never make an LLM authoritative for risk, output paths, validation, or approval.
+- Keep release artifact generation on reviewed deterministic templates; do not add a runtime planning authority for risk, output paths, validation, or approval.
 - Keep external writes disabled by default and behind the admin token, feature flag, and URN allowlist.
 - Do not weaken a blocking verifier check without a documented security rationale.
 - Do not commit credentials, `.env` files, databases, browser traces, or private metadata exports.

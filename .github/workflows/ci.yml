@@ -127,7 +127,6 @@ jobs:
     env:
       DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
       DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.CHANGESAFE_GITHUB_TOKEN }}
       CHANGESAFE_GITHUB_REPOSITORY: ${{ vars.CHANGESAFE_GITHUB_REPOSITORY }}
     steps:
@@ -143,13 +142,6 @@ jobs:
         if: env.DATAHUB_GMS_URL != '' && env.DATAHUB_GMS_TOKEN != ''
         run: python scripts/seed_datahub.py --verify-only
 
-      - name: OpenAI authentication smoke
-        if: env.OPENAI_API_KEY != ''
-        run: >-
-          curl --fail --silent --show-error --output /dev/null
-          -H "Authorization: Bearer ${OPENAI_API_KEY}"
-          https://api.openai.com/v1/models
-
       - name: GitHub repository access smoke
         if: env.GITHUB_TOKEN != '' && env.CHANGESAFE_GITHUB_REPOSITORY != ''
         run: >-
@@ -159,5 +151,5 @@ jobs:
           "https://api.github.com/repos/${CHANGESAFE_GITHUB_REPOSITORY}"
 
       - name: Explain skipped live checks
-        if: env.DATAHUB_GMS_TOKEN == '' && env.OPENAI_API_KEY == '' && env.GITHUB_TOKEN == ''
+        if: env.DATAHUB_GMS_TOKEN == '' && env.GITHUB_TOKEN == ''
         run: echo "Live readiness checks skipped because no optional credentials were configured."
