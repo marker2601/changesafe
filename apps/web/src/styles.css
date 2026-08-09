@@ -280,6 +280,7 @@ button { color: inherit; }
 .run-provenance dt svg { width: 13px; height: 13px; color: var(--cyan); }
 .run-provenance dd {
   display: flex;
+  min-height: 26px;
   min-width: 0;
   align-items: center;
   gap: 5px;
