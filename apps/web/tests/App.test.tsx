@@ -90,6 +90,32 @@ describe("ChangeSafe workspace", () => {
     expect(screen.getByRole("button", { name: "Analyze change" })).toBeEnabled();
   });
 
+  it("submits a selected non-email field and its explicit destination", async () => {
+    const user = userEvent.setup();
+    const api = createGoldenApi();
+    render(<App api={api} />);
+
+    const field = await screen.findByRole("combobox", { name: "Current field" });
+    await user.click(field);
+    await user.clear(field);
+    await user.type(field, "order_total");
+    await user.click(
+      screen.getByRole("option", { name: /order_total.*float.*required/i }),
+    );
+    await user.type(screen.getByLabelText("New field"), "preferred_order_total");
+    await user.click(screen.getByRole("button", { name: "Analyze change" }));
+
+    await waitFor(() => {
+      expect(api.createRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          field: "order_total",
+          new_field: "preferred_order_total",
+          old_type: "FLOAT",
+        }),
+      );
+    });
+  });
+
   it("keeps a submitted request immutable until the user chooses New analysis", async () => {
     const user = userEvent.setup();
     const api = createGoldenApi();

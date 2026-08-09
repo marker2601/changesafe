@@ -39,6 +39,36 @@ def test_golden_rename_generates_exact_manifest() -> None:
     assert bundle.manifest_hash == bundle.files["changesafe-manifest.json"].sha256
 
 
+@pytest.mark.parametrize(
+    ("field", "new_field"),
+    [
+        ("cust_email", "primary_email"),
+        ("order_total", "preferred_order_total"),
+        ("order_status", "preferred_order_status"),
+    ],
+)
+def test_rename_generation_uses_the_selected_field_in_the_model_and_manifest(
+    field: str,
+    new_field: str,
+) -> None:
+    """Changing the selected field changes the generated compatibility package."""
+    change = golden_change().model_copy(
+        update={
+            "field": field,
+            "new_field": new_field,
+            "source_commit": f"generation-proof-{field}",
+        }
+    )
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+
+    bundle = generate_artifacts(change, context, score_change(change, context))
+
+    model = bundle.files["models/marts/order_details.sql"].content
+    assert f"{field} as {new_field}" in model.lower()
+    assert f"tests/assert_{field}_compatibility.sql" in bundle.files
+    assert bundle.manifest_hash == bundle.files["changesafe-manifest.json"].sha256
+
+
 def test_generation_narrative_rejects_fields_outside_the_bounded_schema() -> None:
     with pytest.raises(ValidationError, match="extra_forbidden"):
         GenerationNarrative.model_validate(

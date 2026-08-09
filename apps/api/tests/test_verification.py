@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import DEMO_TARGET_URN, golden_change
 from changesafe.domain import (
@@ -34,6 +36,37 @@ def test_golden_artifacts_pass_every_blocking_check() -> None:
 
     report = verify_artifacts(bundle, change, context)
 
+    assert report.passed is True
+    assert len(report.checks) == 12
+    assert all(check.passed for check in report.checks if check.blocking)
+
+
+@pytest.mark.parametrize(
+    ("field", "new_field"),
+    [
+        ("cust_email", "primary_email"),
+        ("order_total", "preferred_order_total"),
+        ("order_status", "preferred_order_status"),
+    ],
+)
+def test_all_blocking_checks_validate_each_selected_field_package(
+    field: str,
+    new_field: str,
+) -> None:
+    """Verification must validate the package bound to the selected context."""
+    change = golden_change().model_copy(
+        update={
+            "field": field,
+            "new_field": new_field,
+            "source_commit": f"verification-proof-{field}",
+        }
+    )
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+    bundle = generate_artifacts(change, context, score_change(change, context))
+
+    report = verify_artifacts(bundle, change, context)
+
+    assert context.field == change.field
     assert report.passed is True
     assert len(report.checks) == 12
     assert all(check.passed for check in report.checks if check.blocking)

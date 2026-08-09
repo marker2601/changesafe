@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,82 @@ async def test_golden_pipeline_reaches_awaiting_approval(tmp_path: Path) -> None
         "Proving the generated change is safe",
         "Waiting for the accountable owner",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "new_field", "expected_type"),
+    [
+        ("cust_email", "primary_email", "TEXT"),
+        ("order_total", "preferred_order_total", "FLOAT"),
+        ("order_status", "preferred_order_status", "NUMBER"),
+    ],
+)
+async def test_replay_analysis_binds_each_selected_field_to_its_own_evidence(
+    tmp_path: Path,
+    field: str,
+    new_field: str,
+    expected_type: str,
+) -> None:
+    """A replay run must not fall back to the default email context."""
+    store = RunStore(tmp_path / f"{field}.db")
+    await store.initialize()
+    orchestrator = ChangeSafeOrchestrator(
+        store=store,
+        context_port=ReplayDataHubContext.from_default(),
+        generator=ArtifactGenerationService(),
+    )
+    change = golden_change().model_copy(
+        update={
+            "field": field,
+            "new_field": new_field,
+            "source_commit": f"multi-field-{field}",
+        }
+    )
+    run = await store.create(change)
+
+    result = await orchestrator.analyze(run.run_id)
+
+    assert result.state is RunState.AWAITING_APPROVAL
+    assert result.analysis is not None
+    assert result.analysis.context.field == change.field
+    assert result.analysis.context.field_type == expected_type
+    assert result.analysis.publication_eligible is True
+    assert result.analysis.validation.passed is True
+    assert all(check.passed for check in result.analysis.validation.checks if check.blocking)
+    model = result.analysis.artifacts.files["models/marts/order_details.sql"].content
+    assert change.field in model
+    assert result.analysis.artifacts.manifest_hash is not None
+
+    context = result.analysis.context
+    saved_urns = {
+        context.target_urn,
+        *context.field_tags,
+        *context.glossary_terms,
+        *context.queries,
+        *(item.urn for item in context.evidence),
+        *(item.urn for item in context.upstream_assets),
+        *(item.urn for item in context.downstream_assets),
+    }
+    for factor in result.analysis.risk.factors:
+        assert set(factor.evidence_urns) <= saved_urns
+
+    if field == "cust_email":
+        return
+
+    field_scoped = {
+        "field_tags": context.field_tags,
+        "glossary_terms": context.glossary_terms,
+        "queries": context.queries,
+        "evidence": [item.model_dump(mode="json") for item in context.evidence],
+        "upstream_assets": [
+            item.model_dump(mode="json") for item in context.upstream_assets
+        ],
+        "downstream_assets": [
+            item.model_dump(mode="json") for item in context.downstream_assets
+        ],
+    }
+    assert "cust_email" not in json.dumps(field_scoped).casefold()
 
 
 @pytest.mark.asyncio

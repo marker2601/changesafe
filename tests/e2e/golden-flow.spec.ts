@@ -60,13 +60,79 @@ test("user completes the credential-free golden workflow", async ({ page }) => {
   expect(consoleErrors).toEqual([]);
 });
 
+test("selected field changes the replay request, routes, and verified package", async ({
+  page,
+}) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Analyze change" }).click();
+  await expect(page.getByText("12 / 12", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Approve preview" }).click();
+  await expect(page.getByText("Preview ready", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "New analysis" }).click();
+  await page.getByRole("combobox", { name: "Current field" }).fill("order_total");
+  await page
+    .getByRole("option", { name: /order_total.*float.*required/i })
+    .click();
+  await page.getByLabel("New field").fill("preferred_order_total");
+  await page.getByRole("button", { name: "Analyze change" }).click();
+
+  await expect(page.getByText(/order_details\.order_total/).first()).toBeVisible();
+  await expect(page.getByText(/preferred_order_total/).first()).toBeVisible();
+  await expect(page.getByText(/cust_email as primary_email/i)).not.toBeVisible();
+  await expect(page.getByText("12 / 12", { exact: true })).toBeVisible();
+
+  await page
+    .getByRole("button", { name: /order_details\.order_total/ })
+    .first()
+    .click();
+  const drawer = page.getByRole("dialog", { name: /evidence for/i });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText("Source field", { exact: true })).toBeVisible();
+  await expect(drawer.getByText("Destination field", { exact: true })).toBeVisible();
+  await expect(drawer.locator(".raw-field")).toHaveText([
+    "order_total",
+    "order_total",
+  ]);
+  await expect(consoleErrors).toEqual([]);
+});
+
 test("completed workflow remains contained on a phone viewport", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
   await page.setViewportSize({ width: 430, height: 932 });
   await page.goto("/");
+  const field = page.getByRole("combobox", { name: "Current field" });
+  await field.fill("order_status");
+  await expect(
+    page.getByRole("option", { name: /order_status.*number.*required/i }),
+  ).toBeVisible();
+  await field.press("ArrowDown");
+  await field.press("Enter");
+  await page.getByLabel("New field").fill("preferred_order_status");
   const heroBefore = await page.locator(".product-hero").boundingBox();
   expect(heroBefore).not.toBeNull();
   await page.getByRole("button", { name: "Analyze change" }).click();
   await expect(page.getByText("Critical technical risk", { exact: true })).toBeVisible();
+  await expect(page.getByText(/order_details\.order_status/).first()).toBeVisible();
+  await page.getByText("Accessible dependency list", { exact: true }).click();
+  await expect(page.getByRole("list", { name: "All recorded dependencies" })).toBeVisible();
+  await page
+    .getByRole("button", { name: /order_details\.order_status/ })
+    .first()
+    .click();
+  const drawer = page.getByRole("dialog", { name: /evidence for/i });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.locator(".raw-field")).toHaveText([
+    "order_status",
+    "order_status",
+  ]);
   const heroAfter = await page.locator(".product-hero").boundingBox();
   expect(heroAfter).not.toBeNull();
   expect(Math.abs(heroAfter!.height - heroBefore!.height)).toBeLessThan(1);
@@ -79,6 +145,7 @@ test("completed workflow remains contained on a phone viewport", async ({ page }
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
   await expect(page.getByTestId("impact-category")).toHaveCount(6);
   await expect(page.getByTestId("artifact-file")).toHaveCount(7);
+  expect(consoleErrors).toEqual([]);
 });
 
 test("remove and type-change requests produce operation-specific proof", async ({

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import httpx
@@ -99,6 +100,70 @@ async def test_api_runs_complete_replay_analysis_and_serves_artifact(
     assert len(run["analysis"]["context"]["downstream_assets"]) == 25
     assert artifact.status_code == 200
     assert "cust_email as primary_email" in artifact.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_replay_api_keeps_two_selected_field_contexts_and_artifacts_distinct(
+    tmp_path: Path,
+) -> None:
+    """A second field must not reuse the default request, context, or manifest."""
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=tmp_path / "runs.db",
+        ),
+        context_port=ReplayDataHubContext.from_default(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    email_request = {
+        **GOLDEN_CHANGE,
+        "field": "cust_email",
+        "new_field": "primary_email",
+        "source_commit": "api-field-proof-email",
+    }
+    total_request = {
+        **GOLDEN_CHANGE,
+        "field": "order_total",
+        "new_field": "preferred_order_total",
+        "source_commit": "api-field-proof-total",
+    }
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        email_created = await client.post("/api/runs", json=email_request)
+        total_created = await client.post("/api/runs", json=total_request)
+        assert email_created.status_code == 202
+        assert total_created.status_code == 202
+
+        email_run = await wait_for_state(
+            client,
+            email_created.json()["run_id"],
+            RunState.AWAITING_APPROVAL,
+        )
+        total_run = await wait_for_state(
+            client,
+            total_created.json()["run_id"],
+            RunState.AWAITING_APPROVAL,
+        )
+
+    assert email_run["request"]["field"] == "cust_email"
+    assert total_run["request"]["field"] == "order_total"
+    assert email_run["analysis"]["context"]["field"] == "cust_email"
+    assert total_run["analysis"]["context"]["field"] == "order_total"
+    assert email_run["analysis"]["context"] != total_run["analysis"]["context"]
+    assert (
+        email_run["analysis"]["artifacts"]["manifest_hash"]
+        != total_run["analysis"]["artifacts"]["manifest_hash"]
+    )
+    total_context = total_run["analysis"]["context"]
+    field_scoped = {
+        "field_tags": total_context["field_tags"],
+        "glossary_terms": total_context["glossary_terms"],
+        "queries": total_context["queries"],
+        "evidence": total_context["evidence"],
+        "upstream_assets": total_context["upstream_assets"],
+        "downstream_assets": total_context["downstream_assets"],
+    }
+    assert "cust_email" not in json.dumps(field_scoped).casefold()
 
 
 @pytest.mark.asyncio
