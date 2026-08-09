@@ -1,5 +1,5 @@
 import { ArrowRight, Database, Network, Play, ShieldCheck } from "lucide-react";
-import type { FormEvent } from "react";
+import { useId, type FormEvent } from "react";
 
 import {
   changeSummary,
@@ -59,6 +59,7 @@ export function ChangeForm({
   mode = "replay",
   onCurrentFieldChange,
 }: ChangeFormProps) {
+  const currentFieldId = useId();
   const submitted = submittedRequest !== null;
   const displayed = submittedRequest ?? draft;
   const official = isOfficialScenario(displayed);
@@ -157,21 +158,22 @@ export function ChangeForm({
 
       {!submitted ? (
         <>
-          <label>
-            Current field
+          <div className="form-field">
+            <label htmlFor={currentFieldId}>Current field</label>
             {schema.loading ? (
-              <input aria-label="Current field" disabled value="Loading fields…" />
+              <input aria-label="Current field" disabled id={currentFieldId} value="Loading fields…" />
             ) : schema.catalog ? (
               <FieldCombobox
                 disabled={busy}
                 fields={schema.catalog.schema_fields}
+                id={currentFieldId}
                 onChange={onCurrentFieldChange}
                 value={draft.field}
               />
             ) : (
-              <input aria-label="Current field" disabled value="Schema unavailable" />
+              <input aria-label="Current field" disabled id={currentFieldId} value="Schema unavailable" />
             )}
-          </label>
+          </div>
           {schema.catalog ? (
             <p className="schema-source">
               {schema.catalog.provenance.mode === "live"

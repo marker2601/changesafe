@@ -1,4 +1,4 @@
-import type { AffectedAsset } from "./types";
+import type { AffectedAsset, ContextBundle } from "./types";
 import { lineageDegree } from "./lineageRoute";
 
 export { lineageDegree } from "./lineageRoute";
@@ -22,4 +22,10 @@ export function compactLineageLabel(asset: AffectedAsset): string {
   return degree === 1
     ? "direct field route (1 hop)"
     : `multi-hop field route (${degree} hops)`;
+}
+
+export function provenanceSourceLabel(
+  provenance: ContextBundle["provenance"],
+): string {
+  return provenance.mode === "live" ? "Live DataHub" : "Recorded snapshot";
 }

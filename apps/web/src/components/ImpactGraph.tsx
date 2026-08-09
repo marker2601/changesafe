@@ -9,7 +9,7 @@ import {
 import { useRef, useState, type ComponentType } from "react";
 
 import { safeDataHubLink } from "../dataHubLink";
-import { compactLineageLabel } from "../lineageEvidence";
+import { compactLineageLabel, provenanceSourceLabel } from "../lineageEvidence";
 import {
   buildLineageRoute,
   formatEndpoint,
@@ -134,9 +134,7 @@ export function ImpactGraph({
       <header className="dependency-heading">
         <div>
           <span>
-            {context.provenance.mode === "live"
-              ? "Live dependency evidence"
-              : "Recorded dependency evidence"}
+            {provenanceSourceLabel(context.provenance)} dependency evidence
           </span>
           <h2 id="dependency-heading">Tracing what depends on {request.field}</h2>
           <p>
@@ -145,7 +143,7 @@ export function ImpactGraph({
           </p>
         </div>
         <strong>
-          {context.provenance.mode === "live" ? "Live DataHub" : "Checksummed replay"}
+          {provenanceSourceLabel(context.provenance)}
         </strong>
       </header>
 
@@ -208,7 +206,10 @@ export function ImpactGraph({
       </div>
 
       <details className="accessible-dependencies">
-        <summary>Accessible dependency list</summary>
+        <summary>
+          <span>Accessible dependency list</span>
+          <small>{provenanceSourceLabel(context.provenance)}</small>
+        </summary>
         <ul aria-label="All recorded dependencies">
           {routeAssets.map(({ asset, route, direction }) => {
             const dataHubUrl = safeDataHubLink(dataHubOrigin, asset);
@@ -244,6 +245,7 @@ export function ImpactGraph({
             : null
         }
         onClose={() => setSelectedRoute(null)}
+        provenance={context.provenance}
         route={selectedRoute?.route ?? null}
         triggerRef={triggerRef}
       />

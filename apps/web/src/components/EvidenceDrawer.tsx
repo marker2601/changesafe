@@ -1,14 +1,16 @@
 import { ExternalLink, Route, X } from "lucide-react";
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 
+import { provenanceSourceLabel } from "../lineageEvidence";
 import { formatEndpoint, formatRoute, type LineageRoute } from "../lineageRoute";
-import type { AffectedAsset } from "../types";
+import type { AffectedAsset, ContextBundle } from "../types";
 
 interface EvidenceDrawerProps {
   asset: AffectedAsset | null;
   route: LineageRoute | null;
   onClose: () => void;
   dataHubUrl?: string | null;
+  provenance: ContextBundle["provenance"];
   triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
@@ -32,6 +34,7 @@ export function EvidenceDrawer({
   route,
   onClose,
   dataHubUrl,
+  provenance,
   triggerRef,
 }: EvidenceDrawerProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -59,6 +62,13 @@ export function EvidenceDrawer({
   if (!asset || !route) return null;
   return (
     <div
+      className="evidence-drawer-backdrop"
+      data-testid="evidence-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeDrawer();
+      }}
+    >
+      <div
       aria-label={`Evidence for ${asset.name}`}
       aria-modal="true"
       className="evidence-drawer"
@@ -95,6 +105,22 @@ export function EvidenceDrawer({
         {evidenceLabel(route)}
       </p>
       {route.limitation ? <p className="route-limitation">{route.limitation}</p> : null}
+      <dl aria-label="Evidence provenance" className="evidence-provenance">
+        <div>
+          <dt>Evidence source</dt>
+          <dd>{provenanceSourceLabel(provenance)}</dd>
+        </div>
+        <div>
+          <dt>Retrieved at</dt>
+          <dd><code>{provenance.retrieved_at}</code></dd>
+        </div>
+        {provenance.snapshot_hash ? (
+          <div>
+            <dt>Snapshot checksum</dt>
+            <dd><code>{provenance.snapshot_hash}</code></dd>
+          </div>
+        ) : null}
+      </dl>
       <dl>
         <div>
           <dt>Source</dt>
@@ -150,6 +176,7 @@ export function EvidenceDrawer({
           UI origin.
         </p>
       )}
+      </div>
     </div>
   );
 }

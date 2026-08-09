@@ -58,7 +58,7 @@ describe("ImpactGraph", () => {
       screen.getAllByText(analysis.context.downstream_assets[2].urn).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText("Accessible dependency list")).toBeVisible();
-    expect(screen.getByText("Recorded dependency evidence")).toBeVisible();
+    expect(screen.getByText("Recorded snapshot dependency evidence")).toBeVisible();
     expect(
       screen.queryByRole("link", { name: "Open evidence in DataHub" }),
     ).not.toBeInTheDocument();
@@ -354,6 +354,58 @@ describe("ImpactGraph", () => {
     await user.keyboard("{Escape}");
     expect(drawer).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it("presents recorded provenance in a modal evidence drawer that blocks the graph", async () => {
+    const user = userEvent.setup();
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    render(
+      <ImpactGraph
+        activeImpact={null}
+        context={analysis.context}
+        request={goldenRun.request}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /order_details\.cust_email → ORDER_DETAILS\.cust_email/,
+      }),
+    );
+
+    const drawer = screen.getByRole("dialog", { name: /Evidence for ORDER_DETAILS/ });
+    expect(screen.getByTestId("evidence-backdrop")).toHaveClass("evidence-drawer-backdrop");
+    expect(drawer).toHaveClass("evidence-drawer");
+    expect(within(drawer).getByText("Recorded snapshot")).toBeVisible();
+    expect(within(drawer).getByText("Retrieved at")).toBeVisible();
+    expect(within(drawer).getByText("Snapshot checksum")).toBeVisible();
+    expect(within(drawer).getByText("b".repeat(64))).toBeVisible();
+    expect(screen.getAllByText("Recorded snapshot")).toHaveLength(3);
+
+    await user.click(screen.getByTestId("evidence-backdrop"));
+    expect(drawer).not.toBeInTheDocument();
+  });
+
+  it("presents live provenance without claiming a snapshot checksum", async () => {
+    const user = userEvent.setup();
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    const context = {
+      ...analysis.context,
+      provenance: {
+        ...analysis.context.provenance,
+        mode: "live" as const,
+        snapshot_hash: null,
+      },
+    };
+    render(<ImpactGraph activeImpact={null} context={context} request={goldenRun.request} />);
+
+    await user.click(screen.getByRole("button", { name: /Customer Analytics Measures/ }));
+
+    const drawer = screen.getByRole("dialog", { name: /Evidence for/ });
+    expect(within(drawer).getByText("Live DataHub")).toBeVisible();
+    expect(within(drawer).queryByText("Snapshot checksum")).not.toBeInTheDocument();
   });
 
   it("does not fabricate a field suffix for dataset-level evidence and renders evidence-empty states", async () => {

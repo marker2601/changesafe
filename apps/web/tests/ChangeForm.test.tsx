@@ -62,6 +62,15 @@ describe("ChangeForm", () => {
     );
   });
 
+  it("uses an explicit label for the current-field combobox instead of nesting it in a label", () => {
+    renderForm();
+
+    const field = screen.getByRole("combobox", { name: "Current field" });
+    expect(field).toHaveAttribute("id");
+    expect(screen.getByText("Current field").tagName).toBe("LABEL");
+    expect(field.closest("label")).toBeNull();
+  });
+
   it("reports operation-specific draft and source commit changes", async () => {
     const user = userEvent.setup();
     const onDraftChange = vi.fn();
@@ -156,6 +165,30 @@ describe("ChangeForm", () => {
     await user.click(screen.getByRole("button", { name: "Use recorded fields" }));
     expect(retry).toHaveBeenCalledOnce();
     expect(loadRecorded).toHaveBeenCalledOnce();
+  });
+
+  it("tells the operator when a custom dataset URN is not allowlisted", () => {
+    renderForm(
+      {
+        ...DEFAULT_CHANGE_DRAFT,
+        asset_urn: "not-a-urn",
+        field: "",
+        new_field: "",
+      },
+      {
+        schema: {
+          ...loadedSchema,
+          catalog: null,
+          loading: false,
+          error: "allowlisted DataHub dataset URN required",
+        },
+      },
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "allowlisted DataHub dataset URN required",
+    );
+    expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
   });
 
   it("keeps recorded fallback unavailable in live mode and explains a loading schema", () => {

@@ -124,6 +124,20 @@ describe("useSchemaCatalog", () => {
     await act(async () => undefined);
     expect(getSchemaCatalog).not.toHaveBeenCalled();
     expect(result.current.catalog).toBeNull();
+    expect(result.current.error).toBe("allowlisted DataHub dataset URN required");
+  });
+
+  it("turns a rejected custom dataset into the actionable allowlist message", async () => {
+    const getSchemaCatalog = vi.fn().mockRejectedValue(
+      new Error("Asset is outside the configured DataHub allowlist"),
+    );
+    const api = apiWithSchema(getSchemaCatalog);
+    const customUrn = "urn:li:dataset:(urn:li:dataPlatform:dbt,custom.unapproved,PROD)";
+    const { result } = renderHook(() => useSchemaCatalog(api, customUrn));
+
+    await waitFor(() =>
+      expect(result.current.error).toBe("allowlisted DataHub dataset URN required"),
+    );
   });
 
   it("requests checksum-verified recorded fields only after the user asks", async () => {

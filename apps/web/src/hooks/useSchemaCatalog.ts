@@ -8,6 +8,7 @@ import type {
 
 const catalogCache = new Map<string, SchemaCatalog>();
 const DATASET_URN = /^urn:li:dataset:/;
+const INVALID_DATASET_URN_ERROR = "allowlisted DataHub dataset URN required";
 
 export interface SchemaCatalogState {
   catalog: SchemaCatalog | null;
@@ -29,6 +30,9 @@ function cacheKey(source: SchemaEvidenceSource, assetUrn: string): string {
 }
 
 function publicError(reason: unknown): string {
+  if (reason instanceof Error && /allowlist/i.test(reason.message)) {
+    return INVALID_DATASET_URN_ERROR;
+  }
   return reason instanceof Error
     ? reason.message
     : "Schema fields could not be read safely.";
@@ -56,7 +60,9 @@ export function useSchemaCatalog(
   const cached = validUrn ? catalogCache.get(key) ?? null : null;
   const currentResult = result.key === key ? result : null;
   const catalog = currentResult?.catalog ?? cached;
-  const error = currentResult?.error ?? null;
+  const error = validUrn
+    ? currentResult?.error ?? null
+    : INVALID_DATASET_URN_ERROR;
   const loading = validUrn && catalog === null && error === null;
 
   useEffect(() => {

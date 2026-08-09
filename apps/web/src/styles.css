@@ -407,6 +407,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+.change-form .form-field { display: flex; min-width: 0; flex-direction: column; gap: 6px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .change-form input, .change-form select, .approval-panel input {
   width: 100%;
   min-height: 40px;
@@ -739,26 +740,30 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .target-node.is-highlighted { border-color: var(--lime); box-shadow: 0 0 50px rgb(190 255 30 / 19%); }
 .target-platform { color: #a9bcbe; font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
 .accessible-dependencies { margin-top: 9px; }
+.accessible-dependencies summary small { margin-left: 7px; color: var(--cyan); font-size: 8px; letter-spacing: .04em; text-transform: uppercase; }
 .accessible-dependencies ul { display: grid; gap: 5px; padding-left: 20px; color: var(--muted); font-size: 10px; }
 .accessible-dependencies li span { display: block; margin-top: 2px; color: var(--quiet); }
 .accessible-dependencies li strong { display: block; color: var(--text); overflow-wrap: anywhere; }
 .accessible-dependencies li em { display: block; margin-top: 3px; color: var(--amber); font-size: 9px; font-style: normal; line-height: 1.4; }
 .accessible-dependencies li a { display: inline-block; margin-top: 3px; color: var(--cyan); }
 
+.evidence-drawer-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  background: rgb(0 5 9 / 76%);
+}
 .evidence-drawer {
-  position: absolute;
-  z-index: 20;
-  top: 72px;
-  right: 14px;
-  width: min(430px, calc(100% - 28px));
-  max-height: calc(100% - 88px);
+  width: min(480px, 100%);
+  height: 100%;
   padding: 17px;
   overflow: auto;
-  border: 1px solid var(--cyan);
-  border-radius: 7px;
+  border-left: 1px solid var(--cyan);
   color: var(--text);
   background: #061821;
-  box-shadow: 0 24px 70px rgb(0 0 0 / 65%);
+  box-shadow: -28px 0 80px rgb(0 0 0 / 65%);
 }
 .evidence-drawer header { display: flex; align-items: center; justify-content: space-between; color: var(--cyan); font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
 .evidence-drawer header button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; }
@@ -768,6 +773,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .evidence-kind svg { width: 16px; }
 .route-limitation { margin: 10px 0 0; padding: 8px; border-left: 2px solid var(--amber); color: #ffd88f; background: rgb(225 169 50 / 10%); font-size: 10px; line-height: 1.4; }
 .evidence-drawer dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 15px 0; }
+.evidence-drawer .evidence-provenance { grid-template-columns: 1fr; }
+.evidence-provenance dd code { overflow-wrap: anywhere; color: #c9d5d7; font-size: 8px; line-height: 1.45; }
 .evidence-drawer dl div, .urn-block { padding: 9px; border: 1px solid var(--line); background: var(--panel); }
 .evidence-drawer dt, .urn-block span { color: var(--muted); font-size: 8px; text-transform: uppercase; }
 .evidence-drawer dd { margin: 4px 0 0; font-size: 10px; }
@@ -974,7 +981,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   .code-inspector { min-height: 370px; }
   .artifact-explanation dl { grid-template-columns: 1fr; gap: 9px; }
   .governance-rail { grid-template-columns: 1fr; }
-  .evidence-drawer { position: fixed; top: 74px; right: 8px; bottom: 8px; width: calc(100% - 16px); max-height: none; }
+  .evidence-drawer { width: min(480px, calc(100% - 12px)); }
   .owner-activity-drawer { padding: 16px; }
   .owner-activity-drawer form > div { grid-template-columns: 1fr; }
   .app-footer { align-items: flex-start; padding: 13px 14px; flex-direction: column; gap: 4px; }

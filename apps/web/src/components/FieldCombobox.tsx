@@ -5,6 +5,7 @@ import type { SchemaField } from "../types";
 interface FieldComboboxProps {
   disabled: boolean;
   fields: SchemaField[];
+  id?: string;
   onChange: (field: SchemaField) => void;
   value: string;
 }
@@ -12,6 +13,7 @@ interface FieldComboboxProps {
 export function FieldCombobox({
   disabled,
   fields,
+  id,
   onChange,
   value,
 }: FieldComboboxProps) {
@@ -64,6 +66,7 @@ export function FieldCombobox({
         aria-label="Current field"
         autoComplete="off"
         disabled={disabled}
+        id={id}
         onBlur={close}
         onChange={(event) => {
           setQuery(event.target.value);
