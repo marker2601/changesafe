@@ -11,15 +11,15 @@
   },
   "context": {
     "mode": "snapshot",
-    "snapshot_hash": "5e36ecee93cf91d172b32ad0c875efb1218ba1446ccc71e8b5728dba63462644",
+    "snapshot_hash": "02ef4be4a1a31759c841996456b533126633c35aefe7d69c1a65abafa5816834",
     "target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
   },
   "deprecation_status": "phase_one",
   "files": {
-    "PR_BODY.md": "5b4d0659af102b7474932ec8fc4decadf548bec9acd7937e2a407a4e59ee32fe",
+    "PR_BODY.md": "c1cde51439250d46ed1ac64f4c649b9e41b7166be49eb326a160ea6d34ad006c",
     "ROLLBACK.md": "d1a5dfe743a98497364e537e7d5e5242ae96c1013934c6a5dd8c6833d5ec4305",
-    "migrations/2026-08-08-cust-email-rename.md": "3a1137b9982425d720544438bc3da5c7f9506e87679f0a18b782d6fbff6ccb21",
-    "models/marts/order_details.sql": "b724a7ecf919f4fbee0be26f76fccf5c34511724fa6c05f2378ed75b1424eacf",
+    "migrations/2026-08-09-cust-email-rename.md": "691d555da47739ac359ed37a86debc79921c7c50f9c5504edefd69a74591f0b2",
+    "models/marts/order_details.sql": "c6e725fe77abe42f189deeac1be719b560702cfb556853365ca79a6d05ebb29c",
     "models/marts/order_details.yml": "ed01737981980959cb76ce031331412eda771c5fec5f0e3116ca085cb661dae0",
     "tests/assert_cust_email_compatibility.sql": "ad752bacad3f887feaa853bd61a89b9f24ad5530fbab9f737bd861c9be650fc8"
   },
@@ -37,31 +37,50 @@
       {
         "code": "downstream_assets",
         "evidence_urns": [
+          "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry.explore.order_details,PROD)",
           "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
-          "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details_replica,PROD)",
-          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Customer_Analytics_Measures,PROD)",
-          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Geographic_Measures,PROD)",
-          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Essential_KPI_Measures,PROD)",
           "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry-looker.view.order_details,PROD)",
-          "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry.explore.order_details,PROD)"
+          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.ORDER_DETAILS,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Customer_Analytics_Measures,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Essential_KPI_Measures,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Geographic_Measures,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Product_Perfromance_Measures,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Time_Inteligence_Measures,PROD)",
+          "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details_replica,PROD)",
+          "urn:li:dashboard:(tableau,b2fd91.843bf583-900b-f1ba-0532-b5e67a0373dc)",
+          "urn:li:dashboard:(powerbi,b2fd91.reports.66666666-7777-8888-9999-000000000000)",
+          "urn:li:chart:(tableau,b2fd91.89f38fd7-058d-b66a-6db0-4f85f105468a)",
+          "urn:li:chart:(tableau,b2fd91.b8c660a8-10ea-e32a-b823-fa655e1c2f43)",
+          "urn:li:chart:(tableau,b2fd91.e051d978-989f-a329-5458-e01721b05570)",
+          "urn:li:chart:(tableau,b2fd91.e36d7772-ac4d-4fd0-a893-aec88f3aa13e)",
+          "urn:li:dashboard:(looker,b2fd91.dashboards.53)",
+          "urn:li:chart:(looker,b2fd91.dashboard_elements.221)",
+          "urn:li:chart:(looker,b2fd91.dashboard_elements.222)",
+          "urn:li:chart:(looker,b2fd91.dashboard_elements.223)",
+          "urn:li:chart:(looker,b2fd91.dashboard_elements.224)",
+          "urn:li:chart:(powerbi,b2fd91.pages.66666666-7777-8888-9999-000000000000.217abe0d5c1cd421c384)",
+          "urn:li:chart:(powerbi,b2fd91.pages.66666666-7777-8888-9999-000000000000.3f48c0bf859b2d14dcd0)",
+          "urn:li:chart:(powerbi,b2fd91.pages.66666666-7777-8888-9999-000000000000.83a9aaa3207edd6c721e)",
+          "urn:li:chart:(powerbi,b2fd91.pages.66666666-7777-8888-9999-000000000000.85e432543b30346a0507)"
         ],
-        "label": "7 downstream assets",
+        "label": "25 downstream assets",
         "points": 25
       },
       {
-        "code": "governed_field",
+        "code": "executive_downstream",
         "evidence_urns": [
-          "urn:li:tag:b2fd91.PII_Data",
-          "urn:li:tag:b2fd91.Authoritative Source",
-          "urn:li:glossaryTerm:b2fd91.1598cf93-c199-43a1-8833-fce96faa9a1a"
+          "urn:li:dashboard:(tableau,b2fd91.843bf583-900b-f1ba-0532-b5e67a0373dc)",
+          "urn:li:dashboard:(powerbi,b2fd91.reports.66666666-7777-8888-9999-000000000000)",
+          "urn:li:dashboard:(looker,b2fd91.dashboards.53)"
         ],
-        "label": "Governed, confidential, or PII field",
-        "points": 10
+        "label": "Dashboard or executive report downstream",
+        "points": 15
       },
       {
         "code": "high_usage",
         "evidence_urns": [
-          "urn:li:query:changesafe-order-details-cust-email-usage"
+          "urn:li:query:changesafe-order-details-cust-email-1",
+          "urn:li:query:changesafe-order-details-cust-email-2"
         ],
         "label": "High query usage",
         "points": 10
@@ -69,14 +88,16 @@
       {
         "code": "cross_domain",
         "evidence_urns": [
-          "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)"
+          "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+          "urn:li:dashboard:(tableau,b2fd91.843bf583-900b-f1ba-0532-b5e67a0373dc)",
+          "urn:li:dashboard:(looker,b2fd91.dashboards.53)"
         ],
         "label": "Cross-domain impact",
         "points": 10
       }
     ],
     "recommended_strategy": "two_phase_compatibility_migration",
-    "score": 80
+    "score": 85
   },
   "version": 1
 }

@@ -70,14 +70,14 @@ async def test_official_demo_classifies_six_evidence_led_impacts() -> None:
     ]
     assert [impact.severity for impact in impacts] == [
         ImpactSeverity.CRITICAL,
-        ImpactSeverity.CRITICAL,
+        ImpactSeverity.INFORMATIONAL,
         ImpactSeverity.HIGH,
-        ImpactSeverity.HIGH,
+        ImpactSeverity.MEDIUM,
         ImpactSeverity.HIGH,
         ImpactSeverity.HIGH,
     ]
     assert impacts[0].confidence is EvidenceConfidence.DIRECT
-    assert impacts[1].confidence is EvidenceConfidence.DIRECT
+    assert impacts[1].confidence is EvidenceConfidence.UNAVAILABLE
     assert impacts[4].confidence is EvidenceConfidence.INFERRED
     assert impacts[4].qualifier == "Potentially high, not quantified"
     assert all(impact.evidence_urns for impact in impacts)

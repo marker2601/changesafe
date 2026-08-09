@@ -25,7 +25,7 @@ async def test_golden_pipeline_reaches_awaiting_approval(tmp_path: Path) -> None
 
     assert result.state is RunState.AWAITING_APPROVAL
     assert result.analysis is not None
-    assert result.analysis.risk.score == 80
+    assert result.analysis.risk.score == 85
     assert result.analysis.validation.passed is True
     assert len(result.analysis.artifacts.files) == 7
     assert [impact.category for impact in result.analysis.impacts] == list(

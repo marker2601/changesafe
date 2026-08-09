@@ -1,13 +1,59 @@
+import hashlib
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from changesafe.context.base import ContextLoadError, DecisionWriteback
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import DEMO_TARGET_URN, golden_change
-from changesafe.domain import ContextMode, RiskBand
+from changesafe.domain import ContextMode, LineagePrecision, RiskBand
 
 TARGET = DEMO_TARGET_URN
+
+
+def write_catalog(tmp_path: Path, payload: dict[str, Any]) -> ReplayDataHubContext:
+    snapshot = tmp_path / "context.json"
+    checksum = tmp_path / "context.sha256"
+    raw = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
+    snapshot.write_bytes(raw)
+    checksum.write_text(
+        f"{hashlib.sha256(raw).hexdigest()}  {snapshot.name}\n",
+        encoding="ascii",
+    )
+    return ReplayDataHubContext(snapshot, checksum)
+
+
+def minimal_catalog() -> dict[str, Any]:
+    field_context = {
+        "field_type": "TEXT",
+        "upstream_assets": [],
+        "downstream_assets": [],
+        "field_tags": [],
+        "glossary_terms": [],
+        "usage_tier": "none",
+        "queries": [],
+        "evidence": [],
+        "tool_evidence": [],
+    }
+    return {
+        "snapshot_version": 2,
+        "target_urn": TARGET,
+        "target_name": "order_details",
+        "target_domain": None,
+        "schema_fields": [
+            {"name": "cust_email", "data_type": "TEXT", "nullable": False}
+        ],
+        "owners": [],
+        "structured_properties": {},
+        "fields": {"cust_email": field_context},
+        "provenance": {
+            "mode": "snapshot",
+            "retrieved_at": "2026-08-08T20:00:00Z",
+            "adapter_version": "test/1",
+        },
+    }
 
 
 @pytest.mark.asyncio
@@ -42,45 +88,138 @@ async def test_replay_contract_finds_the_golden_dependencies() -> None:
 
     assert context.provenance.mode is ContextMode.SNAPSHOT
     assert len(context.provenance.snapshot_hash or "") == 64
-    assert len(context.downstream_assets) == 7
-    assert [asset.lineage_degree for asset in context.upstream_assets] == [1, 1]
+    assert len(context.upstream_assets) == 6
+    assert len(context.downstream_assets) == 25
+    assert [asset.lineage_degree for asset in context.upstream_assets] == [
+        1,
+        4,
+        2,
+        4,
+        3,
+        3,
+    ]
     assert [asset.lineage_degree for asset in context.downstream_assets] == [
+        3,
         1,
         2,
         2,
         2,
         2,
         2,
+        2,
+        2,
+        2,
+        5,
+        3,
+        4,
+        4,
+        4,
+        4,
+        5,
+        4,
+        4,
+        4,
+        4,
+        3,
+        3,
+        3,
         3,
     ]
     assert {asset.domain for asset in context.downstream_assets if asset.domain} == {
         "Data Platform Team",
         "Ecommerce Operations",
+        "Marketing",
     }
     assert context.usage_tier == "high"
-    assert "urn:li:tag:b2fd91.PII_Data" in context.field_tags
+    assert context.field_tags == []
+    assert context.glossary_terms == []
 
 
 @pytest.mark.asyncio
-async def test_replay_uses_the_official_order_entry_scenario() -> None:
-    port = ReplayDataHubContext.from_default()
+@pytest.mark.parametrize(
+    ("field", "expected_type"),
+    [("cust_email", "TEXT"), ("order_total", "FLOAT"), ("order_status", "NUMBER")],
+)
+async def test_replay_builds_a_field_scoped_context(
+    field: str, expected_type: str
+) -> None:
+    change = golden_change().model_copy(
+        update={"field": field, "new_field": f"preferred_{field}"}
+    )
+    context = await ReplayDataHubContext.from_default().load(change)
 
-    context = await port.load(golden_change())
+    assert context.field == field
+    assert context.field_type == expected_type
+    for asset in [*context.upstream_assets, *context.downstream_assets]:
+        if asset.field is None:
+            assert asset.lineage_precision is LineagePrecision.DATASET_LEVEL
+        else:
+            assert asset.lineage_precision is not LineagePrecision.DATASET_LEVEL
+    if field == "order_total":
+        derived = next(
+            asset
+            for asset in context.downstream_assets
+            if asset.field == "AVERAGE_ORDER_VALUE"
+        )
+        assert derived.lineage_precision is LineagePrecision.ENDPOINT_FIELD
+    if field != "cust_email":
+        scoped_text = json.dumps(
+            {
+                "field_tags": context.field_tags,
+                "glossary_terms": context.glossary_terms,
+                "queries": context.queries,
+                "evidence": [
+                    item.model_dump(mode="json") for item in context.evidence
+                ],
+                "upstream": [
+                    item.model_dump(mode="json") for item in context.upstream_assets
+                ],
+                "downstream": [
+                    item.model_dump(mode="json") for item in context.downstream_assets
+                ],
+            }
+        )
+        assert "cust_email" not in scoped_text
 
-    assert context.target_urn == (
-        "urn:li:dataset:(urn:li:dataPlatform:dbt,"
-        "b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unexpected", ["missing", "extra"])
+async def test_replay_rejects_field_contexts_that_do_not_match_schema(
+    tmp_path: Path, unexpected: str
+) -> None:
+    payload = minimal_catalog()
+    if unexpected == "missing":
+        payload["fields"] = {}
+    else:
+        payload["fields"]["order_total"] = payload["fields"]["cust_email"]
+    port = write_catalog(tmp_path, payload)
+
+    with pytest.raises(ContextLoadError, match="contract validation"):
+        await port.discover_schema(TARGET)
+
+
+@pytest.mark.asyncio
+async def test_replay_rejects_duplicate_schema_field_names(tmp_path: Path) -> None:
+    payload = minimal_catalog()
+    payload["schema_fields"].append(
+        {"name": "CUST_EMAIL", "data_type": "TEXT", "nullable": False}
     )
-    assert context.target_name == "order_details"
-    assert context.field == "cust_email"
-    assert context.field_type in {"TEXT", "VARCHAR"}
-    assert "urn:li:tag:b2fd91.PII_Data" in context.field_tags
-    assert any(
-        "powerbi" in asset.urn.lower() for asset in context.downstream_assets
+    payload["fields"]["CUST_EMAIL"] = payload["fields"]["cust_email"]
+    port = write_catalog(tmp_path, payload)
+
+    with pytest.raises(ContextLoadError, match="contract validation"):
+        await port.discover_schema(TARGET)
+
+
+@pytest.mark.asyncio
+async def test_replay_rejects_an_unknown_selected_field(tmp_path: Path) -> None:
+    port = write_catalog(tmp_path, minimal_catalog())
+    change = golden_change().model_copy(
+        update={"field": "order_total", "new_field": "preferred_order_total"}
     )
-    assert any(
-        "looker" in asset.urn.lower() for asset in context.downstream_assets
-    )
+
+    with pytest.raises(ContextLoadError, match="requested field"):
+        await port.load(change)
 
 
 @pytest.mark.asyncio

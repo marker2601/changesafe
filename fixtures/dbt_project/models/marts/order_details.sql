@@ -57,4 +57,4 @@ select
     delivery_status,
     return_status,
     updated_at
-from {{ ref('stg_order_details') }}
+from {{ ref('customers') }}

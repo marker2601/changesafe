@@ -15,7 +15,6 @@ from changesafe.domain import (
     SchemaField,
 )
 from changesafe.generation.templates import (
-    EXPECTED_GOLDEN_PATHS,
     GenerationNarrative,
     expected_artifact_paths,
     generate_artifacts,
@@ -33,7 +32,7 @@ def test_golden_rename_generates_exact_manifest() -> None:
 
     bundle = generate_artifacts(change, context, risk)
 
-    assert sorted(bundle.files) == sorted(EXPECTED_GOLDEN_PATHS)
+    assert sorted(bundle.files) == sorted(expected_artifact_paths(change, context))
     model = bundle.files["models/marts/order_details.sql"].content
     assert "cust_email" in model
     assert "cust_email as primary_email" in model.lower()

@@ -18,12 +18,20 @@ def canonical_bytes(payload: Any) -> bytes:
 
 
 def write_snapshot(payload: Any, snapshot: Path, checksum: Path) -> str:
+    return write_snapshot_atomic(payload, snapshot, checksum)
+
+
+def write_snapshot_atomic(payload: Any, snapshot: Path, checksum: Path) -> str:
     raw = canonical_bytes(payload)
     digest = hashlib.sha256(raw).hexdigest()
     snapshot.parent.mkdir(parents=True, exist_ok=True)
     checksum.parent.mkdir(parents=True, exist_ok=True)
-    snapshot.write_bytes(raw)
-    checksum.write_text(f"{digest}  {snapshot.name}\n", encoding="ascii")
+    snapshot_tmp = snapshot.with_suffix(snapshot.suffix + ".tmp")
+    checksum_tmp = checksum.with_suffix(checksum.suffix + ".tmp")
+    snapshot_tmp.write_bytes(raw)
+    checksum_tmp.write_text(f"{digest}  {snapshot.name}\n", encoding="ascii")
+    snapshot_tmp.replace(snapshot)
+    checksum_tmp.replace(checksum)
     return digest
 
 

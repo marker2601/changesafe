@@ -6,7 +6,9 @@ import json
 import os
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Literal
+
+from pydantic import Field, model_validator
 
 from changesafe.context.base import (
     ContextLoadError,
@@ -14,16 +16,57 @@ from changesafe.context.base import (
     WritebackProgress,
 )
 from changesafe.domain import (
+    AffectedAsset,
     ChangeRequest,
     ContextBundle,
     ContextMode,
+    ContextProvenance,
     DataHubReceipt,
+    EvidenceRef,
+    Owner,
     SchemaCatalog,
+    SchemaField,
+    StrictModel,
+    ToolEvidence,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_SNAPSHOT = REPO_ROOT / "fixtures" / "datahub" / "golden-context.json"
 DEFAULT_CHECKSUM = REPO_ROOT / "fixtures" / "datahub" / "golden-context.sha256"
+
+
+class RecordedFieldContext(StrictModel):
+    field_type: str
+    upstream_assets: list[AffectedAsset]
+    downstream_assets: list[AffectedAsset]
+    field_tags: list[str]
+    glossary_terms: list[str]
+    usage_tier: Literal["none", "low", "medium", "high"]
+    queries: list[str]
+    evidence: list[EvidenceRef]
+    tool_evidence: list[ToolEvidence]
+
+
+class RecordedDataHubCatalog(StrictModel):
+    snapshot_version: Literal[2]
+    target_urn: str
+    target_name: str
+    target_domain: str | None
+    schema_fields: list[SchemaField] = Field(min_length=1)
+    owners: list[Owner]
+    structured_properties: dict[str, list[str | int | float]]
+    fields: dict[str, RecordedFieldContext]
+    provenance: ContextProvenance
+
+    @model_validator(mode="after")
+    def fields_match_schema(self) -> RecordedDataHubCatalog:
+        names = [item.name.casefold() for item in self.schema_fields]
+        if len(names) != len(set(names)):
+            raise ValueError("schema_fields contains duplicate field names")
+        expected = {item.name for item in self.schema_fields}
+        if set(self.fields) != expected:
+            raise ValueError("recorded field contexts must exactly match schema_fields")
+        return self
 
 
 class ReplayDataHubContext:
@@ -39,7 +82,7 @@ class ReplayDataHubContext:
         )
         return cls(snapshot, checksum)
 
-    def _load_payload(self) -> tuple[dict[str, Any], str]:
+    def _load_payload(self) -> tuple[RecordedDataHubCatalog, str]:
         try:
             raw = self.snapshot_path.read_bytes()
             expected = self.checksum_path.read_text(encoding="ascii").split()[0]
@@ -53,45 +96,58 @@ class ReplayDataHubContext:
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise ContextLoadError("DataHub snapshot is not valid JSON") from exc
-        return payload, actual
+        try:
+            return RecordedDataHubCatalog.model_validate(payload), actual
+        except ValueError as exc:
+            raise ContextLoadError(
+                "DataHub snapshot failed contract validation"
+            ) from exc
 
     async def load(self, change: ChangeRequest) -> ContextBundle:
-        payload, digest = self._load_payload()
-        if payload.get("target_urn") != change.asset_urn:
+        catalog, digest = self._load_payload()
+        if catalog.target_urn != change.asset_urn:
             raise ContextLoadError("Snapshot does not contain the requested asset")
-        if payload.get("field") != change.field:
-            raise ContextLoadError("Snapshot does not contain the requested field")
-
-        provenance = dict(payload.get("provenance", {}))
-        provenance.update({"mode": ContextMode.SNAPSHOT, "snapshot_hash": digest})
-        payload["provenance"] = provenance
         try:
-            return ContextBundle.model_validate(payload)
-        except ValueError as exc:
+            recorded = catalog.fields[change.field]
+        except KeyError as exc:
             raise ContextLoadError(
-                "DataHub snapshot failed contract validation"
+                "Snapshot does not contain the requested field"
             ) from exc
+        provenance = catalog.provenance.model_copy(
+            update={"mode": ContextMode.SNAPSHOT, "snapshot_hash": digest}
+        )
+        return ContextBundle(
+            target_urn=catalog.target_urn,
+            target_name=catalog.target_name,
+            target_domain=catalog.target_domain,
+            field=change.field,
+            field_type=recorded.field_type,
+            schema_fields=catalog.schema_fields,
+            upstream_assets=recorded.upstream_assets,
+            downstream_assets=recorded.downstream_assets,
+            owners=catalog.owners,
+            field_tags=recorded.field_tags,
+            glossary_terms=recorded.glossary_terms,
+            structured_properties=catalog.structured_properties,
+            usage_tier=recorded.usage_tier,
+            queries=recorded.queries,
+            evidence=recorded.evidence,
+            tool_evidence=recorded.tool_evidence,
+            provenance=provenance,
+        )
 
     async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
-        payload, digest = self._load_payload()
-        if payload.get("target_urn") != asset_urn:
+        catalog, digest = self._load_payload()
+        if catalog.target_urn != asset_urn:
             raise ContextLoadError("Snapshot does not contain the requested asset")
-
-        provenance = dict(payload.get("provenance", {}))
-        provenance.update({"mode": ContextMode.SNAPSHOT, "snapshot_hash": digest})
-        payload["provenance"] = provenance
-        try:
-            context = ContextBundle.model_validate(payload)
-            return SchemaCatalog(
-                target_urn=context.target_urn,
-                target_name=context.target_name,
-                schema_fields=context.schema_fields,
-                provenance=context.provenance,
-            )
-        except ValueError as exc:
-            raise ContextLoadError(
-                "DataHub snapshot failed contract validation"
-            ) from exc
+        return SchemaCatalog(
+            target_urn=catalog.target_urn,
+            target_name=catalog.target_name,
+            schema_fields=catalog.schema_fields,
+            provenance=catalog.provenance.model_copy(
+                update={"mode": ContextMode.SNAPSHOT, "snapshot_hash": digest}
+            ),
+        )
 
     async def writeback(
         self,

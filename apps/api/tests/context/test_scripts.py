@@ -1,10 +1,19 @@
 import asyncio
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
-from scripts.capture_snapshot import write_snapshot
+from scripts.capture_field_catalog import (
+    build_recorded_catalog,
+    capture_from_settings,
+    capture_recorded_catalog,
+)
+from scripts.capture_snapshot import write_snapshot, write_snapshot_atomic
 from scripts.check_secrets import SIGNATURES
 from scripts.seed_datahub import (
     apply_seed,
@@ -13,9 +22,95 @@ from scripts.seed_datahub import (
     verify_seed,
 )
 
+from changesafe.config import Mode
 from changesafe.context import live
 from changesafe.context.base import ContextLoadError
-from changesafe.domain import ContextBundle, SchemaCatalog
+from changesafe.demo import DEMO_TARGET_URN
+from changesafe.domain import (
+    ChangeRequest,
+    ContextBundle,
+    ContextMode,
+    ContextProvenance,
+    EvidenceRef,
+    SchemaCatalog,
+    SchemaField,
+)
+
+
+class FakeCapturePort:
+    def __init__(self, *, fail_on: str | None = None) -> None:
+        self.fail_on = fail_on
+        self.loaded_fields: list[str] = []
+        self.closed = False
+        self.schema = SchemaCatalog(
+            target_urn=DEMO_TARGET_URN,
+            target_name="order_details",
+            schema_fields=[
+                SchemaField(name="cust_email", data_type="TEXT", nullable=False),
+                SchemaField(name="order_total", data_type="FLOAT", nullable=False),
+            ],
+            provenance=ContextProvenance(
+                mode=ContextMode.LIVE,
+                retrieved_at="2026-08-09T12:00:00Z",
+                adapter_version="fake/1",
+            ),
+        )
+
+    async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
+        assert asset_urn == DEMO_TARGET_URN
+        return self.schema
+
+    async def load(self, change: ChangeRequest) -> ContextBundle:
+        self.loaded_fields.append(change.field)
+        if change.field == self.fail_on:
+            raise ContextLoadError("private-token later-field failure")
+        schema_field = next(
+            item for item in self.schema.schema_fields if item.name == change.field
+        )
+        return ContextBundle(
+            target_urn=DEMO_TARGET_URN,
+            target_name="order_details",
+            target_domain="Data Platform Team",
+            field=change.field,
+            field_type=schema_field.data_type,
+            schema_fields=self.schema.schema_fields,
+            owners=[],
+            structured_properties={"quality": [86.8]},
+            evidence=[
+                EvidenceRef(
+                    urn=DEMO_TARGET_URN,
+                    kind="schema",
+                    label=f"{change.field} {schema_field.data_type}",
+                )
+            ],
+            provenance=self.schema.provenance,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def golden_fixture_context() -> ContextBundle:
+    payload = json.loads(
+        Path("fixtures/datahub/golden-context.json").read_text(encoding="utf-8")
+    )
+    if payload.get("snapshot_version") == 2:
+        recorded = payload["fields"]["cust_email"]
+        payload = {
+            key: payload[key]
+            for key in (
+                "target_urn",
+                "target_name",
+                "target_domain",
+                "schema_fields",
+                "owners",
+                "structured_properties",
+                "provenance",
+            )
+        } | {"field": "cust_email", **recorded}
+    payload["provenance"]["mode"] = "live"
+    payload["provenance"]["snapshot_hash"] = None
+    return ContextBundle.model_validate(payload)
 
 
 def test_snapshot_capture_writes_canonical_redacted_bytes(tmp_path: Path) -> None:
@@ -41,6 +136,118 @@ def test_snapshot_capture_writes_canonical_redacted_bytes(tmp_path: Path) -> Non
         checksum.read_text(encoding="ascii").split()[0]
         == hashlib.sha256(raw).hexdigest()
     )
+    assert not snapshot.with_suffix(".json.tmp").exists()
+    assert not checksum.with_suffix(".sha256.tmp").exists()
+
+
+def test_snapshot_capture_atomic_helper_has_the_same_contract(tmp_path: Path) -> None:
+    snapshot = tmp_path / "context.json"
+    checksum = tmp_path / "context.sha256"
+
+    digest = write_snapshot_atomic({"field": "cust_email"}, snapshot, checksum)
+
+    assert digest == hashlib.sha256(snapshot.read_bytes()).hexdigest()
+    assert checksum.read_text(encoding="ascii") == f"{digest}  context.json\n"
+
+
+def test_catalog_capture_script_supports_direct_execution() -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/capture_field_catalog.py", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--target-urn" in result.stdout
+
+
+@pytest.mark.asyncio
+async def test_catalog_capture_reads_every_field_sequentially(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    port = FakeCapturePort()
+
+    catalog = await build_recorded_catalog(port, DEMO_TARGET_URN)
+
+    assert port.loaded_fields == ["cust_email", "order_total"]
+    assert catalog.snapshot_version == 2
+    assert list(catalog.fields) == ["cust_email", "order_total"]
+    assert catalog.fields["order_total"].field_type == "FLOAT"
+    assert catalog.provenance.mode is ContextMode.SNAPSHOT
+    assert catalog.provenance.snapshot_hash is None
+    assert capsys.readouterr().out.splitlines() == [
+        "Captured field 1/2",
+        "Captured field 2/2",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_catalog_capture_does_not_replace_outputs_after_later_failure(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "context.json"
+    checksum = tmp_path / "context.sha256"
+    snapshot.write_bytes(b"existing snapshot")
+    checksum.write_bytes(b"existing checksum")
+    port = FakeCapturePort(fail_on="order_total")
+
+    with pytest.raises(ContextLoadError, match="later-field failure"):
+        await capture_recorded_catalog(port, DEMO_TARGET_URN, snapshot, checksum)
+
+    assert port.loaded_fields == ["cust_email", "order_total"]
+    assert snapshot.read_bytes() == b"existing snapshot"
+    assert checksum.read_bytes() == b"existing checksum"
+
+
+@pytest.mark.asyncio
+async def test_capture_cli_redacts_failures_and_closes_the_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import capture_field_catalog
+
+    port = FakeCapturePort(fail_on="order_total")
+    settings = SimpleNamespace(mode=Mode.LIVE, live_context_enabled=True)
+    monkeypatch.setattr(capture_field_catalog, "Settings", lambda: settings)
+    monkeypatch.setattr(capture_field_catalog, "build_context_port", lambda _: port)
+
+    result = await capture_from_settings(
+        DEMO_TARGET_URN,
+        tmp_path / "context.json",
+        tmp_path / "context.sha256",
+    )
+
+    output = capsys.readouterr()
+    assert result == 1
+    assert port.closed is True
+    assert "snapshot was not changed" in output.err
+    assert "private-token" not in output.out + output.err
+
+
+@pytest.mark.asyncio
+async def test_capture_cli_requires_live_credentials_before_building_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import capture_field_catalog
+
+    settings = SimpleNamespace(mode=Mode.LIVE, live_context_enabled=False)
+    monkeypatch.setattr(capture_field_catalog, "Settings", lambda: settings)
+
+    def unexpected_factory(_settings: Any) -> None:
+        raise AssertionError("factory must not run without live credentials")
+
+    monkeypatch.setattr(capture_field_catalog, "build_context_port", unexpected_factory)
+
+    result = await capture_from_settings(
+        DEMO_TARGET_URN,
+        tmp_path / "context.json",
+        tmp_path / "context.sha256",
+    )
+
+    assert result == 2
 
 
 def test_seed_spec_contains_required_graph_and_governance_definitions() -> None:
@@ -94,12 +301,9 @@ def test_seed_builds_stable_idempotent_metadata_upserts() -> None:
 def test_seed_verification_closes_the_synchronous_live_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    payload = json.loads(
-        Path("fixtures/datahub/golden-context.json").read_text(encoding="utf-8")
+    context = golden_fixture_context().model_copy(
+        update={"field_tags": ["urn:li:tag:b2fd91.PII_Data"]}
     )
-    payload["provenance"]["mode"] = "live"
-    payload["provenance"]["snapshot_hash"] = None
-    context = ContextBundle.model_validate(payload)
 
     class FakeRunner:
         def __init__(self) -> None:

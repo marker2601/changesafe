@@ -95,8 +95,8 @@ async def test_api_runs_complete_replay_analysis_and_serves_artifact(
             f"/api/runs/{run_id}/artifacts/models/marts/order_details.sql"
         )
 
-    assert run["analysis"]["risk"]["score"] == 80
-    assert len(run["analysis"]["context"]["downstream_assets"]) == 7
+    assert run["analysis"]["risk"]["score"] == 85
+    assert len(run["analysis"]["context"]["downstream_assets"]) == 25
     assert artifact.status_code == 200
     assert "cust_email as primary_email" in artifact.text.lower()
 
