@@ -282,6 +282,169 @@ def test_rollback_check_rejects_hashed_confirmation_after_removal() -> None:
     assert report.check("rollback_instructions").passed is False
 
 
+def test_source_relations_binds_the_from_relation_to_a_real_dbt_ref() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content.replace(
+            "    order_id,",
+            "    concat('{{ ref(\"order_details\") }}', order_id) as order_id,",
+        ).replace("from {{ ref('order_details') }}", "from order_details"),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("source_relations").passed is False
+    assert report.passed is False
+
+
+def test_source_relations_rejects_an_extra_live_governed_ref() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content.replace(
+            "    order_id,",
+            "    concat({{ ref('order_details') }}, order_id) as order_id,",
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("source_relations").passed is False
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["migrations/2026-08-09-cust-email-rename.md", "PR_BODY.md"],
+)
+def test_operational_transition_check_rejects_hashed_negated_actions(path: str) -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        path,
+        bundle.files[path]
+        .content.replace("must switch to", "must never switch to")
+        .replace("and migrate to", "and never migrate to"),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("migration_notes").passed is False
+
+
+def test_operational_transition_check_rejects_hashed_prefixed_negation() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "PR_BODY.md",
+        bundle.files["PR_BODY.md"].content.replace(
+            "Downstream owners must switch to",
+            "Never follow: Downstream owners must switch to",
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("migration_notes").passed is False
+
+
+def test_rollback_check_rejects_hashed_negated_field_confirmation() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "ROLLBACK.md",
+        bundle.files["ROLLBACK.md"].content.replace(
+            "Confirm `cust_email` remains available",
+            "Do not confirm `cust_email` remains available",
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("rollback_instructions").passed is False
+
+
+@pytest.mark.parametrize(
+    ("change", "test_path"),
+    [
+        (golden_change(), "tests/assert_cust_email_compatibility.sql"),
+        (
+            golden_change().model_copy(
+                update={
+                    "operation": ChangeOperation.TYPE_CHANGE,
+                    "new_field": None,
+                    "new_type": "VARCHAR(320)",
+                }
+            ),
+            "tests/assert_cust_email_type_compatibility.sql",
+        ),
+    ],
+)
+def test_compatibility_test_rejects_hashed_limit_zero(
+    change, test_path: str
+) -> None:
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+    bundle = generate_artifacts(change, context, score_change(change, context))
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        test_path,
+        bundle.files[test_path].content + "limit 0\n",
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("compatibility_test").passed is False
+
+
+@pytest.mark.parametrize(
+    ("change", "preferred_projection"),
+    [
+        (golden_change(), "cust_email as primary_email"),
+        (
+            golden_change().model_copy(
+                update={
+                    "operation": ChangeOperation.TYPE_CHANGE,
+                    "new_field": None,
+                    "new_type": "VARCHAR(320)",
+                }
+            ),
+            "cast(cust_email as VARCHAR(320)) as cust_email__new_type",
+        ),
+    ],
+)
+def test_phase_one_contract_rejects_hashed_null_preferred_projection(
+    change, preferred_projection: str
+) -> None:
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+    bundle = generate_artifacts(change, context, score_change(change, context))
+    preferred = (
+        "primary_email"
+        if change.operation is ChangeOperation.RENAME
+        else "cust_email__new_type"
+    )
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content.replace(
+            preferred_projection,
+            f"null as {preferred}",
+        ),
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("phase_one_compatibility").passed is False
+
+
 def test_legacy_invalid_type_parameters_fail_context_alignment() -> None:
     rename, context, _bundle = golden_inputs()
     valid = rename.model_copy(

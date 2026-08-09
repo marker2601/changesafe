@@ -6,7 +6,9 @@
 
 ## Phase one
 
-The governed base model remains unchanged in phase one: `order_details`. ChangeSafe adds compatibility relation `order_details__changesafe`. Downstream owners must switch to `order_details__changesafe` and migrate to `primary_email`.
+The governed base model remains unchanged in phase one: `order_details`.
+ChangeSafe adds compatibility relation `order_details__changesafe`.
+Downstream owners must switch to `order_details__changesafe` and migrate to `primary_email`.
 
 Keep `cust_email` and introduce `primary_email` during phase one. Update the dbt contract and enforce the operation-specific compatibility invariant.
 

@@ -30,6 +30,7 @@ from changesafe.sql_types import canonical_sql_type, type_change_kind
 REF_PATTERN = re.compile(r"\{\{\s*ref\(['\"]([^'\"]+)['\"]\)\s*\}\}")
 CONFIG_PATTERN = re.compile(r"^\s*\{\{\s*config\(.*?\)\s*\}\}\s*$", re.MULTILINE)
 SQL_COMMENT_PATTERN = re.compile(r"--[^\r\n]*|/\*.*?\*/", re.DOTALL)
+NUMBERED_STEP_PATTERN = re.compile(r"(?m)^(\d+)\.\s+(.+)$")
 
 
 def _check(code: str, label: str, passed: bool, detail: str) -> ValidationCheck:
@@ -41,12 +42,66 @@ def _sql_without_comments(content: str) -> str:
 
 
 def _dbt_refs(content: str) -> set[str]:
-    return set(REF_PATTERN.findall(_sql_without_comments(content)))
+    normalized, refs = _replace_dbt_refs_with_sentinels(content)
+    del normalized
+    return set(refs.values())
+
+
+def _replace_dbt_refs_with_sentinels(content: str) -> tuple[str, dict[str, str]]:
+    source = CONFIG_PATTERN.sub("", _sql_without_comments(content))
+    chunks: list[str] = []
+    refs: dict[str, str] = {}
+    index = 0
+    cursor = 0
+    while cursor < len(source):
+        character = source[cursor]
+        if character in {"'", '"'}:
+            quote = character
+            end = cursor + 1
+            while end < len(source):
+                if source[end] == quote:
+                    if end + 1 < len(source) and source[end + 1] == quote:
+                        end += 2
+                        continue
+                    end += 1
+                    break
+                end += 1
+            chunks.append(source[cursor:end])
+            cursor = end
+            continue
+        match = REF_PATTERN.match(source, cursor)
+        if match is None:
+            chunks.append(character)
+            cursor += 1
+            continue
+        sentinel = f"changesafe_ref_{index}"
+        refs[sentinel] = match.group(1)
+        chunks.append(sentinel)
+        index += 1
+        cursor = match.end()
+    return "".join(chunks), refs
 
 
 def _normalized_sql(content: str) -> str:
     without_config = CONFIG_PATTERN.sub("", _sql_without_comments(content))
     return REF_PATTERN.sub(lambda match: match.group(1), without_config)
+
+
+def _sentinel_ref_tables(content: str) -> tuple[list[exp.Table], dict[str, str]]:
+    normalized, refs = _replace_dbt_refs_with_sentinels(content)
+    try:
+        expressions = cast(
+            list[exp.Expression], sqlglot.parse(normalized, read="snowflake")
+        )
+    except sqlglot.errors.ParseError:
+        return [], refs
+    tables = [
+        table
+        for expression in expressions
+        for table in expression.find_all(exp.Table)
+        if table.name
+    ]
+    return tables, refs
 
 
 def _parsed_sql(
@@ -216,6 +271,52 @@ def _column_is(expression: exp.Expression, name: str) -> bool:
     )
 
 
+def _unqualified_column_is(expression: exp.Expression, name: str) -> bool:
+    return (
+        isinstance(expression, exp.Column)
+        and expression.name.casefold() == name.casefold()
+        and not expression.table
+    )
+
+
+def _phase_one_projection_valid(
+    expressions: list[exp.Expression], change: ChangeRequest
+) -> bool:
+    if len(expressions) != 1 or not isinstance(expressions[0], exp.Select):
+        return False
+    projections = expressions[0].expressions
+    if not any(
+        _unqualified_column_is(projection, change.field) for projection in projections
+    ):
+        return False
+    preferred = _preferred_field(change)
+    if preferred is None:
+        return True
+    preferred_projection = next(
+        (
+            projection
+            for projection in projections
+            if projection.alias_or_name.casefold() == preferred.casefold()
+        ),
+        None,
+    )
+    if not isinstance(preferred_projection, exp.Alias):
+        return False
+    if change.operation is ChangeOperation.RENAME:
+        return _unqualified_column_is(preferred_projection.this, change.field)
+    if not isinstance(preferred_projection.this, exp.Cast):
+        return False
+    if not _unqualified_column_is(preferred_projection.this.this, change.field):
+        return False
+    assert change.new_type is not None
+    try:
+        return canonical_sql_type(
+            preferred_projection.this.to.sql(dialect="snowflake")
+        ) == canonical_sql_type(change.new_type)
+    except ValueError:
+        return False
+
+
 def _compatibility_test_valid(
     expressions: list[exp.Expression],
     change: ChangeRequest,
@@ -224,6 +325,12 @@ def _compatibility_test_valid(
     if len(expressions) != 1 or not isinstance(expressions[0], exp.Select):
         return False
     select = expressions[0]
+    if any(
+        value is not None
+        for name, value in select.args.items()
+        if name not in {"expressions", "from_", "where"}
+    ):
+        return False
     if len(list(select.find_all(exp.Select))) != 1:
         return False
     if len(select.expressions) != 1 or not _column_is(
@@ -270,22 +377,47 @@ def _transition_guidance_valid(
     change: ChangeRequest,
     governed_model: str,
     shim_model: str,
+    downstream_count: int,
 ) -> bool:
-    normalized = content.casefold()
-    required = {
-        f"`{governed_model}`".casefold(),
-        f"`{shim_model}`".casefold(),
-        "governed base model remains unchanged in phase one",
-        f"switch to `{shim_model}`".casefold(),
-        f"through `{shim_model}`".casefold(),
-    }
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    required = [
+        f"The governed base model remains unchanged in phase one: `{governed_model}`.",
+        f"ChangeSafe adds compatibility relation `{shim_model}`.",
+    ]
     if change.operation is ChangeOperation.REMOVE:
-        required.add(f"while retaining `{change.field}` until phase two".casefold())
+        owner_transition = (
+            f"Downstream owners must switch to `{shim_model}` while retaining "
+            f"`{change.field}` until phase two."
+        )
     else:
         preferred = _preferred_field(change)
         assert preferred is not None
-        required.add(f"migrate to `{preferred}`".casefold())
-    return all(item in normalized for item in required)
+        owner_transition = (
+            f"Downstream owners must switch to `{shim_model}` and migrate to "
+            f"`{preferred}`."
+        )
+    required.extend(
+        [
+            owner_transition,
+            (
+                f"All {downstream_count} recorded consumers must complete migration "
+                f"through `{shim_model}`, the operation-specific compatibility test "
+                "must remain green, and the accountable owner must approve phase two."
+            ),
+        ]
+    )
+    protected_actions = (
+        "governed base model",
+        "compatibility relation",
+        "downstream owners",
+        "recorded consumers must complete migration",
+    )
+    has_negated_action = any(
+        re.search(r"\b(?:do not|never)\b", line, flags=re.IGNORECASE)
+        and any(action in line.casefold() for action in protected_actions)
+        for line in lines
+    )
+    return not has_negated_action and all(lines.count(item) == 1 for item in required)
 
 
 def _rollback_instructions_valid(
@@ -297,27 +429,21 @@ def _rollback_instructions_valid(
     model_yaml: str,
     test_path: str,
 ) -> bool:
-    normalized = content.casefold()
-    consumer_move = normalized.find(
-        (
-            f"move downstream consumers from `{shim_model}` back to "
-            f"`{governed_model}`"
-        ).casefold()
-    )
-    old_field_confirmation = normalized.find(
-        f"confirm `{change.field}` remains available".casefold()
-    )
-    removal_steps = [
-        normalized.find(f"revert `{model_sql}`".casefold()),
-        normalized.find(f"revert `{model_yaml}`".casefold()),
-        normalized.find(f"remove `{test_path}`".casefold()),
-    ]
-    return (
-        consumer_move >= 0
-        and old_field_confirmation > consumer_move
-        and all(step >= 0 for step in removal_steps)
-        and old_field_confirmation < min(removal_steps)
-    )
+    steps = {
+        int(number): action.strip()
+        for number, action in NUMBERED_STEP_PATTERN.findall(content)
+    }
+    return steps == {
+        1: (
+            f"Move downstream consumers from `{shim_model}` back to "
+            f"`{governed_model}` before removing generated artifacts."
+        ),
+        2: f"Confirm `{change.field}` remains available to every downstream consumer.",
+        3: f"Revert `{model_sql}`.",
+        4: f"Revert `{model_yaml}`.",
+        5: f"Remove `{test_path}`.",
+        6: "Run `dbt parse` and the project test suite before republishing.",
+    }
 
 
 def verify_artifacts(
@@ -376,6 +502,7 @@ def verify_artifacts(
     model_name = PurePosixPath(model_sql).stem
     model_content = bundle.files.get(model_sql)
     model_text = model_content.content if model_content else ""
+    model_expressions = parsed.get(model_sql, [])
     new_field = _preferred_field(change)
     context_aligned, alignment_detail, changed_schema_field = _context_alignment(
         change, context
@@ -388,17 +515,7 @@ def verify_artifacts(
             alignment_detail,
         )
     )
-    old_present = bool(
-        re.search(rf"\b{re.escape(change.field)}\b", model_text, re.IGNORECASE)
-    )
-    compatible = old_present and (
-        new_field is None
-        or bool(
-            re.search(
-                rf"\bas\s+{re.escape(new_field)}\b", model_text, re.IGNORECASE
-            )
-        )
-    )
+    compatible = _phase_one_projection_valid(model_expressions, change)
     checks.append(
         _check(
             "phase_one_compatibility",
@@ -460,7 +577,6 @@ def verify_artifacts(
         )
     )
 
-    model_expressions = parsed.get(model_sql, [])
     model_output_names = _select_output_names(model_expressions)
     normalized_model_names = [name.casefold() for name in model_output_names if name]
     normalized_yaml_names = [name.casefold() for name in columns]
@@ -532,10 +648,16 @@ def verify_artifacts(
         for table in expression.find_all(exp.Table)
         if table.name
     ]
+    sentinel_tables, sentinel_refs = _sentinel_ref_tables(model_text)
     source_valid = (
         model_refs == {governed_model}
         and len(model_tables) == 1
         and model_tables[0].name.casefold() == governed_model.casefold()
+        and len(sentinel_refs) == 1
+        and len(sentinel_tables) == 1
+        and sentinel_tables[0].name.casefold() in sentinel_refs
+        and sentinel_refs[sentinel_tables[0].name.casefold()].casefold()
+        == governed_model.casefold()
         and model_name != governed_model
     )
     sources_valid = not unsafe_statement and not unknown_relations and source_valid
@@ -609,12 +731,14 @@ def verify_artifacts(
             change,
             governed_model,
             model_name,
+            len(context.downstream_assets),
         )
         and _transition_guidance_valid(
             pr_text,
             change,
             governed_model,
             model_name,
+            len(context.downstream_assets),
         )
     )
     checks.append(

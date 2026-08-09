@@ -4,7 +4,9 @@ This phase-one compatibility layer preserves the existing interface and includes
 
 ## Phase-one compatibility relation
 
-The governed base model remains unchanged in phase one: `order_details`. This package adds compatibility relation `order_details__changesafe`. Downstream owners must switch to `order_details__changesafe` and migrate to `primary_email`.
+The governed base model remains unchanged in phase one: `order_details`.
+ChangeSafe adds compatibility relation `order_details__changesafe`.
+Downstream owners must switch to `order_details__changesafe` and migrate to `primary_email`.
 
 ## Deterministic risk: 85/100 — Critical
 
