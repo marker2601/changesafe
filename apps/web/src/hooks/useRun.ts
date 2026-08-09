@@ -151,6 +151,18 @@ export function useRun(api: ChangeSafeApi) {
     let unsubscribe: (() => void) | undefined;
     let reconciling = false;
     let reconcileRequested = false;
+    let handlingStreamError = false;
+
+    const settleIfTerminal = (finalRun: RunView): boolean => {
+      setRun(finalRun);
+      if (!STREAM_END_STATES.has(finalRun.state)) return false;
+      recoveredTargetState.current = null;
+      unsubscribe?.();
+      setError(null);
+      setBusy(false);
+      setActiveRunId(null);
+      return true;
+    };
 
     const reconcile = async () => {
       reconcileRequested = true;
@@ -161,14 +173,7 @@ export function useRun(api: ChangeSafeApi) {
         try {
           const finalRun = await api.getRun(activeRunId);
           if (disposed) return;
-          setRun(finalRun);
-          if (STREAM_END_STATES.has(finalRun.state)) {
-            recoveredTargetState.current = null;
-            unsubscribe?.();
-            setBusy(false);
-            setActiveRunId(null);
-            return;
-          }
+          if (settleIfTerminal(finalRun)) return;
         } catch (reason) {
           if (!disposed) {
             setError(publicMessage(reason));
@@ -177,6 +182,28 @@ export function useRun(api: ChangeSafeApi) {
         }
       }
       reconciling = false;
+    };
+
+    const handleStreamError = async () => {
+      unsubscribe?.();
+      if (disposed || handlingStreamError) return;
+      handlingStreamError = true;
+      try {
+        const durableRun = await api.getRun(activeRunId);
+        if (disposed) return;
+        if (settleIfTerminal(durableRun)) return;
+      } catch {
+        // A single reconnect still covers transient stream and GET failures.
+      }
+      if (disposed) return;
+      handlingStreamError = false;
+      if (reconnects.current < 1) {
+        reconnects.current += 1;
+        connect();
+      } else {
+        setError("Live progress disconnected. Refresh to resume this run.");
+        setBusy(false);
+      }
     };
 
     const connect = () => {
@@ -202,17 +229,7 @@ export function useRun(api: ChangeSafeApi) {
             void reconcile();
           }
         },
-        () => {
-          unsubscribe?.();
-          if (disposed) return;
-          if (reconnects.current < 1) {
-            reconnects.current += 1;
-            connect();
-          } else {
-            setError("Live progress disconnected. Refresh to resume this run.");
-            setBusy(false);
-          }
-        },
+        () => void handleStreamError(),
       );
     };
 

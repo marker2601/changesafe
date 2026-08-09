@@ -509,6 +509,109 @@ describe("ChangeSafe workspace", () => {
     ).toBeVisible();
   });
 
+  it("treats terminal event-stream closure as completion, not disconnection", async () => {
+    const user = userEvent.setup();
+    const created: RunView = {
+      ...goldenRun,
+      state: "created",
+      analysis: null,
+    };
+    const completed: RunView = {
+      ...goldenRun,
+      state: "completed",
+      publication: previewReceipt,
+    };
+    let current = created;
+    let publicationStreamError: (() => void) | null = null;
+    let releaseApproval: (() => void) | null = null;
+    const api: ChangeSafeApi = {
+      ...createGoldenApi(),
+      createRun: vi.fn(async () => current),
+      getRun: vi.fn(async () => current),
+      approve: vi.fn(() => {
+        current = { ...goldenRun, state: "preparing_preview" };
+        return new Promise<PublicationReceipt>((resolve) => {
+          releaseApproval = () => {
+            current = completed;
+            resolve(previewReceipt);
+          };
+        });
+      }),
+      subscribe: (_runId, after, onEvent, onError) => {
+        if (current.state === "created") {
+          queueMicrotask(() => {
+            for (const event of goldenEvents) {
+              if (event.sequence <= after) continue;
+              if (event.state === "awaiting_approval") current = goldenRun;
+              onEvent(event);
+            }
+          });
+        } else {
+          publicationStreamError = onError ?? null;
+        }
+        return () => undefined;
+      },
+    };
+
+    render(<App api={api} />);
+    await user.click(screen.getByRole("button", { name: "Analyze change" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Approve preview" }),
+    );
+    await waitFor(() => expect(publicationStreamError).not.toBeNull());
+
+    current = completed;
+    await act(async () => {
+      publicationStreamError?.();
+      publicationStreamError?.();
+    });
+    expect(
+      screen.queryByText("Live progress disconnected. Refresh to resume this run."),
+    ).not.toBeInTheDocument();
+    await act(async () => releaseApproval?.());
+
+    expect(await screen.findByText("Preview ready")).toBeVisible();
+    expect(
+      screen.queryByText("Live progress disconnected. Refresh to resume this run."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retries one confirmed nonterminal stream disconnect before reporting it", async () => {
+    const user = userEvent.setup();
+    const created: RunView = {
+      ...goldenRun,
+      state: "created",
+      analysis: null,
+    };
+    const streamErrors: Array<() => void> = [];
+    const api: ChangeSafeApi = {
+      ...createGoldenApi(),
+      createRun: vi.fn(async () => created),
+      getRun: vi.fn(async () => created),
+      subscribe: (_runId, _after, _onEvent, onError) => {
+        if (onError) streamErrors.push(onError);
+        return () => undefined;
+      },
+    };
+
+    render(<App api={api} />);
+    await user.click(screen.getByRole("button", { name: "Analyze change" }));
+    await waitFor(() => expect(streamErrors).toHaveLength(1));
+
+    await act(async () => streamErrors[0]?.());
+    await waitFor(() => expect(streamErrors).toHaveLength(2));
+    expect(
+      screen.queryByText("Live progress disconnected. Refresh to resume this run."),
+    ).not.toBeInTheDocument();
+
+    await act(async () => streamErrors[1]?.());
+    expect(
+      await screen.findByText(
+        "Live progress disconnected. Refresh to resume this run.",
+      ),
+    ).toBeVisible();
+  });
+
   it("trusts a completed receipt when the approval response is lost", async () => {
     const user = userEvent.setup();
     let approvalAttempted = false;
