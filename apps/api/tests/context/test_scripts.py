@@ -38,8 +38,14 @@ from changesafe.domain import (
 
 
 class FakeCapturePort:
-    def __init__(self, *, fail_on: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_on: str | None = None,
+        close_failure: Exception | None = None,
+    ) -> None:
         self.fail_on = fail_on
+        self.close_failure = close_failure
         self.loaded_fields: list[str] = []
         self.closed = False
         self.schema = SchemaCatalog(
@@ -88,6 +94,8 @@ class FakeCapturePort:
 
     def close(self) -> None:
         self.closed = True
+        if self.close_failure is not None:
+            raise self.close_failure
 
 
 def golden_fixture_context() -> ContextBundle:
@@ -248,6 +256,68 @@ async def test_capture_cli_requires_live_credentials_before_building_port(
     )
 
     assert result == 2
+
+
+@pytest.mark.asyncio
+async def test_capture_cli_redacts_settings_validation_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import capture_field_catalog
+
+    canary_secret = "github_" + "pat_" + ("S" * 40)
+
+    def invalid_settings() -> None:
+        raise ValueError(f"invalid credential {canary_secret}")
+
+    monkeypatch.setattr(capture_field_catalog, "Settings", invalid_settings)
+
+    result = await capture_from_settings(
+        DEMO_TARGET_URN,
+        tmp_path / "context.json",
+        tmp_path / "context.sha256",
+    )
+
+    output = capsys.readouterr()
+    assert result == 1
+    assert "snapshot was not changed" in output.err
+    assert canary_secret not in output.out + output.err
+
+
+@pytest.mark.asyncio
+async def test_capture_cli_redacts_close_failures_before_replacing_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import capture_field_catalog
+
+    canary_secret = "sk-" + ("C" * 32)
+    port = FakeCapturePort(
+        close_failure=RuntimeError(f"cleanup rejected {canary_secret}")
+    )
+    settings = SimpleNamespace(mode=Mode.LIVE, live_context_enabled=True)
+    snapshot = tmp_path / "context.json"
+    checksum = tmp_path / "context.sha256"
+    snapshot.write_bytes(b"existing snapshot")
+    checksum.write_bytes(b"existing checksum")
+    monkeypatch.setattr(capture_field_catalog, "Settings", lambda: settings)
+    monkeypatch.setattr(capture_field_catalog, "build_context_port", lambda _: port)
+
+    result = await capture_from_settings(
+        DEMO_TARGET_URN,
+        snapshot,
+        checksum,
+    )
+
+    output = capsys.readouterr()
+    assert result == 1
+    assert port.closed is True
+    assert snapshot.read_bytes() == b"existing snapshot"
+    assert checksum.read_bytes() == b"existing checksum"
+    assert "snapshot was not changed" in output.err
+    assert canary_secret not in output.out + output.err
 
 
 def test_seed_spec_contains_required_graph_and_governance_definitions() -> None:

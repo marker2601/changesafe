@@ -79,6 +79,12 @@ async def capture_recorded_catalog(
     checksum: Path,
 ) -> str:
     catalog = await build_recorded_catalog(port, target_urn)
+    return write_recorded_catalog(catalog, snapshot, checksum)
+
+
+def write_recorded_catalog(
+    catalog: RecordedDataHubCatalog, snapshot: Path, checksum: Path
+) -> str:
     payload = catalog.model_dump(
         mode="json", exclude={"provenance": {"snapshot_hash"}}
     )
@@ -88,28 +94,26 @@ async def capture_recorded_catalog(
 async def capture_from_settings(
     target_urn: str, snapshot: Path, checksum: Path
 ) -> int:
-    settings = Settings()
-    if settings.mode is not Mode.LIVE or not settings.live_context_enabled:
-        print(
-            "Capture requires live DataHub credentials; snapshot was not changed.",
-            file=sys.stderr,
-        )
-        return 2
-
-    port: DataHubContextPort | None = None
     try:
+        settings = Settings()
+        if settings.mode is not Mode.LIVE or not settings.live_context_enabled:
+            print(
+                "Capture requires live DataHub credentials; snapshot was not changed.",
+                file=sys.stderr,
+            )
+            return 2
+
         port = build_context_port(settings)
-        digest = await capture_recorded_catalog(
-            port, target_urn, snapshot, checksum
-        )
-    except Exception:
-        print("Capture failed; snapshot was not changed.", file=sys.stderr)
-        return 1
-    finally:
-        if port is not None:
+        try:
+            catalog = await build_recorded_catalog(port, target_urn)
+        finally:
             close = getattr(port, "close", None)
             if callable(close):
                 close()
+        digest = write_recorded_catalog(catalog, snapshot, checksum)
+    except Exception:
+        print("Capture failed; snapshot was not changed.", file=sys.stderr)
+        return 1
 
     print(f"Captured catalog ({digest})")
     return 0
