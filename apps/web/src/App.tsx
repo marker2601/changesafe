@@ -108,7 +108,11 @@ export function App({ api = browserApi }: AppProps) {
               <>
                 <ImpactClassification
                   impacts={analysis.impacts}
-                  onSelect={setSelectedImpact}
+                  onSelect={(impact) =>
+                    setSelectedImpact((current) =>
+                      current?.category === impact.category ? null : impact,
+                    )
+                  }
                   selected={activeImpact}
                 />
                 <RiskCard risk={analysis.risk} />

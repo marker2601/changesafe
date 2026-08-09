@@ -3,6 +3,7 @@ import {
   BriefcaseBusiness,
   DatabaseZap,
   LockKeyhole,
+  Network,
   Settings2,
   ShieldCheck,
   type LucideIcon,
@@ -42,28 +43,46 @@ export function ImpactClassification({
           const active = selected?.category === impact.category;
           return (
             <li data-testid="impact-category" key={impact.category}>
-              <button
-                aria-pressed={active}
-                className={active ? "is-selected" : ""}
-                onClick={() => onSelect(impact)}
-                type="button"
-              >
-                <Icon aria-hidden="true" />
-                <span className="impact-copy">
-                  <strong>{impact.label}</strong>
-                  <small>
-                    {impact.confidence === "inferred"
-                      ? "Inferred evidence"
-                      : impact.confidence === "direct"
-                        ? "Direct evidence"
-                        : "Evidence unavailable"}
-                  </small>
-                  {impact.qualifier ? <em>{impact.qualifier}</em> : null}
-                </span>
-                <span className={`severity severity-${impact.severity}`}>
-                  {impact.severity}
-                </span>
-              </button>
+              <article className={`impact-finding${active ? " is-selected" : ""}`}>
+                <header>
+                  <span className="impact-icon">
+                    <Icon aria-hidden="true" />
+                  </span>
+                  <span className="impact-copy">
+                    <strong>{impact.label}</strong>
+                    <small>
+                      {impact.confidence === "inferred"
+                        ? "Inferred evidence"
+                        : impact.confidence === "direct"
+                          ? "Direct evidence"
+                          : "Evidence unavailable"}
+                    </small>
+                  </span>
+                  <span className={`severity severity-${impact.severity}`}>
+                    {impact.severity}
+                  </span>
+                </header>
+                <p>{impact.summary}</p>
+                <dl>
+                  <div>
+                    <dt>Evidence basis</dt>
+                    <dd>{impact.basis}</dd>
+                  </div>
+                </dl>
+                {impact.qualifier ? (
+                  <p className="impact-qualifier">{impact.qualifier}</p>
+                ) : null}
+                <button
+                  aria-expanded={active}
+                  aria-label={`Trace supporting evidence for ${impact.label}`}
+                  className="impact-trace"
+                  onClick={() => onSelect(impact)}
+                  type="button"
+                >
+                  <Network aria-hidden="true" />
+                  {active ? "Evidence highlighted" : "Trace supporting evidence"}
+                </button>
+              </article>
             </li>
           );
         })}
