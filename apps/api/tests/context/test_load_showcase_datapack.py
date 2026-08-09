@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -206,3 +207,27 @@ def test_no_time_shift_skips_official_time_shift(
     load_showcase_datapack(LoadOptions(apply=True, no_time_shift=True), runtime=runtime)
 
     assert not any(event[0] == "time_shift" for event in events)
+
+
+def test_apply_disables_inherited_async_emit_mode_and_restores_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[Any, ...]] = []
+    runtime = make_runtime(tmp_path, events)
+    original_create = runtime.pipeline_create
+    observed_emit_modes: list[str | None] = []
+
+    def guarded_create(config: dict[str, Any]) -> object:
+        observed_emit_modes.append(os.getenv("DATAHUB_EMIT_MODE"))
+        return original_create(config)
+
+    monkeypatch.setenv("DATAHUB_EMIT_MODE", "ASYNC_WAIT")
+
+    load_showcase_datapack(
+        LoadOptions(apply=True),
+        runtime=replace(runtime, pipeline_create=guarded_create),
+    )
+
+    assert observed_emit_modes == [None, None]
+    assert os.environ["DATAHUB_EMIT_MODE"] == "ASYNC_WAIT"

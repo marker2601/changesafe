@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import os
 import sys
-from collections.abc import Callable, Sequence
-from contextlib import suppress
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 OFFICIAL_PACK_NAME = "showcase-ecommerce"
 
@@ -125,18 +126,31 @@ def load_official_runtime() -> OfficialRuntime:
         "load record": (loader.save_load_record, {"pack", "run_id"}),
     }
     for label, (helper, parameters) in public_helpers.items():
-        _require_parameters(helper, label, parameters)
+        _require_parameters(cast(Callable[..., Any], helper), label, parameters)
+
+    load_client_config = getattr(loader, "load_client_config", None)
+    if not callable(load_client_config):
+        raise RuntimeCompatibilityError(
+            "The installed DataHub client-configuration helper is unavailable."
+        )
 
     return OfficialRuntime(
         get_pack=registry.get_pack,
         check_trust=loader.check_trust,
         check_version_compatibility=loader.check_version_compatibility,
         download_pack=loader.download_pack,
-        load_client_config=loader.load_client_config,
-        apply_schema_filter=private_helpers["schema filter"][0],
-        check_referential_integrity=private_helpers["referential-integrity check"][0],
+        load_client_config=load_client_config,
+        apply_schema_filter=cast(
+            Callable[..., Path], private_helpers["schema filter"][0]
+        ),
+        check_referential_integrity=cast(
+            Callable[..., Any],
+            private_helpers["referential-integrity check"][0],
+        ),
         time_shift_file=time_shift_file,
-        generate_run_id=private_helpers["run-id generator"][0],
+        generate_run_id=cast(
+            Callable[..., str], private_helpers["run-id generator"][0]
+        ),
         pipeline_create=Pipeline.create,
         save_load_record=loader.save_load_record,
     )
@@ -178,6 +192,19 @@ def _remove_generated_files(paths: set[Path]) -> None:
             path.unlink(missing_ok=True)
 
 
+@contextmanager
+def _without_emit_mode_override() -> Iterator[None]:
+    """Prevent a caller's async emitter override from weakening sync loads."""
+    original = os.environ.pop("DATAHUB_EMIT_MODE", None)
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop("DATAHUB_EMIT_MODE", None)
+        else:
+            os.environ["DATAHUB_EMIT_MODE"] = original
+
+
 def load_showcase_datapack(
     options: LoadOptions,
     *,
@@ -206,60 +233,64 @@ def load_showcase_datapack(
     sink_config = _synchronous_sink_config(client_config)
     run_id = runtime.generate_run_id(pack.name)
 
-    for index, entry in enumerate(entries):
-        original_path = Path(entry.path)
-        generated_paths: set[Path] = set()
-        effective_path = original_path
-        try:
-            filtered_path = Path(
-                runtime.apply_schema_filter(effective_path, client_config=client_config)
-            )
-            if filtered_path != original_path:
-                generated_paths.add(filtered_path)
-            effective_path = filtered_path
-
-            if index == len(entries) - 1:
-                runtime.check_referential_integrity(
-                    effective_path, client_config=client_config
-                )
-
-            if not options.no_time_shift and pack.reference_timestamp:
-                target_timestamp = (
-                    int(options.as_of.timestamp() * 1000) if options.as_of else None
-                )
-                shifted_path = Path(
-                    runtime.time_shift_file(
-                        input_path=effective_path,
-                        reference_timestamp=pack.reference_timestamp,
-                        target_timestamp=target_timestamp,
+    with _without_emit_mode_override():
+        for index, entry in enumerate(entries):
+            original_path = Path(entry.path)
+            generated_paths: set[Path] = set()
+            effective_path = original_path
+            try:
+                filtered_path = Path(
+                    runtime.apply_schema_filter(
+                        effective_path, client_config=client_config
                     )
                 )
-                if shifted_path != original_path:
-                    generated_paths.add(shifted_path)
-                effective_path = shifted_path
+                if filtered_path != original_path:
+                    generated_paths.add(filtered_path)
+                effective_path = filtered_path
 
-            print(
-                f"Loading ordered part {index + 1}/{len(entries)}: {original_path.name}"
-            )
-            pipeline = runtime.pipeline_create(
-                {
-                    "run_id": run_id,
-                    "source": {
-                        "type": "file",
-                        "config": {"path": str(effective_path)},
-                    },
-                    "sink": {
-                        "type": "datahub-rest",
-                        "config": dict(sink_config),
-                    },
-                }
-            )
-            pipeline.run()
-            pipeline.raise_from_status()
-        finally:
-            _remove_generated_files(generated_paths)
+                if index == len(entries) - 1:
+                    runtime.check_referential_integrity(
+                        effective_path, client_config=client_config
+                    )
 
-    runtime.save_load_record(pack, run_id)
+                if not options.no_time_shift and pack.reference_timestamp:
+                    target_timestamp = (
+                        int(options.as_of.timestamp() * 1000) if options.as_of else None
+                    )
+                    shifted_path = Path(
+                        runtime.time_shift_file(
+                            input_path=effective_path,
+                            reference_timestamp=pack.reference_timestamp,
+                            target_timestamp=target_timestamp,
+                        )
+                    )
+                    if shifted_path != original_path:
+                        generated_paths.add(shifted_path)
+                    effective_path = shifted_path
+
+                print(
+                    f"Loading ordered part {index + 1}/{len(entries)}: "
+                    f"{original_path.name}"
+                )
+                pipeline = runtime.pipeline_create(
+                    {
+                        "run_id": run_id,
+                        "source": {
+                            "type": "file",
+                            "config": {"path": str(effective_path)},
+                        },
+                        "sink": {
+                            "type": "datahub-rest",
+                            "config": dict(sink_config),
+                        },
+                    }
+                )
+                pipeline.run()
+                pipeline.raise_from_status()
+            finally:
+                _remove_generated_files(generated_paths)
+
+        runtime.save_load_record(pack, run_id)
     print(
         f"Loaded {len(entries)} ordered parts synchronously. "
         "The completed load record was saved."
