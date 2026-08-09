@@ -142,8 +142,13 @@ Install and start DataHub, then load the organizer-provided graph:
 ```powershell
 datahub docker quickstart
 datahub init
-datahub datapack load showcase-ecommerce
+.\.venv\Scripts\python.exe scripts\load_showcase_datapack.py
+.\.venv\Scripts\python.exe scripts\load_showcase_datapack.py --apply
 ```
+
+The first command is a no-I/O preview. `--apply` resolves DataHub's official
+`showcase-ecommerce` pack and loads its ordered files through synchronous RESTLI
+writes; a completed load record is saved only after every part succeeds.
 
 ChangeSafe's seed script does not replace that graph. First preview its small, namespaced overlay without making a network call:
 
