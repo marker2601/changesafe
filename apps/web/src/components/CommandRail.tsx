@@ -17,11 +17,36 @@ interface CommandRailProps {
 }
 
 const STAGES = [
-  { label: "Observe", detail: "Read DataHub context", icon: Radar },
-  { label: "Understand", detail: "Classify impact", icon: ScanSearch },
-  { label: "Prepare", detail: "Generate verified files", icon: FileCheck2 },
-  { label: "Prove", detail: "Run blocking checks", icon: ShieldCheck },
-  { label: "Authorize", detail: "Owner decision", icon: LockKeyhole },
+  {
+    label: "Observe",
+    detail: "Read DataHub context",
+    href: "#dependency-heading",
+    icon: Radar,
+  },
+  {
+    label: "Understand",
+    detail: "Classify impact",
+    href: "#impact-heading",
+    icon: ScanSearch,
+  },
+  {
+    label: "Prepare",
+    detail: "Generate verified files",
+    href: "#artifacts",
+    icon: FileCheck2,
+  },
+  {
+    label: "Prove",
+    detail: "Run blocking checks",
+    href: "#validation",
+    icon: ShieldCheck,
+  },
+  {
+    label: "Authorize",
+    detail: "Owner decision",
+    href: "#approval",
+    icon: LockKeyhole,
+  },
 ] as const;
 
 function stageProgress(state: RunState | null): number {
@@ -64,13 +89,15 @@ export function CommandRail({
               className={complete ? "is-complete" : active ? "is-active" : ""}
               key={stage.label}
             >
-              <span className="gate-number">{index + 1}</span>
-              <Icon aria-hidden="true" />
-              <span>
-                <strong>{stage.label}</strong>
-                <small>{detail}</small>
-              </span>
-              {complete ? <Check aria-hidden="true" /> : null}
+              <a href={stage.href}>
+                <span className="gate-number">{index + 1}</span>
+                <Icon aria-hidden="true" />
+                <span>
+                  <strong>{stage.label}</strong>
+                  <small>{detail}</small>
+                </span>
+                {complete ? <Check aria-hidden="true" /> : null}
+              </a>
             </li>
           );
         })}

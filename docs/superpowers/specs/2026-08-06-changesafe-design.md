@@ -20,7 +20,7 @@ The project succeeds when a judge can:
 
 1. Open a public URL without signing in.
 2. Run a seeded breaking-change scenario.
-3. See evidence retrieved from DataHub and the resulting blast radius.
+3. See evidence retrieved from DataHub and the resulting dependency impact.
 4. Understand why the deterministic risk decision was made.
 5. Inspect valid generated migration artifacts.
 6. See verification evidence, a pull-request artifact, and a DataHub writeback receipt.

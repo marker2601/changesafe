@@ -30,6 +30,9 @@ describe("RunTimeline", () => {
     expect(
       screen.getByText("Publishing the approved change and evidence").closest("li"),
     ).toHaveTextContent("Pending");
+    expect(
+      screen.getByText("Publishing the approved change and evidence").closest("li"),
+    ).toHaveTextContent("Step 07");
   });
 
   it("does not call a failed live context attempt complete", () => {

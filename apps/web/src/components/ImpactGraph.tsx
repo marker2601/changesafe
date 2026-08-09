@@ -51,7 +51,11 @@ export function ImpactGraph({
     <section className="dependency-panel" aria-labelledby="dependency-heading">
       <header className="dependency-heading">
         <div>
-          <span>Live dependency evidence</span>
+          <span>
+            {context.provenance.mode === "live"
+              ? "Live dependency evidence"
+              : "Recorded dependency evidence"}
+          </span>
           <h2 id="dependency-heading">Tracing what depends on cust_email</h2>
           <p>
             We&apos;re finding the models, reports and teams that rely on this field

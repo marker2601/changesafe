@@ -29,6 +29,7 @@ describe("ImpactGraph", () => {
       screen.getAllByText(analysis.context.downstream_assets[2].urn).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText("Accessible dependency list")).toBeVisible();
+    expect(screen.getByText("Recorded dependency evidence")).toBeVisible();
     expect(
       screen.queryByRole("link", { name: "Open evidence in DataHub" }),
     ).not.toBeInTheDocument();

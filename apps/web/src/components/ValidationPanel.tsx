@@ -10,7 +10,11 @@ export function ValidationPanel({ validation }: ValidationPanelProps) {
   const blocking = validation.checks.filter((check) => check.blocking);
   const passed = blocking.filter((check) => check.passed).length;
   return (
-    <section className="validation-panel" aria-labelledby="validation-heading">
+    <section
+      className="validation-panel"
+      id="validation"
+      aria-labelledby="validation-heading"
+    >
       <h2 id="validation-heading">Validation summary</h2>
       <div className={validation.passed ? "validation-score passed" : "validation-score failed"}>
         <span>{validation.passed ? <Check aria-hidden="true" /> : <X aria-hidden="true" />}</span>

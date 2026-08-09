@@ -120,7 +120,9 @@ export function RunTimeline({ events, runState }: RunTimelineProps) {
                 )}
               </span>
               <span className="timeline-content">
-                <small>{eventTime(events, step.eventState) ?? `0${index + 1}`}</small>
+                <small>
+                  {eventTime(events, step.eventState) ?? `Step 0${index + 1}`}
+                </small>
                 <strong>{step.label}</strong>
                 <p>{step.detail}</p>
                 <em>{status}</em>

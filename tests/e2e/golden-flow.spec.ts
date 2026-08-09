@@ -8,6 +8,13 @@ test("judge completes the credential-free golden workflow", async ({ page }) => 
 
   await page.goto("/");
 
+  await expect(
+    page.getByRole("heading", {
+      name: "Change data safely, with every dependency in view.",
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("Official DataHub showcase-ecommerce")).toBeVisible();
+  await expect(page.getByText("order_details").first()).toBeVisible();
   await expect(page.getByText("Snapshot replay", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Preview only / snapshot mode", { exact: true }),
@@ -15,9 +22,13 @@ test("judge completes the credential-free golden workflow", async ({ page }) => 
 
   await page.getByRole("button", { name: "Analyze change" }).click();
 
-  await expect(page.getByText("90", { exact: true })).toBeVisible();
-  await expect(page.getByText("Critical risk", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("affected-asset-row")).toHaveCount(4);
+  await expect(page.getByText("80", { exact: true })).toBeVisible();
+  await expect(page.getByText("Critical technical risk", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("impact-category")).toHaveCount(6);
+  await expect(page.getByTestId("process-step")).toHaveCount(7);
+  await expect(page.locator('[data-testid="process-step"].is-complete')).toHaveCount(5);
+  await expect(page.getByText("Waiting for the accountable owner")).toBeVisible();
+  await expect(page.getByText("Customer Analytics Measures").first()).toBeVisible();
   await expect(page.getByTestId("artifact-file")).toHaveCount(7);
   await expect(page.getByText("12 / 12", { exact: true })).toBeVisible();
 
@@ -38,7 +49,7 @@ test("completed workflow remains contained on a phone viewport", async ({ page }
   await page.setViewportSize({ width: 430, height: 932 });
   await page.goto("/");
   await page.getByRole("button", { name: "Analyze change" }).click();
-  await expect(page.getByText("Critical risk", { exact: true })).toBeVisible();
+  await expect(page.getByText("Critical technical risk", { exact: true })).toBeVisible();
 
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -46,5 +57,6 @@ test("completed workflow remains contained on a phone viewport", async ({ page }
   }));
 
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
-  await expect(page.getByTestId("affected-asset-row")).toHaveCount(4);
+  await expect(page.getByTestId("impact-category")).toHaveCount(6);
+  await expect(page.getByTestId("artifact-file")).toHaveCount(7);
 });

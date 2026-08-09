@@ -24,7 +24,7 @@ from changesafe.demo import DEMO_FIELD, DEMO_TARGET_URN, golden_change
 DATAPACK = "showcase-ecommerce"
 DEPRECATING_TAG = "urn:li:tag:ChangeSafe:Deprecating"
 PII_TAG = "urn:li:tag:b2fd91.PII_Data"
-PROPERTY_DEFINITIONS = {
+PROPERTY_DEFINITIONS: dict[str, dict[str, str | list[str]]] = {
     "urn:li:structuredProperty:changesafe.riskLevel": {
         "type": "string",
         "allowed_values": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
@@ -169,7 +169,7 @@ async def verify_seed(gms_url: str, token: str) -> None:
     try:
         context = await port.load(golden_change())
     finally:
-        await runner.close()
+        runner.close()
 
     if context.provenance.mode is not ContextMode.LIVE:
         raise RuntimeError("Seed verification did not use live DataHub context")

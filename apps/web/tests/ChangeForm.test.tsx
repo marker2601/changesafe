@@ -37,4 +37,16 @@ describe("ChangeForm", () => {
     expect(screen.getByLabelText("New type")).toBeVisible();
     expect(screen.queryByLabelText("New field")).not.toBeInTheDocument();
   });
+
+  it("locks the submitted request into a compact evidence summary", () => {
+    render(<ChangeForm busy={false} onSubmit={vi.fn()} submitted />);
+
+    expect(screen.getAllByText("cust_email").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("primary_email").length).toBeGreaterThan(0);
+    expect(screen.getByText("Request locked to this evidence set")).toBeVisible();
+    expect(screen.queryByLabelText("Operation")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Analyze change" }),
+    ).not.toBeInTheDocument();
+  });
 });

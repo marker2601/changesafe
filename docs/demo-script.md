@@ -1,51 +1,59 @@
-# ChangeSafe demo script (about 2 minutes 30 seconds)
+# ChangeSafe demo script (about 2 minutes 35 seconds)
 
-## 0:00-0:20 - Frame the problem
+## 0:00–0:20 — Frame the problem
 
-Open ChangeSafe at the replay URL.
+Open ChangeSafe at the shared replay URL.
 
-> A column rename can look harmless in a pull request while breaking dashboards, campaigns, support workflows, and models. ChangeSafe checks organizational metadata before code is published.
+> A field rename can pass code review and still damage reports, operations, privacy controls, and trust in decisions. ChangeSafe asks DataHub what the field means and who depends on it before any code can be published.
 
 Point to **Snapshot replay** and **Preview only / snapshot mode**.
 
-> This run uses a checksummed DataHub snapshot, so judges need no accounts and every replay is honest about its evidence source.
+> Judges need no accounts or API keys. This run uses a checksummed DataHub snapshot and labels that provenance everywhere.
 
-## 0:20-0:45 - Submit the unsafe change
+## 0:20–0:45 — Use the organizer-provided scenario
 
-Show the preloaded `dim_customers.customer_email` to `primary_email` rename and click **Analyze change**.
+Point to **Official DataHub showcase-ecommerce**, the `Order Entry Analytics` product, and the preloaded `order_details.cust_email` to `primary_email` rename. Click **Analyze change**.
 
-> The API assigns an opaque run ID and streams explicit states while it loads context, scores risk, generates artifacts, and validates them.
+> This is not an invented toy graph. The hackathon's ecommerce datapack contains 1,049 entities across dbt, Snowflake, Looker, Power BI, Tableau, Spark, PostgreSQL, and S3. Our replay preserves the exact contract and evidence used by this workflow.
 
-## 0:45-1:20 - Explain evidence and risk
+## 0:45–1:25 — Watch the real process
 
-Show 90/Critical, the factor ledger, and the four lineage cards.
+Follow the **Live change process** rail as server events arrive: read the contract, find dependencies, classify impact, prepare the migration, prove it safe, and stop for the owner.
 
-> The score is deterministic: 25 for rename, 20 for four downstream assets, 15 for an executive report, and 10 each for PII, high usage, and cross-domain impact. The LLM cannot change a point.
+> These are persisted backend states, not a timed animation. Refreshing the browser restores the run and rebuilds this history.
 
-Name the Analytics, Marketing, Support, and Executive Reporting consumers. Point to the checksummed snapshot label.
+Point to the graph and open **Customer Analytics Measures**.
 
-## 1:20-1:55 - Inspect the safe migration
+> ChangeSafe records seven Snowflake, Power BI, and Looker dependents. Direct and multi-hop relationships are labeled separately, and the evidence drawer shows the underlying URNs. A DataHub link appears only when the operator supplies a safe catalog origin.
 
-Show the SQL file and switch briefly to YAML, the compatibility test, rollback, and PR body.
+Select two or three impact categories.
 
-> ChangeSafe generates exactly seven allowlisted files. Phase one keeps the old field and adds the new field, so consumers have a deprecation window. Every artifact has an exact hash.
+> The deterministic score is 80/Critical: 25 for the rename, 25 for seven downstream assets, and 10 each for governed PII, high usage, and cross-domain impact. The six impact cards explain data integrity, privacy, operations, decision trust, financial exposure, and organizational impact. Financial harm is deliberately marked “Potentially high, not quantified” because metadata cannot prove a dollar amount.
+
+## 1:25–1:55 — Inspect the safe migration
+
+Show the SQL file, YAML, compatibility test, rollback guide, migration note, PR body, and manifest.
+
+> Phase one keeps `cust_email` and introduces `primary_email`, giving consumers a deprecation window. Every one of the seven allowed files has an exact hash.
 
 Expand validation.
 
-> Twelve blocking checks also require DataHub/request alignment and case-insensitively unique SQL/YAML outputs, then parse SQL, validate dbt YAML, reject SELECT star, confirm compatibility, verify rollback content, and recompute the manifest. Publication stays locked if any check fails.
+> Twelve blocking checks compare the request to DataHub, reject duplicate outputs, parse SQL, validate dbt YAML, forbid unqualified star selection, verify compatibility and rollback guidance, and recompute the manifest. One failure keeps publication locked.
 
-## 1:55-2:20 - Approve safely
+## 1:55–2:20 — Approve without pretending to publish
 
 Click **Approve preview**.
 
-> Approval in replay prepares a patch, but performs no external write.
+> Replay approval produces the exact patch but makes no external write.
 
-Point to **Preview ready** and **NOT WRITTEN - SNAPSHOT MODE**, then download the patch.
+Point to **Preview ready** and **NOT WRITTEN — SNAPSHOT MODE**, then download the patch.
 
-> In owner-enabled live mode, the same verified bytes can create a GitHub pull request and an allowlisted DataHub decision record. Both steps share an artifact-bound idempotency key, so retries do not duplicate completed work.
+> With owner-enabled live settings, the same verified bytes can create one GitHub pull request and write an idempotent decision record to the allowlisted DataHub asset. Crash-safe checkpoints prevent duplicate or mixed publication.
 
-## 2:20-2:30 - Close with reproducibility
+## 2:20–2:35 — Close with accountability
 
-> The repository includes the snapshot checksum, DataHub seed scenario, tests, Docker image, CI, architecture, and this exact credential-free workflow. A clean clone starts with `docker compose up --build`.
+If the private owner control is enabled, open **Owner activity** without exposing the token on screen.
 
-If live credentials are available, use the remaining time to show the real PR and DataHub receipt. Do not describe a replay receipt as a live write.
+> The operator can see privacy-limited judge sessions and current states. ChangeSafe stores no judge identity, IP address, or browser fingerprint. The repository includes the official scenario snapshot, sample artifacts, tests, Docker image, CI, architecture, and this credential-free workflow.
+
+If live credentials are available, show only already-verified live receipts. Never describe a replay receipt as a DataHub or GitHub write.

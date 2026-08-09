@@ -1,6 +1,6 @@
 # ChangeSafe
 
-ChangeSafe is a metadata-aware, pre-merge safety agent for analytics schema changes. It turns a proposed column rename, removal, or type change into an evidence-backed risk decision and a verified seven-file migration package before anything can be published.
+ChangeSafe is a metadata-aware, pre-merge safety agent for analytics schema changes. It turns a proposed column rename, removal, or type change into an evidence-backed impact decision and a verified seven-file migration package before anything can be published.
 
 The default replay experience is credential-free and deterministic. The live adapters can read DataHub context, use a bounded OpenAI planning call, create a GitHub pull request, and write an approval record back to DataHub when an owner explicitly enables those operations.
 
@@ -8,11 +8,12 @@ The default replay experience is credential-free and deterministic. The live ada
 
 ## What the golden workflow proves
 
-The seeded `dim_customers.customer_email` rename produces the same auditable result on every clean replay run:
+The golden workflow uses DataHub's official `showcase-ecommerce` datapack. It evaluates a rename of `Order Entry Analytics.order_details.cust_email` to `primary_email` and produces the same auditable result on every clean replay run:
 
-- Exactly four downstream assets across Analytics, Marketing, Support, and Executive Reporting.
-- A deterministic score of 90/100 (Critical), with every point tied to metadata evidence.
-- A conservative two-phase migration that keeps `customer_email` while introducing `primary_email`.
+- Seven recorded downstream assets across Snowflake, Power BI, and Looker, with direct and multi-hop relationships labeled separately.
+- Six plain-language impact classifications covering data integrity, privacy compliance, operational continuity, decision trust, financial exposure, and organizational impact.
+- A deterministic score of 80/100 (Critical), with every point tied to metadata evidence.
+- A conservative two-phase migration that keeps `cust_email` while introducing `primary_email`.
 - Seven generated artifacts with exact SHA-256 hashes.
 - Twelve blocking validation checks covering metadata alignment, unique outputs, paths, SQL, dbt YAML, compatibility, rollback, and the manifest.
 - An approval receipt and downloadable unified patch labeled `NOT WRITTEN - SNAPSHOT MODE`.
@@ -80,6 +81,12 @@ docker compose --env-file "C:\Users\harik\ChangeSafe\private\changesafe.env" up 
 
 Never copy the private file into this repository. `.env*`, databases, test artifacts, and private work directories are ignored.
 
+## Do I need a DataHub token?
+
+No token is needed to run or judge the complete replay workflow. Replay uses the committed, SHA-256-verified snapshot of the official ecommerce scenario and exercises the real API, event stream, policy engine, generator, verifier, approval gate, patch creation, and durable run ledger.
+
+A DataHub personal access token is required only when `CHANGESAFE_MODE=live` or `auto` should read a real DataHub instance. The hackathon resource page provides the `showcase-ecommerce` datapack, not a shared DataHub login or token. Create the token in the DataHub instance you control. Live writeback needs additional metadata permissions and remains disabled unless you deliberately enable it.
+
 ## Configuration and access needed for live proof
 
 | Variable | Purpose | Minimum access |
@@ -87,6 +94,7 @@ Never copy the private file into this repository. `.env*`, databases, test artif
 | `CHANGESAFE_MODE` | `replay`, `live`, or startup selection with `auto` | None |
 | `DATAHUB_GMS_URL` | DataHub GMS endpoint | Network reachability from the server |
 | `DATAHUB_GMS_TOKEN` | Metadata reads | Entities, schema fields, lineage, and dataset-query context |
+| `DATAHUB_UI_URL` | Optional browser-facing catalog origin for evidence links | No secret; for example `http://localhost:9002` |
 | `DATAHUB_TIMEOUT_SECONDS` | Per-attempt live DataHub timeout, default `8` | None |
 | `DATAHUB_RETRY_COUNT` | Retry count for transport/timeouts, default `1` | None |
 | `SAVE_DOCUMENT_RESTRICT_UPDATES` | Agent Context document guard; set `false` only for ChangeSafe's allowlisted deterministic decision upserts | Required for live writeback |
@@ -108,15 +116,37 @@ DataHub writeback additionally needs permission for the allowlisted equivalents 
 
 See [.env.example](.env.example) for every supported setting.
 
+### Where to get each value
+
+| Value | Where it comes from |
+| --- | --- |
+| `DATAHUB_GMS_URL` | Self-hosted quickstart: `http://localhost:8080`. DataHub Cloud: use the metadata-service URL supplied for your tenant. It must be reachable from the ChangeSafe server. |
+| `DATAHUB_UI_URL` | The URL you open in a browser: quickstart `http://localhost:9002`, or your DataHub Cloud tenant origin such as `https://tenant.acryl.io`. Do not include credentials or a dataset path. |
+| `DATAHUB_GMS_TOKEN` | In DataHub, open **Settings → Access Tokens → Generate new token**. Your DataHub policy must allow token creation and the metadata reads ChangeSafe performs. Store the token only in `changesafe.env`. |
+| `OPENAI_API_KEY` | Optional. Create a project key in the OpenAI Platform. Leave blank to use reviewed deterministic templates only. |
+| `GITHUB_TOKEN` | Optional. Create a fine-grained GitHub token restricted to the one sandbox repository, with Contents and Pull requests read/write. |
+| `CHANGESAFE_GITHUB_REPOSITORY` | The existing target repository in `owner/name` form, for example `marker2601/changesafe-sandbox`. |
+| `CHANGESAFE_ADMIN_TOKEN` | Generate this yourself as a long random secret. It is separate from every service token and gates owner activity plus external publication. |
+
+The browser never receives any service token. Judges use the shared UI without credentials; only the operator enters `CHANGESAFE_ADMIN_TOKEN` into the private owner drawer or an owner-gated publication action.
+
 ### Seed and verify a live DataHub instance
 
-First preview the deterministic graph without making a network call:
+Install and start DataHub, then load the organizer-provided graph:
+
+```powershell
+datahub docker quickstart
+datahub init
+datahub datapack load showcase-ecommerce
+```
+
+ChangeSafe's seed script does not replace that graph. First preview its small, namespaced overlay without making a network call:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\seed_datahub.py
 ```
 
-After adding `DATAHUB_GMS_URL` and `DATAHUB_GMS_TOKEN` to the private file, apply idempotent UPSERT proposals and immediately verify them through the same live adapter used by the application:
+After adding `DATAHUB_GMS_URL` and `DATAHUB_GMS_TOKEN` to the private file, apply idempotent overlay proposals and immediately verify them through the same live adapter used by the application:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\seed_datahub.py --apply
@@ -176,6 +206,7 @@ Read [docs/architecture.md](docs/architecture.md) for component boundaries, stat
 
 - `GET /healthz`
 - `GET /api/public-config`
+- `GET /api/owner/activity` (owner token required; privacy-limited rows only)
 - `POST /api/runs`
 - `GET /api/runs/{run_id}`
 - `GET /api/runs/{run_id}/events`
@@ -189,15 +220,16 @@ The SSE endpoint supports both `Last-Event-ID` and `?after=<sequence>` for resum
 ## Verification commands
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m mypy apps/api/src
+.\.venv\Scripts\python.exe -m ruff check --no-cache .
+.\.venv\Scripts\python.exe -m mypy apps/api/src scripts
 .\.venv\Scripts\python.exe -m pytest -q
 pnpm --filter @changesafe/web lint
 pnpm --filter @changesafe/web typecheck
 pnpm --filter @changesafe/web test --run
 pnpm --filter @changesafe/web build
 pnpm exec playwright test
-python scripts/check_secrets.py
+.\.venv\Scripts\python.exe scripts/regenerate_examples.py --check
+.\.venv\Scripts\python.exe scripts/check_secrets.py
 docker build -t changesafe:local .
 ```
 
@@ -209,6 +241,11 @@ py -3.12 -m venv .venv-dbt
 .\.venv-dbt\Scripts\dbt.exe parse --project-dir fixtures/dbt_project --profiles-dir fixtures/dbt_project
 .\.venv-dbt\Scripts\dbt.exe build --project-dir fixtures/dbt_project --profiles-dir fixtures/dbt_project
 ```
+
+The fixture keeps the generated DataHub/Snowflake contract bytes unchanged. A
+fixture-only DuckDB macro translates those declared types for the local
+materialization proof; `scripts/regenerate_examples.py --check` independently
+guards byte-for-byte artifact identity.
 
 CI repeats those gates, runs the browser golden flow, checks the license and tracked files for credential signatures, builds the release image, and smoke-tests its health and UI. Optional live authentication checks execute only when their corresponding repository secrets exist and never perform writes.
 
@@ -230,7 +267,8 @@ docs/                         Architecture, demo, submission, and design evidenc
 - SQLite plus in-process analysis tasks target a single service instance. Multi-replica production deployment needs a shared database and durable job queue.
 - Public internet deployment should add distributed reverse-proxy rate limiting and managed TLS. The app itself enforces a per-client, per-process run limit, strict schemas, a 16 KiB request boundary, same-origin CSP, allowlisted generated paths, and owner-gated mutations.
 - `auto` attempts live context when both DataHub settings exist; otherwise it selects replay. A failed live read pauses in `context_fallback_required` and changes evidence source only after the user clicks **Continue with labeled snapshot**. Authorization failures are not retried, and no fallback is permitted after publication begins.
-- An actual live DataHub receipt, real GitHub pull request, and hosted URL require the external credentials and targets listed above; they cannot be truthfully produced from replay credentials.
+- The official datapack supplies a rich metadata graph, not warehouse row data. ChangeSafe reads catalog context and generates migration code; it does not query customer records or execute warehouse SQL.
+- An actual live DataHub receipt and real GitHub pull request require the external credentials and targets listed above; they cannot be truthfully produced from replay credentials.
 
 ## Demo and submission material
 
@@ -238,6 +276,9 @@ docs/                         Architecture, demo, submission, and design evidenc
 - [Devpost-ready submission copy](docs/devpost-submission.md)
 - [AI-assistance disclosure](docs/ai-assistance.md)
 - [Design system and visual fidelity notes](docs/design/changesafe-design-system.md)
+- [Verified visual QA report](design-qa.md)
+- [Privacy-safe shared sandbox runbook](docs/shared-sandbox-runbook.md)
+- [Editable Figma implementation capture](https://www.figma.com/design/6PeVH3STqBzH9hK6TrOalu?node-id=2-2)
 
 The mobile completion state is also captured here:
 

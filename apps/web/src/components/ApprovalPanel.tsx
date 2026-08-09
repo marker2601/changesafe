@@ -38,7 +38,7 @@ export function ApprovalPanel({
   if (run.state === "completed" && run.publication) {
     const preview = run.publication.mode === "preview";
     return (
-      <section className="approval-panel receipt-panel" aria-live="polite">
+      <section className="approval-panel receipt-panel" id="approval" aria-live="polite">
         <div className="receipt-heading">
           <span><Check aria-hidden="true" /></span>
           <div>
@@ -82,7 +82,7 @@ export function ApprovalPanel({
   if (run.state === "publication_failed") {
     const retryable = run.error?.retryable ?? false;
     return (
-      <section className="approval-panel failure-panel" aria-live="assertive">
+      <section className="approval-panel failure-panel" id="approval" aria-live="assertive">
         <h2>Publication needs attention</h2>
         <p>{run.error?.message ?? "A partial publication is ready to retry."}</p>
         {run.publication?.pull_request_url ? (
@@ -118,7 +118,7 @@ export function ApprovalPanel({
   if (run.state === "publishing" || run.state === "preparing_preview") {
     const resumingLive = run.state === "publishing";
     return (
-      <section className="approval-panel" aria-live="polite">
+      <section className="approval-panel" id="approval" aria-live="polite">
         <h2>Durable publication checkpoint</h2>
         <p>
           ChangeSafe can resume the saved publication without repeating completed
@@ -150,7 +150,7 @@ export function ApprovalPanel({
 
   const ready = run.state === "awaiting_approval";
   return (
-    <section className="approval-panel" aria-labelledby="approval-heading">
+    <section className="approval-panel" id="approval" aria-labelledby="approval-heading">
       <h2 id="approval-heading">Approval actions</h2>
       {livePublishing ? (
         <label>

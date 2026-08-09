@@ -67,7 +67,7 @@ export function App({ api = browserApi }: AppProps) {
         />
       ) : null}
 
-      <section className="product-hero">
+      <section className={`product-hero${run ? " is-compact" : ""}`}>
         <div>
           <span className="hero-kicker">Data contract change intelligence</span>
           <h1>Change data safely, with every dependency in view.</h1>
@@ -101,7 +101,11 @@ export function App({ api = browserApi }: AppProps) {
 
         <div className="command-center">
           <aside className="request-rail">
-            <ChangeForm busy={busy} onSubmit={analyze} />
+            <ChangeForm
+              busy={busy}
+              onSubmit={analyze}
+              submitted={Boolean(run)}
+            />
             {analysis ? (
               <>
                 <ImpactClassification

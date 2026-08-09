@@ -9,9 +9,10 @@ const TARGET =
 interface ChangeFormProps {
   busy: boolean;
   onSubmit: (change: ChangeRequest) => void | Promise<void>;
+  submitted?: boolean;
 }
 
-export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
+export function ChangeForm({ busy, onSubmit, submitted = false }: ChangeFormProps) {
   const [assetUrn, setAssetUrn] = useState(TARGET);
   const [operation, setOperation] = useState<ChangeOperation>("rename");
   const [field, setField] = useState("cust_email");
@@ -37,26 +38,36 @@ export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
   };
 
   return (
-    <form className="change-form" onSubmit={submit}>
+    <form
+      aria-label={submitted ? "Submitted change summary" : undefined}
+      className={`change-form${submitted ? " is-submitted" : ""}`}
+      onSubmit={submit}
+    >
       <header className="panel-heading">
         <span>Official ecommerce scenario</span>
         <h2>Change summary</h2>
-        <p>Propose the rename. ChangeSafe will discover who and what it affects.</p>
+        <p>
+          {submitted
+            ? "This request is bound to the evidence and artifacts shown here."
+            : "Propose the rename. ChangeSafe will discover who and what it affects."}
+        </p>
       </header>
 
-      <label>
-        Operation
-        <select
-          value={operation}
-          onChange={(event) =>
-            setOperation(event.target.value as ChangeOperation)
-          }
-        >
-          <option value="rename">Rename field</option>
-          <option value="remove">Remove field</option>
-          <option value="type_change">Change type</option>
-        </select>
-      </label>
+      {!submitted ? (
+        <label>
+          Operation
+          <select
+            value={operation}
+            onChange={(event) =>
+              setOperation(event.target.value as ChangeOperation)
+            }
+          >
+            <option value="rename">Rename field</option>
+            <option value="remove">Remove field</option>
+            <option value="type_change">Change type</option>
+          </select>
+        </label>
+      ) : null}
 
       <p className="change-route" aria-label="Proposed field transition">
         <strong>{field}</strong>
@@ -64,33 +75,37 @@ export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
         <strong>{operation === "rename" ? newField : operation.replace("_", " ")}</strong>
       </p>
 
-      <div className="rename-pair">
-        <label>
-          Current field
-          <input
-            required
-            value={field}
-            onChange={(event) => setField(event.target.value)}
-          />
-        </label>
-        <ArrowRight aria-hidden="true" />
-        {operation === "rename" ? (
+      {!submitted ? (
+        <div className="rename-pair">
           <label>
-            New field
+            Current field
             <input
               required
-              value={newField}
-              onChange={(event) => setNewField(event.target.value)}
+              value={field}
+              onChange={(event) => setField(event.target.value)}
             />
           </label>
-        ) : (
-          <span className="operation-destination">
-            {operation === "remove" ? "Retain temporarily" : "Compatible alias"}
-          </span>
-        )}
-      </div>
+          <ArrowRight aria-hidden="true" />
+          {operation === "rename" ? (
+            <label>
+              New field
+              <input
+                required
+                value={newField}
+                onChange={(event) => setNewField(event.target.value)}
+              />
+            </label>
+          ) : (
+            <span className="operation-destination">
+              {operation === "remove"
+                ? "Retain temporarily"
+                : "Compatible alias"}
+            </span>
+          )}
+        </div>
+      ) : null}
 
-      {operation === "type_change" ? (
+      {!submitted && operation === "type_change" ? (
         <div className="field-pair">
           <label>
             Current type
@@ -109,6 +124,13 @@ export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
             />
           </label>
         </div>
+      ) : null}
+
+      {submitted ? (
+        <p className="submitted-change-note">
+          <ShieldCheck aria-hidden="true" />
+          Request locked to this evidence set
+        </p>
       ) : null}
 
       <dl className="scenario-facts">
@@ -132,31 +154,39 @@ export function ChangeForm({ busy, onSubmit }: ChangeFormProps) {
         </div>
       </dl>
 
-      <details className="advanced-change-fields">
-        <summary>Advanced request fields</summary>
-        <label>
-          Dataset URN
-          <input
-            required
-            value={assetUrn}
-            onChange={(event) => setAssetUrn(event.target.value)}
-            spellCheck={false}
-          />
-        </label>
-        <label>
-          Source commit
-          <input
-            required
-            value={sourceCommit}
-            onChange={(event) => setSourceCommit(event.target.value)}
-          />
-        </label>
-      </details>
+      {!submitted ? (
+        <>
+          <details className="advanced-change-fields">
+            <summary>Advanced request fields</summary>
+            <label>
+              Dataset URN
+              <input
+                required
+                value={assetUrn}
+                onChange={(event) => setAssetUrn(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <label>
+              Source commit
+              <input
+                required
+                value={sourceCommit}
+                onChange={(event) => setSourceCommit(event.target.value)}
+              />
+            </label>
+          </details>
 
-      <button className="button button-primary" disabled={busy} type="submit">
-        <Play aria-hidden="true" />
-        {busy ? "Analyzing…" : "Analyze change"}
-      </button>
+          <button
+            className="button button-primary"
+            disabled={busy}
+            type="submit"
+          >
+            <Play aria-hidden="true" />
+            {busy ? "Analyzing…" : "Analyze change"}
+          </button>
+        </>
+      ) : null}
     </form>
   );
 }

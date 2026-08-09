@@ -148,6 +148,7 @@ def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
             [
                 "DATAHUB_GMS_URL=",
                 "DATAHUB_GMS_TOKEN=",
+                "DATAHUB_UI_URL=",
                 "OPENAI_API_KEY=",
                 "GITHUB_TOKEN=",
                 "CHANGESAFE_GITHUB_REPOSITORY=",
@@ -161,10 +162,20 @@ def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
 
     assert settings.datahub_gms_url is None
     assert settings.datahub_gms_token is None
+    assert settings.datahub_ui_url is None
     assert settings.openai_api_key is None
     assert settings.github_token is None
     assert settings.changesafe_github_repository is None
     assert settings.changesafe_admin_token is None
+
+
+def test_datahub_ui_url_rejects_embedded_credentials(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="must not contain credentials"):
+        Settings(
+            _env_file=None,
+            changesafe_data_path=tmp_path / "changesafe.db",
+            datahub_ui_url="https://user:secret@datahub.example.com",
+        )
 
 
 def test_github_actions_repository_env_does_not_configure_publication(

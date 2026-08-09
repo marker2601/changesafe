@@ -1,10 +1,20 @@
+import asyncio
 import hashlib
 import json
 from pathlib import Path
 
+import pytest
 from scripts.capture_snapshot import write_snapshot
 from scripts.check_secrets import SIGNATURES
-from scripts.seed_datahub import apply_seed, build_seed_proposals, build_seed_spec
+from scripts.seed_datahub import (
+    apply_seed,
+    build_seed_proposals,
+    build_seed_spec,
+    verify_seed,
+)
+
+from changesafe.context import live
+from changesafe.domain import ContextBundle
 
 
 def test_snapshot_capture_writes_canonical_redacted_bytes(tmp_path: Path) -> None:
@@ -78,6 +88,44 @@ def test_seed_builds_stable_idempotent_metadata_upserts() -> None:
 
     assert emitter.emitted[: len(identities)] == identities
     assert emitter.emitted[len(identities) :] == identities
+
+
+def test_seed_verification_closes_the_synchronous_live_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = json.loads(
+        Path("fixtures/datahub/golden-context.json").read_text(encoding="utf-8")
+    )
+    payload["provenance"]["mode"] = "live"
+    payload["provenance"]["snapshot_hash"] = None
+    context = ContextBundle.model_validate(payload)
+
+    class FakeRunner:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    runner = FakeRunner()
+
+    class FakePort:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def load(self, _change: object) -> ContextBundle:
+            return context
+
+    monkeypatch.setattr(
+        live.AgentContextToolRunner,
+        "connect",
+        staticmethod(lambda _url, _token: runner),
+    )
+    monkeypatch.setattr(live, "LiveDataHubContext", FakePort)
+
+    asyncio.run(verify_seed("http://datahub.example", "private-token"))
+
+    assert runner.closed is True
 
 
 def test_secret_signatures_detect_fine_grained_github_tokens() -> None:

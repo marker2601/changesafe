@@ -14,6 +14,7 @@ flowchart TD
     PORT --> SNAP["Canonical replay adapter"]
     PORT --> LIVE["Live Agent Context adapter"]
     ORCH --> RISK["Deterministic risk rules"]
+    ORCH --> IMPACT["Evidence-led impact classifier"]
     ORCH --> GEN["Template-first generator"]
     GEN -.->|"optional strict JSON"| OPENAI["OpenAI planner"]
     ORCH --> VERIFY["Artifact verifier"]
@@ -40,6 +41,7 @@ sequenceDiagram
     O->>C: load normalized metadata context
     C-->>O: context + evidence + provenance
     O->>O: score deterministic risk
+    O->>O: classify six evidence-led impacts
     O->>O: generate seven artifacts
     O->>V: validate artifacts and exact hashes
     V-->>O: blocking report
@@ -78,16 +80,31 @@ stateDiagram-v2
 
 Every transition is validated and written to `run_events` before it is streamed. Clients resume with the last sequence number. Terminal streams close only after all stored events are delivered.
 
+The browser also stores the current opaque run ID in session storage. On refresh it reloads the durable run and replays events from sequence zero so the visible timeline is reconstructed rather than guessed. A recovered `publishing` or `preparing_preview` run exposes an explicit resume action because no in-process task survives a service restart.
+
 ## Context adapters
 
 Both adapters return the same strict `ContextBundle` contract.
 
-- Replay verifies `fixtures/datahub/golden-context.json` against its committed SHA-256 before parsing it. The resulting provenance is `snapshot` and contains the hash.
+- Replay verifies `fixtures/datahub/golden-context.json` against its committed SHA-256 before parsing it. The snapshot represents the official `showcase-ecommerce` Order Entry Analytics scenario: `order_details.cust_email`, its 55-field contract, governance, ownership, query usage, and seven recorded Snowflake, Power BI, and Looker dependents. The resulting provenance is `snapshot` and contains the hash.
 - Live uses the `datahub-agent-context` tool surface for entities, the full target schema, bounded upstream and downstream lineage, and query context. Tool evidence records sanitized parameters, duration, result count, and referenced URNs. Calls have a bounded timeout and retry transport/timeouts once; authorization errors are never retried.
 - In `auto` mode, an eligible live read failure is persisted as `context_fallback_required`. Only an explicit API/UI action resumes the same run with labeled snapshot provenance; fallback is unavailable once publication begins.
 - Live reads and writes reject targets outside `DEMO_URN_ALLOWLIST` before a tool call is made.
 
 No replay code path initializes a network client.
+
+## Impact classification
+
+The deterministic risk score answers whether the requested operation can proceed. A separate evidence-led classifier explains what kind of harm is supported by DataHub context:
+
+- data integrity;
+- privacy and compliance;
+- operational continuity;
+- trust and decision quality;
+- potential financial exposure; and
+- organizational impact.
+
+Each result includes severity, direct/inferred/unavailable confidence, a plain-language basis, and the exact evidence URNs. ChangeSafe never invents a dollar value; the golden workflow labels financial exposure as `Potentially high, not quantified`.
 
 ## Generation and verification
 
@@ -97,7 +114,7 @@ The verifier operates on in-memory bytes and blocks publication on any failed ma
 
 ## Publication and idempotency
 
-The publication key hashes the normalized request, source commit, and final artifact manifest. The local ledger checkpoints the GitHub branch, pull request, and each DataHub writeback substep. A retry with the same artifact hash reconciles and resumes only missing work; a conflicting artifact hash fails closed. Transitional runs whose ledger already completed are recovered without replaying external mutations.
+The publication key hashes the normalized request, source commit, and final artifact manifest. The local ledger checkpoints intended mode, sink destinations, the GitHub branch, pull request, and each DataHub writeback substep. A retry with the same artifact hash reconciles and resumes only missing work; a conflicting artifact hash or changed destination fails closed. Incomplete publication is owned by the original run, preventing a second identical run from mixing decision identities. Transitional runs whose ledger already completed are recovered without replaying external mutations.
 
 Replay approval creates a unified patch and preview receipt only. Live mutation also requires:
 
@@ -111,6 +128,7 @@ Replay approval creates a unified patch and preview receipt only. Live mutation 
 
 - Service credentials stay in environment-backed `SecretStr` settings.
 - `/api/public-config` returns capabilities, never credential values.
+- `/api/owner/activity` requires the admin token and returns only an opaque run ID, a one-way hashed session label, scenario, state, provenance, publication mode, and timestamps. It stores no judge name, IP address, browser fingerprint, or service credential.
 - HTTP responses receive CSP, clickjacking, MIME-sniffing, referrer, opener, and permissions headers.
 - Request bodies larger than 16 KiB are rejected before JSON parsing.
 - Pydantic models reject unknown keys and invalid operations.
@@ -118,7 +136,7 @@ Replay approval creates a unified patch and preview receipt only. Live mutation 
 - UI code and Markdown are rendered as text; generated HTML is not injected.
 - The container runs as UID 10001 with a read-only filesystem and a dedicated `/data` volume.
 
-The app applies a per-client sliding-window run limit in each process. For a public deployment, terminate TLS and add a distributed per-IP limit at the edge. For multiple replicas, replace in-process background work and SQLite with a durable queue and shared transactional store.
+The app applies a per-client sliding-window run limit in each process. For a public deployment, terminate TLS and add a distributed per-IP limit at the edge. The supported shared judge sandbox is a single service replica with a persistent SQLite volume. For multiple replicas, replace in-process background work and SQLite with a durable queue and shared transactional store.
 
 ## Deployment
 
