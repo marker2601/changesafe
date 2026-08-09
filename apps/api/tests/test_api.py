@@ -34,12 +34,6 @@ class UnavailableLiveContext:
         raise AssertionError(f"unexpected writeback for {decision.run_id}")
 
 
-class SchemaPermissionDeniedContext(UnavailableLiveContext):
-    async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
-        del asset_urn
-        raise PermissionError("private allowlist configuration")
-
-
 class ClosableReplayContext:
     def __init__(self) -> None:
         self.delegate = ReplayDataHubContext.from_default()
@@ -237,8 +231,16 @@ async def test_schema_endpoint_rejects_malformed_and_out_of_allowlist_assets(
         context_port=ReplayDataHubContext.from_default(),
     )
     denied_app = create_app(
-        settings=settings,
-        context_port=SchemaPermissionDeniedContext(),
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=tmp_path / "denied-runs.db",
+            demo_urn_allowlist=(
+                "urn:li:dataset:(urn:li:dataPlatform:snowflake,"
+                "example.unrelated,PROD)"
+            ),
+        ),
+        context_port=ReplayDataHubContext.from_default(),
     )
     malformed_transport = httpx.ASGITransport(app=malformed_app)
     denied_transport = httpx.ASGITransport(app=denied_app)
@@ -260,6 +262,36 @@ async def test_schema_endpoint_rejects_malformed_and_out_of_allowlist_assets(
     assert denied.status_code == 403
     assert denied.json()["detail"] == "Asset is outside the configured allowlist"
     assert "private" not in denied.text
+
+
+@pytest.mark.asyncio
+async def test_schema_endpoint_rejects_snapshot_target_outside_auto_allowlist(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.AUTO,
+            changesafe_data_path=tmp_path / "runs.db",
+            datahub_gms_url="https://datahub.example.test",
+            datahub_gms_token="private-token",
+            demo_urn_allowlist=(
+                "urn:li:dataset:(urn:li:dataPlatform:snowflake,"
+                "example.unrelated,PROD)"
+            ),
+        ),
+        context_port=UnavailableLiveContext(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/schema-fields",
+            params={"asset_urn": DEMO_TARGET_URN, "source": "recorded"},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Asset is outside the configured allowlist"
+    assert "private" not in response.text
 
 
 @pytest.mark.asyncio

@@ -259,6 +259,11 @@ def create_app(
     app.state.run_rate_limiter = run_rate_limiter
     schema_rate_limiter = RunRateLimiter(active_settings.changesafe_runs_per_minute)
     app.state.schema_rate_limiter = schema_rate_limiter
+    allowed_asset_urns = {
+        value.strip()
+        for value in active_settings.demo_urn_allowlist.split(";")
+        if value.strip()
+    }
 
     @app.get("/healthz")
     async def health() -> dict[str, str]:
@@ -275,6 +280,11 @@ def create_app(
         asset_urn: Annotated[str, Query(min_length=8, pattern=r"^urn:li:")],
         source: Literal["active", "recorded"] = "active",
     ) -> SchemaCatalog:
+        if asset_urn not in allowed_asset_urns:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Asset is outside the configured allowlist",
+            )
         client = request.client.host if request.client is not None else "unknown"
         if not await schema_rate_limiter.allow(f"schema:{client}"):
             raise HTTPException(
