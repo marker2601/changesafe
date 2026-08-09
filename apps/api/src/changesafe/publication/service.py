@@ -401,7 +401,7 @@ class PublicationService:
             await self.store.transition(
                 run.run_id,
                 RunState.PUBLISHING,
-                public_message="Publishing verified artifacts",
+                public_message="Publishing the approved change and evidence",
                 clear_error=run.state is RunState.PUBLICATION_FAILED,
             )
 

@@ -348,6 +348,9 @@ async def test_partial_writeback_retry_does_not_duplicate_github_side_effect(
     assert completed is not None
     assert completed.state is RunState.COMPLETED
     assert completed.error is None
+    assert "Publishing the approved change and evidence" in [
+        event.public_message for event in await reopened.events(run.run_id)
+    ]
 
 
 @pytest.mark.asyncio

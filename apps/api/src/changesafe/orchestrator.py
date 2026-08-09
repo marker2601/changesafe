@@ -63,7 +63,7 @@ class ChangeSafeOrchestrator:
         await self.store.transition(
             run_id,
             RunState.LOADING_CONTEXT,
-            public_message="Loading DataHub context",
+            public_message="Reading the existing data contract",
         )
         return await self._analyze_from_loading(
             run,
@@ -110,7 +110,7 @@ class ChangeSafeOrchestrator:
             await self.store.transition(
                 run.run_id,
                 RunState.SCORING_RISK,
-                public_message="Scoring deterministic change risk",
+                public_message="Classifying business and technical impact",
                 evidence=context.evidence,
             )
             risk = score_change(run.request, context)
@@ -118,7 +118,7 @@ class ChangeSafeOrchestrator:
             await self.store.transition(
                 run.run_id,
                 RunState.GENERATING,
-                public_message="Generating migration artifacts",
+                public_message="Preparing a compatible migration",
             )
             generation = await self.generator.generate_with_usage(
                 run.request, context, risk
@@ -131,7 +131,7 @@ class ChangeSafeOrchestrator:
             await self.store.transition(
                 run.run_id,
                 RunState.VALIDATING,
-                public_message="Validating generated artifacts",
+                public_message="Proving the generated change is safe",
             )
             validation = verify_artifacts(artifacts, run.request, context)
             analysis = AnalysisResult(
@@ -156,7 +156,7 @@ class ChangeSafeOrchestrator:
             return await self.store.transition(
                 run.run_id,
                 RunState.AWAITING_APPROVAL,
-                public_message="Analysis complete; approval required",
+                public_message="Waiting for the accountable owner",
                 analysis=analysis,
             )
         except ContextLoadError:

@@ -39,6 +39,14 @@ async def test_golden_pipeline_reaches_awaiting_approval(tmp_path: Path) -> None
         RunState.VALIDATING,
         RunState.AWAITING_APPROVAL,
     ]
+    events = await store.events(run.run_id)
+    assert [event.public_message for event in events[1:]] == [
+        "Reading the existing data contract",
+        "Classifying business and technical impact",
+        "Preparing a compatible migration",
+        "Proving the generated change is safe",
+        "Waiting for the accountable owner",
+    ]
 
 
 @pytest.mark.asyncio
