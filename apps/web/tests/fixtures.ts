@@ -88,7 +88,8 @@ const impacts: ImpactAssessment[] = [
     label: "Data integrity",
     severity: "critical",
     confidence: "direct",
-    summary: "Seven recorded dependencies consume the current field contract.",
+    summary:
+      "Renaming cust_email to primary_email can alter the contract consumed by seven recorded dependencies.",
     qualifier: null,
     basis: "Schema and field-level lineage provide direct evidence.",
     evidence_urns: [OFFICIAL_TARGET, ...downstream.map((asset) => asset.urn)],
@@ -98,7 +99,8 @@ const impacts: ImpactAssessment[] = [
     label: "Privacy & compliance",
     severity: "critical",
     confidence: "direct",
-    summary: "The field carries direct personal-data governance evidence.",
+    summary:
+      "Renaming cust_email to primary_email affects a field with direct personal-data governance evidence.",
     qualifier: null,
     basis: "The field is tagged PII and linked to a personal-data glossary term.",
     evidence_urns: ["urn:li:tag:b2fd91.PII_Data"],
@@ -108,7 +110,8 @@ const impacts: ImpactAssessment[] = [
     label: "Operational continuity",
     severity: "high",
     confidence: "direct",
-    summary: "A compatibility window keeps frequent consumers operating.",
+    summary:
+      "Renaming cust_email to primary_email requires a coordinated compatibility window to keep recorded consumers and frequent queries operating.",
     qualifier: null,
     basis: "High usage and recorded dependency evidence are present.",
     evidence_urns: [OFFICIAL_TARGET, downstream[0].urn],
@@ -118,7 +121,8 @@ const impacts: ImpactAssessment[] = [
     label: "Trust & decision quality",
     severity: "high",
     confidence: "direct",
-    summary: "Business analytics may become stale if contracts diverge.",
+    summary:
+      "Renaming cust_email to primary_email can make business-facing semantic and analytics assets stale or incomplete if their contracts diverge.",
     qualifier: null,
     basis: "Power BI and Looker consumers use an authoritative field.",
     evidence_urns: downstream.slice(2).map((asset) => asset.urn),
@@ -128,7 +132,8 @@ const impacts: ImpactAssessment[] = [
     label: "Financial exposure",
     severity: "high",
     confidence: "inferred",
-    summary: "Disruption may require business rework; metadata has no amount.",
+    summary:
+      "Renaming cust_email to primary_email may disrupt business workflows or require rework, but metadata cannot establish a monetary amount.",
     qualifier: "Potentially high, not quantified",
     basis: "Inference from usage and business-facing dependencies only.",
     evidence_urns: [OFFICIAL_TARGET, downstream[2].urn],
@@ -138,7 +143,8 @@ const impacts: ImpactAssessment[] = [
     label: "Organizational impact",
     severity: "high",
     confidence: "direct",
-    summary: "The migration requires accountable cross-team coordination.",
+    summary:
+      "Renaming cust_email to primary_email requires accountable coordination across the recorded owners and consuming domains.",
     qualifier: null,
     basis: "Two owners and multiple consuming domains are recorded.",
     evidence_urns: [

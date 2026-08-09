@@ -3,11 +3,54 @@ import pytest
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import golden_change
 from changesafe.domain import (
+    ChangeOperation,
+    ChangeRequest,
     EvidenceConfidence,
     ImpactCategory,
     ImpactSeverity,
 )
 from changesafe.impact import classify_impacts
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("change", "phrase"),
+    [
+        (golden_change(), "Renaming cust_email to primary_email"),
+        (
+            ChangeRequest(
+                asset_urn=golden_change().asset_urn,
+                operation=ChangeOperation.REMOVE,
+                field="cust_email",
+                source_commit="showcase-ecommerce-safe-remove",
+                requested_by="changesafe-demo",
+            ),
+            "Removing cust_email",
+        ),
+        (
+            ChangeRequest(
+                asset_urn=golden_change().asset_urn,
+                operation=ChangeOperation.TYPE_CHANGE,
+                field="cust_email",
+                old_type="TEXT",
+                new_type="VARCHAR(320)",
+                source_commit="showcase-ecommerce-safe-type-change",
+                requested_by="changesafe-demo",
+            ),
+            "Changing cust_email from TEXT to VARCHAR(320)",
+        ),
+    ],
+)
+async def test_impact_summaries_name_the_requested_operation(
+    change: ChangeRequest, phrase: str
+) -> None:
+    context = await ReplayDataHubContext.from_default().load(change)
+
+    impacts = classify_impacts(change, context)
+
+    assert all(phrase in impact.summary for impact in impacts)
+    if change.operation is not ChangeOperation.RENAME:
+        assert all("during the rename" not in impact.summary for impact in impacts)
 
 
 @pytest.mark.asyncio

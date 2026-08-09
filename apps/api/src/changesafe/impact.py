@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from changesafe.domain import (
+    ChangeOperation,
     ChangeRequest,
     ContextBundle,
     EvidenceConfidence,
@@ -18,12 +19,22 @@ def _unique(values: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(value for value in values if value))
 
 
+def _change_action(change: ChangeRequest, context: ContextBundle) -> str:
+    if change.operation is ChangeOperation.RENAME:
+        return f"Renaming {change.field} to {change.new_field}"
+    if change.operation is ChangeOperation.TYPE_CHANGE:
+        old_type = change.old_type or context.field_type
+        return f"Changing {change.field} from {old_type} to {change.new_type}"
+    return f"Removing {change.field}"
+
+
 def classify_impacts(
     change: ChangeRequest, context: ContextBundle
 ) -> list[ImpactAssessment]:
     """Classify six stable impact dimensions without inventing business values."""
 
     target = context.target_urn
+    action = _change_action(change, context)
     downstream_urns = _unique(asset.urn for asset in context.downstream_assets)
     governed_urns = _unique([*context.field_tags, *context.glossary_terms])
     usage_urns = _unique(
@@ -107,7 +118,7 @@ def classify_impacts(
             severity=integrity_severity,
             confidence=EvidenceConfidence.DIRECT,
             summary=(
-                f"Changing {change.field} can alter the contract consumed by "
+                f"{action} can alter the contract consumed by "
                 f"{len(downstream_urns)} recorded dependencies."
             ),
             basis=(
@@ -122,9 +133,10 @@ def classify_impacts(
             severity=privacy_severity,
             confidence=privacy_confidence,
             summary=(
-                "The field carries direct personal-data governance evidence."
+                f"{action} affects a field with direct personal-data governance "
+                "evidence."
                 if pii
-                else "No personal-data classification is available in this context."
+                else f"{action} has no personal-data classification in this context."
             ),
             basis=(
                 "DataHub field tags and glossary terms are the sole basis for this "
@@ -138,8 +150,8 @@ def classify_impacts(
             severity=operational_severity,
             confidence=operational_confidence,
             summary=(
-                "A coordinated migration is needed to keep recorded consumers and "
-                "frequent queries operating during the rename."
+                f"{action} requires a coordinated compatibility window to keep "
+                "recorded consumers and frequent queries operating."
             ),
             basis=(
                 f"DataHub reports {context.usage_tier} usage and "
@@ -153,8 +165,8 @@ def classify_impacts(
             severity=trust_severity,
             confidence=trust_confidence,
             summary=(
-                "Business-facing semantic and analytics assets may present stale or "
-                "incomplete results if their field contract diverges."
+                f"{action} can make business-facing semantic and analytics assets "
+                "stale or incomplete if their contracts diverge."
             ),
             basis=(
                 f"{len(business_assets)} recorded BI or semantic consumers"
@@ -182,8 +194,8 @@ def classify_impacts(
                 else EvidenceConfidence.UNAVAILABLE
             ),
             summary=(
-                "Business workflows may require rework or experience disruption, "
-                "but metadata cannot establish a monetary amount."
+                f"{action} may disrupt business workflows or require rework, but "
+                "metadata cannot establish a monetary amount."
             ),
             qualifier=(
                 "Potentially high, not quantified"
@@ -222,7 +234,7 @@ def classify_impacts(
                 else EvidenceConfidence.UNAVAILABLE
             ),
             summary=(
-                "The migration needs accountable coordination across the recorded "
+                f"{action} requires accountable coordination across the recorded "
                 "owners and consuming domains."
             ),
             basis=(
