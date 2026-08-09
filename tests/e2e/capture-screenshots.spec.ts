@@ -98,7 +98,7 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
   ).toBeVisible();
   await expect(mobile.getByText("High technical risk", { exact: true })).toBeVisible();
   await expect(mobile.getByText("12 / 12", { exact: true })).toBeVisible();
-  await mobile.evaluate(() => window.scrollTo(0, 0));
+  await anchorInViewport(mobile, mobile.locator(".target-node"));
   await expectHorizontallyContained(mobile, mobile.locator(".product-hero"));
   await expectHorizontallyContained(mobile, mobile.locator(".command-center"));
   await expectHorizontallyContained(mobile, mobile.locator("#dependency-evidence-map"));

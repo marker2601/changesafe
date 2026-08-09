@@ -22,6 +22,11 @@ describe("ImpactGraph", () => {
     expect(map?.children[0]).toHaveClass("upstream-column");
     expect(map?.children[2]).toHaveClass("target-node");
     expect(map?.children[4]).toHaveClass("downstream-column");
+    const targetField = container.querySelector(".target-field");
+    expect(targetField).toHaveTextContent("order_details.cust_email");
+    expect(
+      Array.from(targetField?.children ?? []).map((element) => element.textContent),
+    ).toEqual(["order_details", ".cust_email"]);
   });
 
   it("opens real multi-hop evidence from a keyboard-operable node", async () => {

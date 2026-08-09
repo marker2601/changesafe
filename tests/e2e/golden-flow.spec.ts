@@ -178,3 +178,22 @@ test("remove and type-change requests produce operation-specific proof", async (
     ),
   ).toBeVisible();
 });
+
+test("reduced motion preserves direction without a travelling light", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Analyze change" }).click();
+
+  await expect(
+    page.getByRole("button", {
+      name: /^order_details\.cust_email.*ORDER_DETAILS\.cust_email, direct field route/i,
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".field-route-arrow").first()).toBeVisible();
+  await expect(page.locator(".lineage-flow-light").first()).toHaveCSS(
+    "display",
+    "none",
+  );
+});

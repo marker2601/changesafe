@@ -734,7 +734,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   text-align: center;
 }
 .target-node > svg { width: 55px; height: 55px; margin: 18px 0 11px; color: var(--cyan); }
-.target-node strong { font-size: 15px; overflow-wrap: anywhere; }
+.target-node strong { font-size: 15px; }
+.target-field > span { display: block; overflow-wrap: anywhere; }
 .target-node small { margin-top: 4px; color: var(--muted); font-size: 9px; }
 .target-node em { margin-top: 13px; padding: 5px 8px; border-radius: 4px; color: var(--cyan); background: #0b4444; font-size: 9px; font-style: normal; }
 .target-node.is-highlighted { border-color: var(--lime); box-shadow: 0 0 50px rgb(190 255 30 / 19%); }

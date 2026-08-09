@@ -185,7 +185,10 @@ export function ImpactGraph({
         >
           <span className="target-platform">dbt governed model</span>
           <Database aria-hidden="true" />
-          <strong>{formatEndpoint({ urn: context.target_urn, name: context.target_name, field: context.field })}</strong>
+          <strong className="target-field">
+            <span>{context.target_name}</span>
+            <span>.{context.field}</span>
+          </strong>
           <small>{context.target_domain ?? "Data product model"}</small>
           <em>{fieldPolicyLabel(context)}</em>
         </article>
