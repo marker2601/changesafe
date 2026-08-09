@@ -90,8 +90,14 @@ async def test_replay_analysis_binds_each_selected_field_to_its_own_evidence(
     assert result.analysis.context.field_type == expected_type
     assert result.analysis.publication_eligible is True
     assert result.analysis.validation.passed is True
-    assert all(check.passed for check in result.analysis.validation.checks if check.blocking)
-    model = result.analysis.artifacts.files["models/marts/order_details.sql"].content
+    assert all(
+        check.passed
+        for check in result.analysis.validation.checks
+        if check.blocking
+    )
+    model = result.analysis.artifacts.files[
+        "models/marts/order_details__changesafe.sql"
+    ].content
     assert change.field in model
     assert result.analysis.artifacts.manifest_hash is not None
 

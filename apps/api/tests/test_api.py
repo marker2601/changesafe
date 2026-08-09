@@ -93,7 +93,7 @@ async def test_api_runs_complete_replay_analysis_and_serves_artifact(
 
         run = await wait_for_state(client, run_id, RunState.AWAITING_APPROVAL)
         artifact = await client.get(
-            f"/api/runs/{run_id}/artifacts/models/marts/order_details.sql"
+            f"/api/runs/{run_id}/artifacts/models/marts/order_details__changesafe.sql"
         )
 
     assert run["analysis"]["risk"]["score"] == 85

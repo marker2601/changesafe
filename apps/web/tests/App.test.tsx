@@ -110,7 +110,8 @@ describe("ChangeSafe workspace", () => {
         expect.objectContaining({
           field: "order_total",
           new_field: "preferred_order_total",
-          old_type: "FLOAT",
+          old_type: null,
+          new_type: null,
         }),
       );
     });

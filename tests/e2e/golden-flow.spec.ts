@@ -23,7 +23,7 @@ test("user completes the credential-free golden workflow", async ({ page }) => {
 
   await page.getByRole("button", { name: "Analyze change" }).click();
 
-  await expect(page.getByText("80", { exact: true })).toBeVisible();
+  await expect(page.getByText("85", { exact: true })).toBeVisible();
   await expect(page.getByText("Critical technical risk", { exact: true })).toBeVisible();
   await expect(page.getByTestId("impact-category")).toHaveCount(6);
   await expect(page.getByTestId("lineage-flow")).toHaveCount(2);
@@ -119,7 +119,7 @@ test("completed workflow remains contained on a phone viewport", async ({ page }
   const heroBefore = await page.locator(".product-hero").boundingBox();
   expect(heroBefore).not.toBeNull();
   await page.getByRole("button", { name: "Analyze change" }).click();
-  await expect(page.getByText("Critical technical risk", { exact: true })).toBeVisible();
+  await expect(page.getByText("High technical risk", { exact: true })).toBeVisible();
   await expect(page.getByText(/order_details\.order_status/).first()).toBeVisible();
   await page.getByText("Accessible dependency list", { exact: true }).click();
   await expect(page.getByRole("list", { name: "All recorded dependencies" })).toBeVisible();
@@ -159,7 +159,7 @@ test("remove and type-change requests produce operation-specific proof", async (
     ).first(),
   ).toBeVisible();
   await page.getByRole("button", { name: "Analyze change" }).click();
-  await expect(page.getByText("95", { exact: true })).toBeVisible();
+  await expect(page.getByText("100", { exact: true })).toBeVisible();
   await page
     .getByRole("button", { name: /tests\/assert_cust_email_retained\.sql/ })
     .click();
@@ -171,7 +171,7 @@ test("remove and type-change requests produce operation-specific proof", async (
   await page.getByRole("button", { name: "New analysis" }).click();
   await page.getByLabel("Operation").selectOption("type_change");
   await page.getByRole("button", { name: "Analyze change" }).click();
-  await expect(page.getByText("90", { exact: true })).toBeVisible();
+  await expect(page.getByText("95", { exact: true })).toBeVisible();
   await expect(
     page.getByText(
       /cast\(cust_email as VARCHAR\(320\)\) as cust_email__new_type/i,

@@ -35,7 +35,7 @@ async def test_replay_approval_creates_truthful_downloadable_preview(
     assert receipt.writeback.label == "NOT WRITTEN — SNAPSHOT MODE"
     assert receipt.patch is not None
     assert "--- /dev/null\n+++ b/PR_BODY.md\n" in receipt.patch
-    assert "diff --git a/models/marts/order_details.sql" in receipt.patch
+    assert "diff --git a/models/marts/order_details__changesafe.sql" in receipt.patch
     assert "\r" not in receipt.patch
     assert persisted is not None
     assert persisted.state is RunState.COMPLETED

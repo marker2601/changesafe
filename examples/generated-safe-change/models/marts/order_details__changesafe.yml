@@ -1,8 +1,8 @@
 version: 2
 
 models:
-  - name: order_details
-    description: Governed phase-one compatibility migration.
+  - name: order_details__changesafe
+    description: Phase-one compatibility layer over the governed model.
     config:
       contract:
         enforced: true

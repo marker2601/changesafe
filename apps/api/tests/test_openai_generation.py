@@ -188,5 +188,5 @@ async def test_generation_service_falls_back_to_conservative_templates() -> None
     assert len(bundle.files) == 7
     assert (
         "cust_email as primary_email"
-        in bundle.files["models/marts/order_details.sql"].content.lower()
+        in bundle.files["models/marts/order_details__changesafe.sql"].content.lower()
     )

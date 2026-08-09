@@ -14,8 +14,8 @@ from changesafe.risk import score_change
 from changesafe.verification import verify_artifacts
 
 TARGET = DEMO_TARGET_URN
-MODEL_SQL = "models/marts/order_details.sql"
-MODEL_YAML = "models/marts/order_details.yml"
+MODEL_SQL = "models/marts/order_details__changesafe.sql"
+MODEL_YAML = "models/marts/order_details__changesafe.yml"
 
 
 def golden_inputs():
@@ -119,6 +119,23 @@ def test_select_star_in_model_blocks_publication() -> None:
     assert report.check("no_select_star").passed is False
 
 
+def test_compatibility_shim_cannot_reference_itself_or_an_inferred_source() -> None:
+    change, context, bundle = golden_inputs()
+    invalid = replace_file(
+        bundle,
+        MODEL_SQL,
+        bundle.files[MODEL_SQL].content.replace(
+            "ref('order_details')",
+            "ref('order_details__changesafe')",
+        ),
+    )
+
+    report = verify_artifacts(invalid, change, context)
+
+    assert report.passed is False
+    assert report.check("source_relations").passed is False
+
+
 def test_path_traversal_blocks_publication() -> None:
     change, context, bundle = golden_inputs()
     files = dict(bundle.files)
@@ -141,7 +158,7 @@ def test_yaml_missing_new_field_blocks_publication() -> None:
     invalid = replace_file(
         bundle,
         MODEL_YAML,
-        "version: 2\nmodels:\n  - name: order_details\n    columns: []\n",
+        "version: 2\nmodels:\n  - name: order_details__changesafe\n    columns: []\n",
     )
 
     report = verify_artifacts(invalid, change, context)

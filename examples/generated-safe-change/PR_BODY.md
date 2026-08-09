@@ -1,6 +1,6 @@
 # ChangeSafe: rename `cust_email` to `primary_email`
 
-This phase-one migration preserves the existing interface and includes deterministic validation, deprecation evidence, and rollback steps.
+This phase-one compatibility layer preserves the existing interface and includes deterministic validation, deprecation evidence, and rollback steps.
 
 ## Deterministic risk: 85/100 — Critical
 

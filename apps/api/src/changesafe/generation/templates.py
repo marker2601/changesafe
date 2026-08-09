@@ -9,7 +9,6 @@ from datetime import timedelta
 from pydantic import Field
 
 from changesafe.domain import (
-    AffectedAsset,
     ArtifactBundle,
     ArtifactFile,
     ChangeOperation,
@@ -21,8 +20,8 @@ from changesafe.domain import (
 )
 from changesafe.sql_types import canonical_sql_type, type_change_kind
 
-MODEL_SQL = "models/marts/order_details.sql"
-MODEL_YAML = "models/marts/order_details.yml"
+MODEL_SQL = "models/marts/order_details__changesafe.sql"
+MODEL_YAML = "models/marts/order_details__changesafe.yml"
 COMPATIBILITY_TEST = "tests/assert_cust_email_compatibility.sql"
 MIGRATION_NOTES = "migrations/2026-08-08-cust-email-rename.md"
 ROLLBACK = "ROLLBACK.md"
@@ -60,8 +59,12 @@ def _identifier(value: str) -> str:
     return f"model_{normalized}" if normalized[0].isdigit() else normalized
 
 
-def _model_name(context: ContextBundle) -> str:
+def _target_model_name(context: ContextBundle) -> str:
     return _identifier(context.target_name)
+
+
+def _model_name(context: ContextBundle) -> str:
+    return f"{_target_model_name(context)}__changesafe"
 
 
 def _model_paths(context: ContextBundle) -> tuple[str, str]:
@@ -122,30 +125,6 @@ def _preferred_field(change: ChangeRequest) -> str | None:
     if change.operation is ChangeOperation.TYPE_CHANGE:
         return f"{change.field}__new_type"
     return None
-
-
-def _source_asset(change: ChangeRequest, context: ContextBundle) -> AffectedAsset:
-    candidates = [
-        asset
-        for asset in context.upstream_assets
-        if asset.entity_type.lower() == "dataset"
-        and (asset.field is None or asset.field == change.field)
-    ]
-    if not candidates:
-        candidates = [
-            asset
-            for asset in context.upstream_assets
-            if asset.entity_type.lower() == "dataset"
-        ]
-    if not candidates:
-        raise ValueError(
-            "Complete upstream context is required for artifact generation"
-        )
-    staged = next(
-        (asset for asset in reversed(candidates) if asset.name.startswith("stg_")),
-        None,
-    )
-    return staged or candidates[-1]
 
 
 def _schema(context: ContextBundle) -> list[SchemaField]:
@@ -228,11 +207,12 @@ def default_narrative(
             "compatibility invariant."
         ),
         rollback_summary=(
-            "Revert the generated model, schema, and compatibility test together, "
+            "Revert the generated compatibility layer, schema, and test together, "
             "then run dbt parse before reopening downstream traffic."
         ),
         pr_prose=(
-            "This phase-one migration preserves the existing interface and includes "
+            "This phase-one compatibility layer preserves the existing interface "
+            "and includes "
             "deterministic validation, deprecation evidence, and rollback steps."
         ),
     )
@@ -254,12 +234,11 @@ def _model_sql(change: ChangeRequest, context: ContextBundle) -> str:
             projections.append(f"{change.field} as {preferred}")
     if change.field not in {field.name for field in _schema(context)}:
         raise ValueError("Changed field is absent from complete schema context")
-    source = _source_asset(change, context)
     rendered = ",\n".join(f"    {projection}" for projection in projections)
     return (
         "{{ config(materialized='table', contract={'enforced': true}) }}\n\n"
         f"select\n{rendered}\n"
-        f"from {{{{ ref('{_identifier(source.name)}') }}}}\n"
+        f"from {{{{ ref('{_target_model_name(context)}') }}}}\n"
     )
 
 
@@ -294,7 +273,7 @@ def _model_yaml(change: ChangeRequest, context: ContextBundle) -> str:
         "",
         "models:",
         f"  - name: {_model_name(context)}",
-        "    description: Governed phase-one compatibility migration.",
+        "    description: Phase-one compatibility layer over the governed model.",
         "    config:",
         "      contract:",
         "        enforced: true",

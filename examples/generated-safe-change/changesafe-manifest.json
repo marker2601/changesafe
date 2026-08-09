@@ -16,12 +16,12 @@
   },
   "deprecation_status": "phase_one",
   "files": {
-    "PR_BODY.md": "c1cde51439250d46ed1ac64f4c649b9e41b7166be49eb326a160ea6d34ad006c",
-    "ROLLBACK.md": "d1a5dfe743a98497364e537e7d5e5242ae96c1013934c6a5dd8c6833d5ec4305",
+    "PR_BODY.md": "f45b8f169f9cacaeafbdc080e93f09d36aaf9d8ae6d17b08455eaddd86786169",
+    "ROLLBACK.md": "d6071b8c4860230d9a1f834b55d97ca0a0fbaba84ddc8b00f7449b1f2c6385a1",
     "migrations/2026-08-09-cust-email-rename.md": "691d555da47739ac359ed37a86debc79921c7c50f9c5504edefd69a74591f0b2",
-    "models/marts/order_details.sql": "c6e725fe77abe42f189deeac1be719b560702cfb556853365ca79a6d05ebb29c",
-    "models/marts/order_details.yml": "ed01737981980959cb76ce031331412eda771c5fec5f0e3116ca085cb661dae0",
-    "tests/assert_cust_email_compatibility.sql": "ad752bacad3f887feaa853bd61a89b9f24ad5530fbab9f737bd861c9be650fc8"
+    "models/marts/order_details__changesafe.sql": "c6e99a3fbe339789fb1a636f7123d1ce7c0b3d1c19496bfbb477e83a06016922",
+    "models/marts/order_details__changesafe.yml": "97c375fc35732994e4364b2205154c6ca0f8a334ec9af11dc8a312556a53fad0",
+    "tests/assert_cust_email_compatibility.sql": "ae5f780fbbb697e58e03314a09a047eacbca9c48d21498ba256d8e6f5d8a2b11"
   },
   "risk": {
     "band": "critical",

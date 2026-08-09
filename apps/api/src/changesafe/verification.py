@@ -379,8 +379,11 @@ def verify_artifacts(
         if artifact.path.endswith(".sql")
         for name in REF_PATTERN.findall(artifact.content)
     }
+    governed_model = model_name.removesuffix("__changesafe")
     known = {
         context.target_name,
+        governed_model,
+        model_name,
         *(asset.name for asset in context.upstream_assets),
         *(asset.name for asset in context.downstream_assets),
     }
@@ -401,19 +404,29 @@ def verify_artifacts(
     )
     all_relations = referenced | parsed_relations
     unknown_relations = all_relations - known
-    sources_valid = not unsafe_statement and not unknown_relations
+    model_refs = set(REF_PATTERN.findall(model_text))
+    source_valid = model_refs == {governed_model} and model_name != governed_model
+    sources_valid = not unsafe_statement and not unknown_relations and source_valid
     checks.append(
         _check(
             "source_relations",
             "Referenced relations exist in context",
             sources_valid,
-            "Every relation is backed by DataHub context and expressions are scalar."
+            "The compatibility layer reads only the governed model and expressions "
+            "are scalar."
             if sources_valid
             else (
                 "Generated SQL contains a subquery, unsafe function, or non-select "
                 "statement."
                 if unsafe_statement
-                else f"Unknown relations: {sorted(unknown_relations)}"
+                else (
+                    f"Unknown relations: {sorted(unknown_relations)}"
+                    if unknown_relations
+                    else (
+                        "Compatibility layer must read the governed model without "
+                        "a self-cycle."
+                    )
+                )
             ),
         )
     )
