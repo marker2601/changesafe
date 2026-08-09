@@ -104,3 +104,11 @@ lint, production build, and `git diff --check` all pass.
 - Added a controlled click-only regression that verifies one callback and the
   resulting closed combobox value. Keyboard selection remains covered by the
   existing returned-field test.
+
+### Review fix round 3/5: make incomplete draft summaries actionable
+
+- Replaced blank rename/type-change destination prose with clear next-step
+  guidance before analysis. Completed rename, removal, and type-change
+  summaries are unchanged.
+- Added RED-to-GREEN coverage for incomplete rename and type-change summaries,
+  plus form and center-preview assertions after selecting a different field.

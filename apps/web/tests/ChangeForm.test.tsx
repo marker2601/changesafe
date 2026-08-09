@@ -94,6 +94,25 @@ describe("ChangeForm", () => {
     ).toBeVisible();
   });
 
+  it.each([
+    [
+      { ...DEFAULT_CHANGE_DRAFT, field: "order_total", new_field: "" },
+      "Choose the new field name for order_total before analysis.",
+    ],
+    [
+      {
+        ...DEFAULT_CHANGE_DRAFT,
+        field: "order_total",
+        operation: "type_change" as const,
+        new_type: "",
+      },
+      "Choose the new type for order_total before analysis.",
+    ],
+  ])("renders incomplete draft guidance in the form", (draft, summary) => {
+    renderForm(draft);
+    expect(screen.getByText(summary)).toBeVisible();
+  });
+
   it("stops analysis until a returned field and required destination are present", () => {
     const { rerender } = renderForm(
       { ...DEFAULT_CHANGE_DRAFT, field: "not_returned", new_field: "" },

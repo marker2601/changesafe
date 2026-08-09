@@ -65,9 +65,15 @@ describe("ChangeSafe workspace", () => {
     await user.click(screen.getByRole("option", { name: /order_total.*float.*required/i }));
 
     expect(screen.getByRole("combobox", { name: "Current field" })).toHaveValue("order_total");
+    expect(
+      screen.getAllByText("Choose the new field name for order_total before analysis.").length,
+    ).toBeGreaterThan(0);
     await user.selectOptions(screen.getByLabelText("Operation"), "type_change");
     expect(screen.getByLabelText("Current type")).toHaveValue("FLOAT");
     expect(screen.getByLabelText("New type")).toHaveValue("");
+    expect(
+      screen.getAllByText("Choose the new type for order_total before analysis.").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
 
     await user.type(screen.getByLabelText("New type"), "NUMBER(18,2)");

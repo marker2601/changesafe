@@ -27,6 +27,27 @@ describe("change draft presentation", () => {
     );
   });
 
+  it("asks for a rename destination before analysis when the field is incomplete", () => {
+    expect(
+      changeSummary({
+        ...DEFAULT_CHANGE_DRAFT,
+        field: "order_total",
+        new_field: "",
+      }),
+    ).toBe("Choose the new field name for order_total before analysis.");
+  });
+
+  it("asks for a type destination before analysis when the field is incomplete", () => {
+    expect(
+      changeSummary({
+        ...DEFAULT_CHANGE_DRAFT,
+        field: "order_total",
+        operation: "type_change",
+        new_type: "",
+      }),
+    ).toBe("Choose the new type for order_total before analysis.");
+  });
+
   it("uses operation-specific source commits", () => {
     expect(sourceCommitForOperation("rename")).toBe(
       "showcase-ecommerce-safe-rename",

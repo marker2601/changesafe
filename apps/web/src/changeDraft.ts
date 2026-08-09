@@ -87,10 +87,16 @@ export function draftToRequest(draft: ChangeDraft): ChangeRequest {
 
 export function changeSummary(change: ChangeSummaryInput): string {
   if (change.operation === "rename") {
+    if (!change.new_field?.trim()) {
+      return `Choose the new field name for ${change.field} before analysis.`;
+    }
     return `Keep ${change.field} available while consumers move to ${change.new_field}.`;
   }
   if (change.operation === "remove") {
     return `Delay removal of ${change.field} until every recorded consumer has migrated.`;
+  }
+  if (!change.new_type?.trim()) {
+    return `Choose the new type for ${change.field} before analysis.`;
   }
   return (
     `Keep ${change.field} and add a safely cast ${change.new_type} ` +
