@@ -1,5 +1,5 @@
 import { ExternalLink, Route, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 
 import { formatEndpoint, formatRoute, type LineageRoute } from "../lineageRoute";
 import type { AffectedAsset } from "../types";
@@ -9,6 +9,7 @@ interface EvidenceDrawerProps {
   route: LineageRoute | null;
   onClose: () => void;
   dataHubUrl?: string | null;
+  triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
 function evidenceLabel(route: LineageRoute): string {
@@ -22,16 +23,38 @@ function rawField(field: string | null): string {
   return field ?? "Not returned by DataHub";
 }
 
+function humanize(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export function EvidenceDrawer({
   asset,
   route,
   onClose,
   dataHubUrl,
+  triggerRef,
 }: EvidenceDrawerProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const closeDrawer = useCallback(() => {
+    triggerRef.current?.focus();
+    onClose();
+  }, [onClose, triggerRef]);
   useEffect(() => {
     if (asset && route) closeRef.current?.focus();
-  }, [asset, route]);
+  }, [asset, route, closeDrawer]);
+
+  useEffect(() => {
+    if (!asset || !route) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDrawer();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [asset, route, closeDrawer]);
 
   if (!asset || !route) return null;
   return (
@@ -39,11 +62,30 @@ export function EvidenceDrawer({
       aria-label={`Evidence for ${asset.name}`}
       aria-modal="true"
       className="evidence-drawer"
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const focusable = Array.from(
+          drawerRef.current?.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled])',
+          ) ?? [],
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }}
+      ref={drawerRef}
       role="dialog"
     >
       <header>
         <span>DataHub evidence</span>
-        <button aria-label="Close evidence" onClick={onClose} ref={closeRef} type="button">
+        <button aria-label="Close evidence" onClick={closeDrawer} ref={closeRef} type="button">
           <X aria-hidden="true" />
         </button>
       </header>
@@ -64,7 +106,7 @@ export function EvidenceDrawer({
         </div>
         <div>
           <dt>Precision</dt>
-          <dd>{route.precision.replaceAll("_", " ")}</dd>
+          <dd>{humanize(route.precision)}</dd>
         </div>
         <div>
           <dt>Source field</dt>
@@ -76,7 +118,7 @@ export function EvidenceDrawer({
         </div>
         <div>
           <dt>Type</dt>
-          <dd>{asset.entity_type.replaceAll("_", " ")}</dd>
+          <dd>{humanize(asset.entity_type)}</dd>
         </div>
       </dl>
       <div className="urn-block">

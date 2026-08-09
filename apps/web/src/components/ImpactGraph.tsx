@@ -6,8 +6,9 @@ import {
   PanelsTopLeft,
   Warehouse,
 } from "lucide-react";
-import { useState, type ComponentType } from "react";
+import { useRef, useState, type ComponentType } from "react";
 
+import { safeDataHubLink } from "../dataHubLink";
 import { compactLineageLabel } from "../lineageEvidence";
 import {
   buildLineageRoute,
@@ -45,11 +46,6 @@ function assetIcon(asset: AffectedAsset): ComponentType<{ "aria-hidden"?: boolea
   return Boxes;
 }
 
-function safeDataHubLink(origin: string | null | undefined, urn: string) {
-  if (!origin) return null;
-  return new URL(`/dataset/${encodeURIComponent(urn)}`, origin).toString();
-}
-
 function fieldPolicyLabel(context: ContextBundle): string {
   if (context.field_tags.length > 0) {
     const rawName = context.field_tags[0].split(":").at(-1) ?? context.field_tags[0];
@@ -70,6 +66,16 @@ function degreeLabel(route: LineageRoute): string {
   return `${route.degree} ${route.degree === 1 ? "hop" : "hops"}`;
 }
 
+function FieldRoute({ route }: { route: LineageRoute }) {
+  return (
+    <span className="field-route">
+      <span className="field-route-source">{formatEndpoint(route.source)}</span>
+      <span aria-hidden="true" className="field-route-arrow">→</span>
+      <span className="field-route-destination">{formatEndpoint(route.destination)}</span>
+    </span>
+  );
+}
+
 export function ImpactGraph({
   context,
   activeImpact,
@@ -77,6 +83,7 @@ export function ImpactGraph({
   request,
 }: ImpactGraphProps) {
   const [selectedRoute, setSelectedRoute] = useState<RouteAsset | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const highlighted = new Set(activeImpact?.evidence_urns ?? []);
   const upstreamRoutes = context.upstream_assets.map((asset) => ({
     asset,
@@ -104,14 +111,17 @@ export function ImpactGraph({
         aria-label={`${formatRoute(route)}, ${compactLineageLabel(asset)} evidence`}
         className={assetClassName(asset)}
         key={`${direction}-${asset.urn}`}
-        onClick={() => setSelectedRoute({ asset, route, direction })}
+        onClick={(event) => {
+          triggerRef.current = event.currentTarget;
+          setSelectedRoute({ asset, route, direction });
+        }}
         type="button"
       >
         <Icon aria-hidden />
         <span>
           <small>{asset.entity_type.replaceAll("_", " ")}</small>
           <strong>{asset.name}</strong>
-          <span className="field-route">{formatRoute(route)}</span>
+          <FieldRoute route={route} />
           <small className="route-degree">{degreeLabel(route)}</small>
           {route.limitation ? <em>{route.limitation}</em> : null}
         </span>
@@ -198,7 +208,7 @@ export function ImpactGraph({
         <summary>Accessible dependency list</summary>
         <ul aria-label="All recorded dependencies">
           {routeAssets.map(({ asset, route, direction }) => {
-            const dataHubUrl = safeDataHubLink(dataHubOrigin, asset.urn);
+            const dataHubUrl = safeDataHubLink(dataHubOrigin, asset);
             return (
               <li key={`${direction}-${asset.urn}`}>
                 <strong>{formatRoute(route)}</strong>
@@ -227,11 +237,12 @@ export function ImpactGraph({
         asset={selectedRoute?.asset ?? null}
         dataHubUrl={
           selectedRoute
-            ? safeDataHubLink(dataHubOrigin, selectedRoute.asset.urn)
+            ? safeDataHubLink(dataHubOrigin, selectedRoute.asset)
             : null
         }
         onClose={() => setSelectedRoute(null)}
         route={selectedRoute?.route ?? null}
+        triggerRef={triggerRef}
       />
     </section>
   );

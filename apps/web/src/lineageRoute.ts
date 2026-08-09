@@ -19,11 +19,8 @@ export interface LineageRoute {
 }
 
 export function lineageDegree(asset: AffectedAsset): number | null {
-  const pathDegree =
-    asset.lineage_path.length >= 2 ? asset.lineage_path.length - 1 : null;
-  if (asset.lineage_degree === null) return pathDegree;
-  if (pathDegree === null) return asset.lineage_degree;
-  return Math.max(asset.lineage_degree, pathDegree);
+  if (asset.lineage_degree !== null) return asset.lineage_degree;
+  return asset.lineage_path.length >= 2 ? asset.lineage_path.length - 1 : null;
 }
 
 export function buildLineageRoute(

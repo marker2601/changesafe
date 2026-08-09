@@ -74,6 +74,41 @@ describe("ImpactGraph", () => {
     expect(link).toHaveAttribute("rel", "noreferrer");
   });
 
+  it("uses entity-specific DataHub links and omits unsupported entities", async () => {
+    const user = userEvent.setup();
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    const dashboard = {
+      ...analysis.context.downstream_assets[0],
+      urn: "urn:li:dashboard:(looker,orders)",
+      name: "Orders dashboard",
+      entity_type: "dashboard",
+    };
+    const unsupported = {
+      ...analysis.context.downstream_assets[1],
+      urn: "urn:li:mlModel:orders",
+      name: "Unsupported model",
+      entity_type: "ml_model",
+    };
+    render(
+      <ImpactGraph
+        activeImpact={null}
+        context={{ ...analysis.context, downstream_assets: [dashboard, unsupported] }}
+        dataHubOrigin="https://datahub.example.com"
+        request={goldenRun.request}
+      />,
+    );
+
+    await user.click(screen.getByText("Accessible dependency list"));
+    expect(screen.getByRole("link", { name: "Open Orders dashboard in DataHub" })).toHaveAttribute(
+      "href",
+      `https://datahub.example.com/dashboard/${encodeURIComponent(dashboard.urn)}`,
+    );
+    expect(
+      screen.queryByRole("link", { name: "Open Unsupported model in DataHub" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("uses recorded degree for multi-hop live evidence without inventing a path", async () => {
     const user = userEvent.setup();
     const analysis = goldenRun.analysis;
@@ -227,13 +262,15 @@ describe("ImpactGraph", () => {
     );
 
     expect(
-      within(screen.getByRole("region", { name: "Upstream inputs" })).getByText(
-        "stg_order_details.cust_email → order_details.cust_email",
+      within(screen.getByRole("region", { name: "Upstream inputs" })).getByRole(
+        "button",
+        { name: /stg_order_details\.cust_email → order_details\.cust_email/ },
       ),
     ).toBeVisible();
     expect(
-      within(screen.getByRole("region", { name: "Recorded dependents" })).getByText(
-        "order_details.cust_email → ORDER_DETAILS.cust_email",
+      within(screen.getByRole("region", { name: "Recorded dependents" })).getByRole(
+        "button",
+        { name: /order_details\.cust_email → ORDER_DETAILS\.cust_email/ },
       ),
     ).toBeVisible();
     expect(
@@ -260,6 +297,45 @@ describe("ImpactGraph", () => {
     expect(
       within(list).getByText("2 hops; intermediate column mapping not returned by DataHub"),
     ).toBeVisible();
+  });
+
+  it("uses structural route markup and returns focus to the trigger after escape", async () => {
+    const user = userEvent.setup();
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    render(
+      <ImpactGraph
+        activeImpact={null}
+        context={analysis.context}
+        dataHubOrigin="https://datahub.example.com"
+        request={goldenRun.request}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", {
+      name: /order_details\.cust_email → ORDER_DETAILS\.cust_email/,
+    });
+    const route = trigger.querySelector(".field-route");
+    if (!route) throw new Error("field route is required");
+    expect(route.querySelector(".field-route-source")).toHaveTextContent(
+      "order_details.cust_email",
+    );
+    expect(route.querySelector(".field-route-arrow")).toHaveAttribute("aria-hidden", "true");
+    expect(route.querySelector(".field-route-destination")).toHaveTextContent(
+      "ORDER_DETAILS.cust_email",
+    );
+
+    await user.click(trigger);
+    const drawer = screen.getByRole("dialog", { name: /Evidence for ORDER_DETAILS/ });
+    const close = within(drawer).getByRole("button", { name: "Close evidence" });
+    expect(close).toHaveFocus();
+    await user.tab();
+    expect(within(drawer).getByRole("link", { name: "Open evidence in DataHub" })).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(drawer).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("does not fabricate a field suffix for dataset-level evidence and renders evidence-empty states", async () => {

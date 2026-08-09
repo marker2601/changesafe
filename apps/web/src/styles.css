@@ -684,7 +684,9 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .asset-column button > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .asset-column button small { color: var(--quiet); font-size: 7px; letter-spacing: .06em; text-transform: uppercase; }
 .asset-column button strong { overflow-wrap: anywhere; font-size: 9px; }
-.field-route { color: var(--cyan); font-size: 8px; font-weight: 750; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
+.field-route { display: inline-flex; flex-wrap: wrap; gap: 4px; color: var(--cyan); font-size: 8px; font-weight: 750; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
+.field-route-source, .field-route-destination { overflow-wrap: anywhere; }
+.field-route-arrow { flex: 0 0 auto; color: var(--cyan); }
 .route-degree { color: var(--quiet); }
 .asset-column button em { color: var(--amber); font-size: 7px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }
 .route-empty { margin: 0; padding: 11px; border: 1px dashed var(--line); color: var(--muted); font-size: 9px; line-height: 1.4; }
@@ -766,7 +768,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .evidence-drawer dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 15px 0; }
 .evidence-drawer dl div, .urn-block { padding: 9px; border: 1px solid var(--line); background: var(--panel); }
 .evidence-drawer dt, .urn-block span { color: var(--muted); font-size: 8px; text-transform: uppercase; }
-.evidence-drawer dd { margin: 4px 0 0; font-size: 10px; text-transform: capitalize; }
+.evidence-drawer dd { margin: 4px 0 0; font-size: 10px; }
 .evidence-drawer dd.raw-field { overflow-wrap: anywhere; text-transform: none; }
 .urn-block code { display: block; margin-top: 5px; overflow-wrap: anywhere; color: #c9d5d7; font-size: 8px; line-height: 1.45; }
 .evidence-path { display: grid; gap: 5px; margin: 12px 0; padding: 0; list-style: none; }
@@ -978,7 +980,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 
 @media (max-width: 430px) {
   .dependency-map { padding: 11px; }
-  .field-route { line-height: 1.5; }
+  .field-route { display: grid; grid-template-columns: 1fr; gap: 2px; line-height: 1.5; }
+  .field-route-arrow { justify-self: start; }
   .lineage-flow { min-height: 42px; }
 }
 
@@ -1017,5 +1020,5 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
-  .lineage-flow-light { left: calc(50% - 4px); animation: none; }
+  .lineage-flow-light { display: none; }
 }

@@ -151,4 +151,19 @@ describe("lineageRoute", () => {
       ),
     ).toBe(2);
   });
+
+  it("keeps an explicit DataHub degree authoritative when a conflicting path is longer", () => {
+    expect(
+      lineageDegree(
+        asset({
+          lineage_degree: 1,
+          lineage_path: [
+            context.target_urn,
+            "urn:li:dataset:unverified-intermediate",
+            "urn:li:dataset:endpoint",
+          ],
+        }),
+      ),
+    ).toBe(1);
+  });
 });
