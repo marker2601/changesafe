@@ -2,7 +2,11 @@ import { ArrowRight, Database, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import { browserApi } from "./api";
-import { changeSummary, DEFAULT_CHANGE_DRAFT } from "./changeDraft";
+import {
+  changeSummary,
+  DEFAULT_CHANGE_DRAFT,
+  isOfficialScenario,
+} from "./changeDraft";
 import { ApprovalPanel } from "./components/ApprovalPanel";
 import { ArtifactExplorer } from "./components/ArtifactExplorer";
 import { ChangeForm } from "./components/ChangeForm";
@@ -65,6 +69,18 @@ export function App({ api = browserApi }: AppProps) {
   const blocking =
     analysis?.validation.checks.filter((check) => check.blocking) ?? [];
   const displayedChange = run?.request ?? draft;
+  const officialDraft = isOfficialScenario(displayedChange);
+  const heroEvidenceBadge = analysis
+    ? analysis.context.provenance.mode === "live"
+      ? `Live DataHub evidence · ${analysis.context.target_name}`
+      : officialDraft
+        ? "Official DataHub showcase-ecommerce"
+        : `Recorded DataHub evidence · ${analysis.context.target_name}`
+    : officialDraft
+      ? "Official DataHub showcase-ecommerce"
+      : run
+        ? "DataHub context pending"
+        : "Dataset verified during analysis";
   const resetAnalysis = () => {
     setSelectedImpact(null);
     reset();
@@ -97,7 +113,7 @@ export function App({ api = browserApi }: AppProps) {
           </p>
           <span className="official-badge">
             <ShieldCheck aria-hidden="true" />
-            Official DataHub showcase-ecommerce
+            {heroEvidenceBadge}
           </span>
         </div>
         <RunProvenance config={config} events={events} run={run} />
@@ -122,6 +138,7 @@ export function App({ api = browserApi }: AppProps) {
               onDraftChange={setDraft}
               onSubmit={analyze}
               submittedRequest={run?.request ?? null}
+              context={analysis?.context ?? null}
             />
             {analysis ? (
               <>
@@ -170,6 +187,23 @@ export function App({ api = browserApi }: AppProps) {
                   Continue with labeled snapshot
                 </button>
               </div>
+            ) : run?.state === "failed" ? (
+              <div className="analysis-stage failure-stage">
+                <ShieldCheck aria-hidden="true" />
+                <span>Analysis stopped safely</span>
+                <h2>No change was prepared</h2>
+                <p>
+                  {run.error?.message ??
+                    "The analysis ended before a verified change package was created."}
+                </p>
+                <button
+                  className="button button-primary"
+                  onClick={resetAnalysis}
+                  type="button"
+                >
+                  New analysis
+                </button>
+              </div>
             ) : run ? (
               <div className="analysis-stage">
                 <Database aria-hidden="true" />
@@ -184,10 +218,14 @@ export function App({ api = browserApi }: AppProps) {
               <div className="scenario-ready">
                 <span>Ready to trace this change</span>
                 <Database aria-hidden="true" />
-                <h2>order_details</h2>
+                <h2>{officialDraft ? "order_details" : "Context not loaded"}</h2>
                 <p>{changeSummary(displayedChange)}</p>
                 <div>
-                  <span>Order Entry Analytics</span>
+                  <span>
+                    {officialDraft
+                      ? "Official ecommerce evidence"
+                      : "Dataset facts pending"}
+                  </span>
                   <ArrowRight aria-hidden="true" />
                   <span>Safe migration proof</span>
                 </div>

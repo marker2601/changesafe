@@ -38,7 +38,7 @@ Show the SQL file, YAML, compatibility test, rollback guide, migration note, PR 
 
 If demonstrating **Remove**, open the singular SQL guard:
 
-> The `where false` query is intentional. It returns no rows while `cust_email` still compiles, but fails compilation if someone removes the field before phase one is complete. It is a release guard, not a business-data test.
+> The `where false` query is intentional. When dbt executes it in the target warehouse, it returns no rows while `cust_email` exists, but fails with a missing-column error if someone removes the field before phase one is complete. ChangeSafe generates and statically verifies this guard; CI or the warehouse executes it.
 
 Expand validation.
 

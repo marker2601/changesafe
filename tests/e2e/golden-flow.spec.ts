@@ -18,6 +18,9 @@ test("user completes the credential-free golden workflow", async ({ page }) => {
   await expect(page.getByText("Recorded DataHub evidence", { exact: true })).toBeVisible();
   await expect(page.getByText("Preview only", { exact: true })).toBeVisible();
 
+  const heroBefore = await page.locator(".product-hero").boundingBox();
+  expect(heroBefore).not.toBeNull();
+
   await page.getByRole("button", { name: "Analyze change" }).click();
 
   await expect(page.getByText("80", { exact: true })).toBeVisible();
@@ -32,6 +35,10 @@ test("user completes the credential-free golden workflow", async ({ page }) => {
   await expect(page.getByText("What this file does", { exact: true })).toBeVisible();
   await expect(page.getByText("Failure this prevents", { exact: true })).toBeVisible();
   await expect(page.getByText(/^Completed in /)).toBeVisible();
+  const heroAfter = await page.locator(".product-hero").boundingBox();
+  expect(heroAfter).not.toBeNull();
+  expect(Math.abs(heroAfter!.height - heroBefore!.height)).toBeLessThan(1);
+  await page.getByText("About this run", { exact: true }).click();
   await expect(
     page.getByText("Same request + same evidence = same verified result.", {
       exact: true,
@@ -56,8 +63,13 @@ test("user completes the credential-free golden workflow", async ({ page }) => {
 test("completed workflow remains contained on a phone viewport", async ({ page }) => {
   await page.setViewportSize({ width: 430, height: 932 });
   await page.goto("/");
+  const heroBefore = await page.locator(".product-hero").boundingBox();
+  expect(heroBefore).not.toBeNull();
   await page.getByRole("button", { name: "Analyze change" }).click();
   await expect(page.getByText("Critical technical risk", { exact: true })).toBeVisible();
+  const heroAfter = await page.locator(".product-hero").boundingBox();
+  expect(heroAfter).not.toBeNull();
+  expect(Math.abs(heroAfter!.height - heroBefore!.height)).toBeLessThan(1);
 
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -67,4 +79,35 @@ test("completed workflow remains contained on a phone viewport", async ({ page }
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
   await expect(page.getByTestId("impact-category")).toHaveCount(6);
   await expect(page.getByTestId("artifact-file")).toHaveCount(7);
+});
+
+test("remove and type-change requests produce operation-specific proof", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("Operation").selectOption("remove");
+  await expect(
+    page.getByText(
+      "Delay removal of cust_email until every recorded consumer has migrated.",
+    ).first(),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Analyze change" }).click();
+  await expect(page.getByText("95", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: /tests\/assert_cust_email_retained\.sql/ })
+    .click();
+  await expect(
+    page.getByText(/warehouse execution fails on the missing column/i),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Approve preview" }).click();
+  await page.getByRole("button", { name: "New analysis" }).click();
+  await page.getByLabel("Operation").selectOption("type_change");
+  await page.getByRole("button", { name: "Analyze change" }).click();
+  await expect(page.getByText("90", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      /cast\(cust_email as VARCHAR\(320\)\) as cust_email__new_type/i,
+    ),
+  ).toBeVisible();
 });

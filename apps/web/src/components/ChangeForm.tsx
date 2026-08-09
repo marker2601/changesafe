@@ -1,13 +1,14 @@
-import { ArrowRight, Database, Play, ShieldCheck, Snowflake } from "lucide-react";
+import { ArrowRight, Database, Network, Play, ShieldCheck } from "lucide-react";
 import type { FormEvent } from "react";
 
 import {
   changeSummary,
   draftToRequest,
+  isOfficialScenario,
   sourceCommitForOperation,
   type ChangeDraft,
 } from "../changeDraft";
-import type { ChangeOperation, ChangeRequest } from "../types";
+import type { ChangeOperation, ChangeRequest, ContextBundle } from "../types";
 
 interface ChangeFormProps {
   busy: boolean;
@@ -15,6 +16,24 @@ interface ChangeFormProps {
   onDraftChange: (draft: ChangeDraft) => void;
   onSubmit: (change: ChangeRequest) => void | Promise<void>;
   submittedRequest?: ChangeRequest | null;
+  context?: ContextBundle | null;
+}
+
+function platformLabel(targetUrn: string): string {
+  const platform = /urn:li:dataPlatform:([^,)]+)/i.exec(targetUrn)?.[1];
+  if (!platform) return "Platform not recorded";
+  if (platform.toLowerCase() === "dbt") return "dbt";
+  return `${platform.charAt(0).toUpperCase()}${platform.slice(1).toLowerCase()}`;
+}
+
+function fieldPolicy(context: ContextBundle): string {
+  const policyEvidence = [...context.field_tags, ...context.glossary_terms];
+  if (policyEvidence.length === 0) return "No field policy recorded";
+  const joined = policyEvidence.join(" ").toLowerCase();
+  const labels = [];
+  if (joined.includes("pii") || joined.includes("personal")) labels.push("PII");
+  labels.push("Governed");
+  return labels.join(" · ");
 }
 
 export function ChangeForm({
@@ -23,9 +42,24 @@ export function ChangeForm({
   onDraftChange,
   onSubmit,
   submittedRequest = null,
+  context = null,
 }: ChangeFormProps) {
   const submitted = submittedRequest !== null;
   const displayed = submittedRequest ?? draft;
+  const official = isOfficialScenario(displayed);
+  const facts = context
+    ? {
+        dataset: context.target_name,
+        policy: fieldPolicy(context),
+        platform: platformLabel(context.target_urn),
+      }
+    : official
+      ? { dataset: "order_details", policy: "PII · Governed", platform: "dbt" }
+      : {
+          dataset: "Pending DataHub context",
+          policy: "Pending DataHub context",
+          platform: "Pending DataHub context",
+        };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void onSubmit(draftToRequest(draft));
@@ -53,7 +87,13 @@ export function ChangeForm({
       onSubmit={submit}
     >
       <header className="panel-heading">
-        <span>Official ecommerce scenario</span>
+        <span>
+          {official
+            ? "Official ecommerce scenario"
+            : context
+              ? "Evidence-backed change"
+              : "Custom change request"}
+        </span>
         <h2>Change summary</h2>
         <p>
           {submitted
@@ -153,21 +193,21 @@ export function ChangeForm({
       <dl className="scenario-facts">
         <div>
           <dt>
-            <Database aria-hidden="true" /> Data product
+            <Database aria-hidden="true" /> Dataset
           </dt>
-          <dd>Order Entry Analytics</dd>
+          <dd>{facts.dataset}</dd>
         </div>
         <div>
           <dt>
             <ShieldCheck aria-hidden="true" /> Field policy
           </dt>
-          <dd>PII · Governed</dd>
+          <dd>{facts.policy}</dd>
         </div>
         <div>
           <dt>
-            <Snowflake aria-hidden="true" /> Source system
+            <Network aria-hidden="true" /> Catalog platform
           </dt>
-          <dd>Snowflake · dbt</dd>
+          <dd>{facts.platform}</dd>
         </div>
       </dl>
 

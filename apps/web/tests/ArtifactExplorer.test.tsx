@@ -18,11 +18,19 @@ describe("ArtifactExplorer", () => {
     expect(screen.getByText("dbt model SQL")).toBeVisible();
     expect(screen.getByText(/breaking existing consumers/i)).toBeVisible();
 
-    await user.click(
-      screen.getByRole("tab", {
-        name: /tests\/assert_cust_email_compatibility\.sql/,
-      }),
-    );
+    const modelFile = screen.getByRole("button", {
+      name: /models\/marts\/order_details\.sql/,
+    });
+    const compatibilityFile = screen.getByRole("button", {
+      name: /tests\/assert_cust_email_compatibility\.sql/,
+    });
+    expect(modelFile).toHaveAttribute("aria-pressed", "true");
+    expect(compatibilityFile).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(compatibilityFile);
+
+    expect(compatibilityFile).toHaveAttribute("aria-pressed", "true");
+    expect(modelFile).toHaveAttribute("aria-pressed", "false");
 
     expect(screen.getByText("Compatibility test")).toBeVisible();
     expect(screen.getByText(/premature removal/i)).toBeVisible();

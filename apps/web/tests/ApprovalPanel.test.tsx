@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ApprovalPanel } from "../src/components/ApprovalPanel";
@@ -86,5 +87,53 @@ describe("ApprovalPanel", () => {
       screen.getByRole("button", { name: "Operator action required" }),
     ).toBeDisabled();
     expect(screen.getByText(/Retry is disabled/)).toBeVisible();
+  });
+
+  it("shows active publication progress instead of a resume action", () => {
+    render(
+      <ApprovalPanel
+        busy
+        config={null}
+        onApprove={vi.fn()}
+        onReset={vi.fn()}
+        patchUrl="#"
+        run={{ ...goldenRun, state: "publishing" }}
+      />,
+    );
+
+    expect(screen.getByText("Publishing approved change")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Publishing…" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "Resume publication" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps failed validation evidence and offers a fresh analysis", async () => {
+    const user = userEvent.setup();
+    const onReset = vi.fn();
+    render(
+      <ApprovalPanel
+        busy={false}
+        config={null}
+        onApprove={vi.fn()}
+        onReset={onReset}
+        patchUrl="#"
+        run={{
+          ...goldenRun,
+          state: "failed",
+          error: {
+            code: "VERIFICATION_FAILED",
+            message: "Generated artifacts did not pass every blocking check.",
+            retryable: false,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Change package blocked")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "New analysis" }));
+    expect(onReset).toHaveBeenCalledOnce();
   });
 });

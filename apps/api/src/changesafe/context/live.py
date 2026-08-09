@@ -415,7 +415,9 @@ class LiveDataHubContext:
 
 def _collect_urns(value: Any) -> list[str]:
     found: list[str] = []
-    if isinstance(value, dict):
+    if isinstance(value, str) and value.startswith("urn:li:"):
+        found.append(value)
+    elif isinstance(value, dict):
         for key, item in value.items():
             if key.lower().endswith("urn") and isinstance(item, str):
                 found.append(item)

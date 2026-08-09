@@ -20,7 +20,7 @@ const EXPLANATIONS = {
   test: {
     label: "Compatibility test",
     purpose:
-      "Proves old and new outputs agree, or that the old field remains for deferred removal.",
+      "Checks old and new outputs, or guards the old field when dbt runs a deferred-removal test.",
     prevents: "Silent divergence or premature removal.",
   },
   migration: {

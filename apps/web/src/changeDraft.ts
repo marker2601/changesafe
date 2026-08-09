@@ -28,6 +28,34 @@ export function sourceCommitForOperation(operation: ChangeOperation): string {
   return OPERATION_COMMITS[operation];
 }
 
+type ScenarioRequest = Pick<
+  ChangeRequest,
+  | "asset_urn"
+  | "operation"
+  | "field"
+  | "new_field"
+  | "old_type"
+  | "new_type"
+  | "source_commit"
+>;
+
+export function isOfficialScenario(
+  change: ChangeDraft | ScenarioRequest,
+): boolean {
+  if (
+    change.asset_urn !== OFFICIAL_TARGET ||
+    change.field !== "cust_email" ||
+    change.source_commit !== sourceCommitForOperation(change.operation)
+  ) {
+    return false;
+  }
+  if (change.operation === "rename") return change.new_field === "primary_email";
+  if (change.operation === "type_change") {
+    return change.old_type === "TEXT" && change.new_type === "VARCHAR(320)";
+  }
+  return true;
+}
+
 export const DEFAULT_CHANGE_DRAFT: ChangeDraft = {
   asset_urn: OFFICIAL_TARGET,
   operation: "rename",

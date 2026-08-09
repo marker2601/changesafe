@@ -6,7 +6,7 @@ ChangeSafe has one browser origin and one server process. The browser owns prese
 
 ```mermaid
 flowchart TD
-    U["Judge or analytics engineer"] --> W["React workspace"]
+    U["Reviewer or analytics engineer"] --> W["React workspace"]
     W -->|"JSON and SSE"| API["FastAPI boundary"]
     API --> STORE["SQLite run/event/publication ledger"]
     API --> ORCH["ChangeSafe orchestrator"]
@@ -128,7 +128,7 @@ Replay approval creates a unified patch and preview receipt only. Live mutation 
 
 - Service credentials stay in environment-backed `SecretStr` settings.
 - `/api/public-config` returns capabilities, never credential values.
-- `/api/owner/activity` requires the admin token and returns only an opaque run ID, a one-way hashed session label, scenario, state, provenance, publication mode, and timestamps. It stores no judge name, IP address, browser fingerprint, or service credential.
+- `/api/owner/activity` requires the admin token and returns only an opaque run ID, a one-way hashed session label, scenario, state, provenance, publication mode, and timestamps. It stores no reviewer name, IP address, browser fingerprint, or service credential.
 - HTTP responses receive CSP, clickjacking, MIME-sniffing, referrer, opener, and permissions headers.
 - Request bodies larger than 16 KiB are rejected before JSON parsing.
 - Pydantic models reject unknown keys and invalid operations.
@@ -136,7 +136,7 @@ Replay approval creates a unified patch and preview receipt only. Live mutation 
 - UI code and Markdown are rendered as text; generated HTML is not injected.
 - The container runs as UID 10001 with a read-only filesystem and a dedicated `/data` volume.
 
-The app applies a per-client sliding-window run limit in each process. For a public deployment, terminate TLS and add a distributed per-IP limit at the edge. The supported shared judge sandbox is a single service replica with a persistent SQLite volume. For multiple replicas, replace in-process background work and SQLite with a durable queue and shared transactional store.
+The app applies a per-client sliding-window run limit in each process. For a public deployment, terminate TLS and add a distributed per-IP limit at the edge. The supported shared review sandbox is a single service replica with a persistent SQLite volume. For multiple replicas, replace in-process background work and SQLite with a durable queue and shared transactional store.
 
 ## Deployment
 

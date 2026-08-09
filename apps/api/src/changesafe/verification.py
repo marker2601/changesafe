@@ -428,9 +428,11 @@ def verify_artifacts(
         and "is distinct from" in compatibility_text
     )
     if change.operation is ChangeOperation.REMOVE:
-        compatibility_label = "Phase-one field remains available"
+        compatibility_label = "Phase-one removal guard references the field"
         compatibility_detail = (
-            f"The singular guard compiles only while {change.field} exists."
+            f"The generated singular test references {change.field}; when dbt "
+            "executes it in the target warehouse, premature removal causes a "
+            "missing-column error. ChangeSafe does not execute this query."
             if comparison_valid
             else "The singular guard does not prove the phase-one field exists."
         )

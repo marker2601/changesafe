@@ -19,7 +19,7 @@
 - Directional motion has a `prefers-reduced-motion` equivalent.
 - Impact categories are computed findings; only the supporting-evidence action is interactive.
 - Rename, Remove, and Type change render operation-specific copy and deterministic artifacts.
-- The removal guard keeps `where false` and explains its dbt zero-row/compile-failure semantics.
+- The removal guard keeps `where false` and explains its dbt zero-row/warehouse-execution semantics without claiming ChangeSafe runs it.
 - No new graph framework, animation package, route, data store, or source dataset is introduced.
 - Owner gating, mutation allowlists, durable publication recovery, and server-side secrets remain unchanged.
 - Final visual verification uses the user's selected in-app Browser; Playwright CLI is run only after explicit user permission.
@@ -264,8 +264,9 @@ Assert the generated test is exactly:
 
 ```python
 assert bundle.files["tests/assert_cust_email_retained.sql"].content == (
-    "-- Phase-one safety guard: dbt passes because this query returns zero rows.\n"
-    "-- If cust_email is removed too early, compilation fails before publication.\n"
+    "-- Phase-one safety guard: dbt returns zero rows while this field exists.\n"
+    "-- If cust_email is removed too early, warehouse execution fails on the "
+    "missing column.\n"
     "select cust_email\n"
     "from {{ ref('order_details') }}\n"
     "where false\n"
@@ -278,8 +279,9 @@ For a Remove request, assert:
 
 ```python
 check = verify_artifacts(bundle, change, context).check("compatibility_test")
-assert check.label == "Phase-one field remains available"
-assert "compiles only while cust_email exists" in check.detail
+assert check.label == "Phase-one removal guard references the field"
+assert "when dbt executes it" in check.detail
+assert "missing-column error" in check.detail
 ```
 
 For Rename and Type change, retain `Compatibility test compares old and new values`.
@@ -824,7 +826,7 @@ Use the in-app Browser's current rendered state to replace both files under `doc
 
 - [ ] **Step 7: Update documentation and design QA**
 
-Explain recorded evidence, deterministic repeated results, true sub-second timing, the removal compile guard, artifact explanations, and the neutral Review activity view. In `design-qa.md`, record the tested viewports, interactions, console/overflow results, screenshot paths, remaining limitations, and the exact line:
+Explain recorded evidence, deterministic repeated results, true sub-second timing, the removal execution guard, artifact explanations, and the neutral Review activity view. In `design-qa.md`, record the tested viewports, interactions, console/overflow results, screenshot paths, remaining limitations, and the exact line:
 
 ```text
 final result: passed

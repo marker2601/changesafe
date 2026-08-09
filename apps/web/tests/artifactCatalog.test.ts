@@ -23,4 +23,12 @@ describe("artifactExplanation", () => {
     expect(explanation.purpose.length).toBeGreaterThan(20);
     expect(explanation.prevents).toContain(preventedFailure);
   });
+
+  it("describes the removal guard as a dbt-executed check", () => {
+    const explanation = artifactExplanation(
+      "tests/assert_cust_email_retained.sql",
+    );
+
+    expect(explanation.purpose).toContain("when dbt runs");
+  });
 });

@@ -167,6 +167,10 @@ async def test_live_adapter_maps_agent_context_tool_envelopes() -> None:
     assert context.target_name == "dim_customers"
     assert context.field_type == "STRING"
     assert len(context.downstream_assets) == 4
+    assert context.downstream_assets[0].lineage_path == [
+        TARGET,
+        DOWNSTREAM_URNS[0],
+    ]
     assert context.owners[0].ownership_type == "DATA_OWNER"
     assert context.usage_tier == "high"
     assert [call[0] for call in runner.calls] == [

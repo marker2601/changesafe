@@ -43,7 +43,7 @@ export function ImpactClassification({
           const active = selected?.category === impact.category;
           return (
             <li data-testid="impact-category" key={impact.category}>
-              <article className={`impact-finding${active ? " is-selected" : ""}`}>
+              <article className="impact-finding">
                 <header>
                   <span className="impact-icon">
                     <Icon aria-hidden="true" />
@@ -75,13 +75,13 @@ export function ImpactClassification({
                 <button
                   aria-controls="dependency-evidence-map"
                   aria-expanded={active}
-                  aria-label={`Trace supporting evidence for ${impact.label}`}
-                  className="impact-trace"
+                  aria-label={`${active ? "Clear evidence trace" : "Trace supporting evidence"} for ${impact.label}`}
+                  className={`impact-trace${active ? " is-active" : ""}`}
                   onClick={() => onSelect(impact)}
                   type="button"
                 >
                   <Network aria-hidden="true" />
-                  {active ? "Evidence highlighted" : "Trace supporting evidence"}
+                  {active ? "Clear evidence trace" : "Trace supporting evidence"}
                 </button>
               </article>
             </li>

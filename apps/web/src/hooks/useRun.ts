@@ -22,6 +22,19 @@ const RECOVERED_ACTION_STATES = new Set<RunState>([
   "publishing",
 ]);
 
+const PUBLICATION_END_STATES = new Set<RunState>([
+  "completed",
+  "publication_failed",
+]);
+
+function reachesRecoveredTarget(target: RunState, eventState: RunState): boolean {
+  if (target === eventState) return true;
+  return (
+    RECOVERED_ACTION_STATES.has(target) &&
+    PUBLICATION_END_STATES.has(eventState)
+  );
+}
+
 export const RUN_SESSION_KEY = "changesafe.active-run.v1";
 
 interface PersistedRunSession {
@@ -87,6 +100,7 @@ export function useRun(api: ChangeSafeApi) {
   const lastSequence = useRef(0);
   const reconnects = useRef(0);
   const recoveryActive = useRef(recoveredSession !== null);
+  const recoveredTargetState = useRef<RunState | null>(null);
 
   useEffect(() => {
     if (!recoveredSession || !recoveryActive.current) return undefined;
@@ -100,6 +114,7 @@ export function useRun(api: ChangeSafeApi) {
         reconnects.current = 0;
         setEvents([]);
         setRun(value);
+        recoveredTargetState.current = value.state;
         setActiveRunId(value.run_id);
         setBusy(!RECOVERED_ACTION_STATES.has(value.state));
       })
@@ -134,21 +149,34 @@ export function useRun(api: ChangeSafeApi) {
     if (!activeRunId) return undefined;
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
+    let reconciling = false;
+    let reconcileRequested = false;
 
-    const finish = async () => {
-      try {
-        const finalRun = await api.getRun(activeRunId);
-        if (!disposed) {
+    const reconcile = async () => {
+      reconcileRequested = true;
+      if (reconciling) return;
+      reconciling = true;
+      while (reconcileRequested && !disposed) {
+        reconcileRequested = false;
+        try {
+          const finalRun = await api.getRun(activeRunId);
+          if (disposed) return;
           setRun(finalRun);
-          setBusy(false);
-          setActiveRunId(null);
-        }
-      } catch (reason) {
-        if (!disposed) {
-          setError(publicMessage(reason));
-          setBusy(false);
+          if (STREAM_END_STATES.has(finalRun.state)) {
+            recoveredTargetState.current = null;
+            unsubscribe?.();
+            setBusy(false);
+            setActiveRunId(null);
+            return;
+          }
+        } catch (reason) {
+          if (!disposed) {
+            setError(publicMessage(reason));
+            setBusy(false);
+          }
         }
       }
+      reconciling = false;
     };
 
     const connect = () => {
@@ -160,12 +188,18 @@ export function useRun(api: ChangeSafeApi) {
           lastSequence.current = event.sequence;
           persistRunSession(activeRunId, event.sequence);
           setEvents((current) => [...current, event]);
-          setRun((current) =>
-            current ? { ...current, state: event.state } : current,
-          );
-          if (STREAM_END_STATES.has(event.state)) {
-            unsubscribe?.();
-            void finish();
+          const recoveryTarget = recoveredTargetState.current;
+          const targetReached =
+            recoveryTarget === null ||
+            reachesRecoveredTarget(recoveryTarget, event.state);
+          if (targetReached) {
+            recoveredTargetState.current = null;
+            setRun((current) =>
+              current ? { ...current, state: event.state } : current,
+            );
+          }
+          if (targetReached && STREAM_END_STATES.has(event.state)) {
+            void reconcile();
           }
         },
         () => {
@@ -192,6 +226,7 @@ export function useRun(api: ChangeSafeApi) {
   const analyze = useCallback(
     async (change: ChangeRequest) => {
       recoveryActive.current = false;
+      recoveredTargetState.current = null;
       setBusy(true);
       setError(null);
       setEvents([]);
@@ -213,19 +248,33 @@ export function useRun(api: ChangeSafeApi) {
   const approve = useCallback(
     async (adminToken?: string) => {
       if (!run) return;
+      recoveredTargetState.current = null;
       setBusy(true);
       setError(null);
+      reconnects.current = 0;
       persistRunSession(run.run_id, lastSequence.current);
+      setActiveRunId(run.run_id);
       try {
         await api.approve(run.run_id, adminToken);
-        setRun(await api.getRun(run.run_id));
+        const finalRun = await api.getRun(run.run_id);
+        setRun(finalRun);
+        if (STREAM_END_STATES.has(finalRun.state)) setActiveRunId(null);
       } catch (reason) {
+        let refreshed: RunView | null = null;
         try {
-          setRun(await api.getRun(run.run_id));
+          refreshed = await api.getRun(run.run_id);
+          setRun(refreshed);
+          if (STREAM_END_STATES.has(refreshed.state)) setActiveRunId(null);
         } catch {
           // Preserve the existing run when the refresh also fails.
         }
-        setError(publicMessage(reason));
+        if (refreshed?.state === "completed") {
+          setError(null);
+        } else if (refreshed?.state === "publication_failed") {
+          setError(refreshed.error?.message ?? publicMessage(reason));
+        } else {
+          setError(publicMessage(reason));
+        }
       } finally {
         setBusy(false);
       }
@@ -235,6 +284,7 @@ export function useRun(api: ChangeSafeApi) {
 
   const continueWithSnapshot = useCallback(async () => {
     if (!run || run.state !== "context_fallback_required") return;
+    recoveredTargetState.current = null;
     setBusy(true);
     setError(null);
     reconnects.current = 0;
@@ -251,6 +301,7 @@ export function useRun(api: ChangeSafeApi) {
 
   const reset = useCallback(() => {
     recoveryActive.current = false;
+    recoveredTargetState.current = null;
     setRun(null);
     setEvents([]);
     setError(null);

@@ -125,7 +125,7 @@ def test_each_supported_operation_generates_and_verifies(
     assert expected_projection in bundle.files["models/marts/order_details.sql"].content
 
 
-def test_remove_guard_explains_zero_row_and_compile_failure_semantics() -> None:
+def test_remove_guard_explains_zero_row_and_warehouse_execution_semantics() -> None:
     change = ChangeRequest(
         asset_urn=TARGET,
         operation=ChangeOperation.REMOVE,
@@ -138,8 +138,9 @@ def test_remove_guard_explains_zero_row_and_compile_failure_semantics() -> None:
     bundle = generate_artifacts(change, context, score_change(change, context))
 
     assert bundle.files["tests/assert_cust_email_retained.sql"].content == (
-        "-- Phase-one safety guard: dbt passes because this query returns zero rows.\n"
-        "-- If cust_email is removed too early, compilation fails before publication.\n"
+        "-- Phase-one safety guard: dbt returns zero rows while this field exists.\n"
+        "-- If cust_email is removed too early, warehouse execution fails on the "
+        "missing column.\n"
         "select cust_email\n"
         "from {{ ref('order_details') }}\n"
         "where false\n"

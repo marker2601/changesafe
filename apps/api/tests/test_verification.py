@@ -48,8 +48,9 @@ def test_remove_guard_has_operation_specific_validation_language() -> None:
 
     check = verify_artifacts(bundle, change, context).check("compatibility_test")
 
-    assert check.label == "Phase-one field remains available"
-    assert "compiles only while cust_email exists" in check.detail
+    assert check.label == "Phase-one removal guard references the field"
+    assert "when dbt executes it" in check.detail
+    assert "missing-column error" in check.detail
 
 
 def test_legacy_invalid_type_parameters_fail_context_alignment() -> None:

@@ -9,6 +9,7 @@ import {
   sourceCommitForOperation,
 } from "../src/changeDraft";
 import type { ChangeDraft } from "../src/changeDraft";
+import { goldenRun } from "./fixtures";
 
 function renderForm(
   draft: ChangeDraft = DEFAULT_CHANGE_DRAFT,
@@ -101,5 +102,52 @@ describe("ChangeForm", () => {
     expect(
       screen.queryByRole("button", { name: "Analyze change" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("uses neutral pending facts when the draft is not the official preset", () => {
+    renderForm({
+      ...DEFAULT_CHANGE_DRAFT,
+      asset_urn:
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,finance.customers,PROD)",
+      field: "account_status",
+      new_field: "customer_status",
+    });
+
+    expect(screen.getByText("Custom change request")).toBeVisible();
+    expect(screen.getAllByText("Pending DataHub context")).toHaveLength(3);
+    expect(screen.queryByText("Official ecommerce scenario")).not.toBeInTheDocument();
+    expect(screen.queryByText("PII · Governed")).not.toBeInTheDocument();
+  });
+
+  it("derives submitted facts from returned DataHub context", () => {
+    const context = {
+      ...goldenRun.analysis!.context,
+      target_urn:
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,finance.payments,PROD)",
+      target_name: "payments",
+      target_domain: "Finance Data",
+      field: "account_status",
+      field_tags: [],
+      glossary_terms: [],
+    };
+    const request = {
+      ...goldenRun.request,
+      asset_urn: context.target_urn,
+      field: "account_status",
+      new_field: "customer_status",
+      source_commit: "custom-finance-change",
+    };
+
+    renderForm(DEFAULT_CHANGE_DRAFT, {
+      context,
+      submittedRequest: request,
+    });
+
+    expect(screen.getByText("Evidence-backed change")).toBeVisible();
+    expect(screen.getByText("payments")).toBeVisible();
+    expect(screen.getByText("No field policy recorded")).toBeVisible();
+    expect(screen.getByText("Snowflake")).toBeVisible();
+    expect(screen.queryByText("Order Entry Analytics")).not.toBeInTheDocument();
+    expect(screen.queryByText("PII · Governed")).not.toBeInTheDocument();
   });
 });

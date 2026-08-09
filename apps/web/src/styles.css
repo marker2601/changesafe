@@ -501,9 +501,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel-strong);
-  transition: border-color 160ms ease, background 160ms ease;
 }
-.impact-finding.is-selected { border-color: var(--cyan); background: var(--cyan-soft); }
 .impact-finding > header {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) auto;
@@ -555,6 +553,12 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   cursor: pointer;
 }
 .impact-trace:hover { color: var(--text); }
+.impact-trace.is-active {
+  padding: 0 8px;
+  border: 1px solid var(--cyan);
+  border-radius: 4px;
+  background: var(--cyan-soft);
+}
 .impact-trace svg { width: 13px; }
 .severity {
   padding: 4px 6px;
@@ -794,7 +798,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .file-rail { min-width: 0; padding: 16px 0 0; border-right: 1px solid var(--line); }
 .file-rail h2, .file-count { margin-right: 15px; margin-left: 15px; }
 .file-count { display: block; margin-top: 4px; color: var(--cyan); font-size: 9px; }
-.file-rail [role="tablist"] { margin-top: 12px; }
+.file-rail .file-list { margin-top: 12px; }
 .file-rail button { display: flex; width: 100%; min-height: 46px; align-items: center; gap: 8px; padding: 0 12px; border: 0; border-top: 1px solid var(--line); color: #bdc9cc; background: transparent; font-size: 10px; text-align: left; cursor: pointer; }
 .file-rail button:last-child { border-bottom: 1px solid var(--line); }
 .file-rail button svg { width: 16px; flex: 0 0 auto; color: var(--muted); }
@@ -916,7 +920,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   .command-rail li > a { min-height: 74px; }
   .artifact-explorer { grid-template-columns: 1fr; }
   .file-rail { border-right: 0; border-bottom: 1px solid var(--line); }
-  .file-rail [role="tablist"] { display: flex; overflow-x: auto; }
+  .file-rail .file-list { display: flex; overflow-x: auto; }
   .file-rail button { width: auto; min-width: 190px; border-right: 1px solid var(--line); }
   .code-inspector { min-height: 370px; }
   .artifact-explanation dl { grid-template-columns: 1fr; gap: 9px; }
@@ -938,6 +942,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
     min-width: 44px;
     min-height: 44px;
   }
+  .run-fact-evidence-id dd { min-height: 44px; }
   .advanced-change-fields summary, .accessible-dependencies summary,
   .validation-panel summary { min-height: 44px; align-items: center; }
   .file-rail button { min-height: 48px; }

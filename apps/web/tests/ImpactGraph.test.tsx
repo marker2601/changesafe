@@ -33,7 +33,9 @@ describe("ImpactGraph", () => {
     await user.keyboard("{Enter}");
 
     expect(screen.getByRole("dialog", { name: /Evidence for/ })).toBeVisible();
-    expect(screen.getByText("Multi-hop field evidence")).toBeVisible();
+    expect(
+      screen.getByText("Multi-hop field evidence; 2 hops recorded"),
+    ).toBeVisible();
     expect(
       screen.getAllByText(analysis.context.downstream_assets[2].urn).length,
     ).toBeGreaterThan(0);
@@ -114,6 +116,36 @@ describe("ImpactGraph", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps recorded multi-hop degree authoritative over an endpoint-only path", () => {
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    const asset = analysis.context.downstream_assets[0];
+    const context = {
+      ...analysis.context,
+      downstream_assets: [
+        {
+          ...asset,
+          lineage_degree: 2,
+          lineage_path: [analysis.context.target_urn, asset.urn],
+        },
+      ],
+    };
+
+    render(
+      <ImpactGraph
+        activeImpact={null}
+        context={context}
+        request={goldenRun.request}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /ORDER_DETAILS.*multi-hop \(2 hops\) evidence/i,
+      }),
+    ).toBeVisible();
+  });
+
   it("makes the accessible list equivalent to both graph directions", async () => {
     const user = userEvent.setup();
     const analysis = goldenRun.analysis;
@@ -135,13 +167,13 @@ describe("ImpactGraph", () => {
     expect(within(list).getByText("stg_order_details")).toBeVisible();
     expect(
       within(list).getByText(
-        "Upstream · dataset · direct · field cust_email · domain Data Platform Team",
+        "Upstream · dataset · direct (1 hop) · field cust_email · domain Data Platform Team",
       ),
     ).toBeVisible();
     expect(within(list).getByText("ORDER_DETAILS")).toBeVisible();
     expect(
       within(list).getByText(
-        "Downstream · dataset · direct · field cust_email · domain Ecommerce Operations",
+        "Downstream · dataset · direct (1 hop) · field cust_email · domain Ecommerce Operations",
       ),
     ).toBeVisible();
 
@@ -207,7 +239,7 @@ describe("ImpactGraph", () => {
     ).toHaveClass("is-highlighted");
     expect(
       screen.getByRole("button", {
-        name: /^ORDER_DETAILS, dataset, direct evidence$/,
+        name: /^ORDER_DETAILS, dataset, direct \(1 hop\) evidence$/,
       }),
     ).toHaveClass("is-dimmed");
 

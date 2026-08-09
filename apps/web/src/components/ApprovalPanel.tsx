@@ -115,16 +115,41 @@ export function ApprovalPanel({
     );
   }
 
+  if (run.state === "failed") {
+    return (
+      <section
+        className="approval-panel failure-panel"
+        id="approval"
+        aria-live="assertive"
+      >
+        <h2>Change package blocked</h2>
+        <p>
+          {run.error?.message ??
+            "The generated change did not pass every blocking check."}
+        </p>
+        <p>The recorded validation evidence remains available for inspection.</p>
+        <button className="button button-primary" onClick={onReset} type="button">
+          <RotateCcw aria-hidden="true" />
+          New analysis
+        </button>
+      </section>
+    );
+  }
+
   if (run.state === "publishing" || run.state === "preparing_preview") {
     const resumingLive = run.state === "publishing";
+    const activeHeading = resumingLive
+      ? "Publishing approved change"
+      : "Preparing approved preview";
     return (
       <section className="approval-panel" id="approval" aria-live="polite">
-        <h2>Durable publication checkpoint</h2>
+        <h2>{busy ? activeHeading : "Durable publication checkpoint"}</h2>
         <p>
-          ChangeSafe can resume the saved publication without repeating completed
-          steps.
+          {busy
+            ? "Persisted checkpoints update as each authorized step completes."
+            : "ChangeSafe can resume the saved publication without repeating completed steps."}
         </p>
-        {resumingLive ? (
+        {resumingLive && !busy ? (
           <label>
             Owner token
             <input
@@ -142,7 +167,13 @@ export function ApprovalPanel({
           type="button"
         >
           <RotateCcw aria-hidden="true" />
-          {resumingLive ? "Resume publication" : "Resume preview"}
+          {busy
+            ? resumingLive
+              ? "Publishing…"
+              : "Preparing preview…"
+            : resumingLive
+              ? "Resume publication"
+              : "Resume preview"}
         </button>
       </section>
     );

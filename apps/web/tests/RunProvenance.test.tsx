@@ -43,12 +43,13 @@ describe("RunProvenance", () => {
     expect(screen.getByText("2026-08-08 20:00:00 UTC")).toBeVisible();
     expect(screen.getByText(/^bbbbbbbb/)).toBeVisible();
 
-    await user.click(screen.getByText("About this run"));
     const reproducibility = screen.getByText(
       "Same request + same evidence = same verified result.",
     );
     expect(reproducibility).toBeVisible();
-    expect(reproducibility.closest("details")).not.toBeNull();
+    expect(reproducibility.closest("details")).toBeNull();
+
+    await user.click(screen.getByText("About this run"));
     expect(
       screen.getByText(/checksum-verified recording of DataHub metadata/i),
     ).toBeVisible();
@@ -70,6 +71,9 @@ describe("RunProvenance", () => {
     expect(screen.getAllByText("Loading configuration…")).toHaveLength(2);
     expect(screen.queryByText("Recorded DataHub evidence")).not.toBeInTheDocument();
     expect(screen.queryByText("Preview only")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Every completed run records its evidence identity."),
+    ).toBeVisible();
 
     await user.click(screen.getByText("About this run"));
     expect(
@@ -104,6 +108,11 @@ describe("RunProvenance", () => {
     expect(screen.getByText("Live DataHub metadata")).toBeVisible();
     expect(screen.getByText("Live retrieval")).toBeVisible();
     expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Live metadata can change; retrieval time anchors this run's context.",
+      ),
+    ).toBeVisible();
   });
 
   it("discloses a live-read attempt before a recorded auto fallback", async () => {
@@ -134,6 +143,49 @@ describe("RunProvenance", () => {
     expect(
       screen.queryByText(/performs no live DataHub reads or writes/i),
     ).not.toBeInTheDocument();
+  });
+
+  it("measures a resumed fallback analysis through its final approval event", () => {
+    const resumedEvents: RunEvent[] = [
+      { ...goldenEvents[0], created_at: "2026-08-08T20:00:00.000Z" },
+      {
+        ...goldenEvents[1],
+        sequence: 2,
+        created_at: "2026-08-08T20:00:00.100Z",
+      },
+      {
+        ...goldenEvents[1],
+        sequence: 3,
+        state: "context_fallback_required",
+        created_at: "2026-08-08T20:00:00.200Z",
+      },
+      {
+        ...goldenEvents[1],
+        sequence: 4,
+        created_at: "2026-08-08T20:00:00.300Z",
+      },
+      {
+        ...goldenEvents.at(-1)!,
+        sequence: 8,
+        created_at: "2026-08-08T20:00:00.700Z",
+      },
+    ];
+    const resumedRun: RunView = {
+      ...goldenRun,
+      created_at: resumedEvents[0].created_at,
+      updated_at: resumedEvents.at(-1)!.created_at,
+    };
+
+    render(
+      <RunProvenance
+        config={replayConfig}
+        events={resumedEvents}
+        run={resumedRun}
+      />,
+    );
+
+    expect(screen.getByText("Completed in 0.70 seconds")).toBeVisible();
+    expect(screen.getByText("Recorded evidence after live fallback")).toBeVisible();
   });
 
   it("keeps a durable preview receipt authoritative over changed sink config", () => {
@@ -236,6 +288,9 @@ describe("RunProvenance", () => {
     );
     const beforeFacts = container.querySelectorAll(".run-provenance dl > div").length;
     const beforeDetails = container.querySelectorAll(".run-provenance > details").length;
+    expect(screen.getByText("Evidence ID").closest("div")).toHaveClass(
+      "run-fact-evidence-id",
+    );
 
     rerender(
       <RunProvenance config={replayConfig} events={goldenEvents} run={goldenRun} />,
@@ -247,7 +302,10 @@ describe("RunProvenance", () => {
     expect(container.querySelectorAll(".run-provenance > details")).toHaveLength(
       beforeDetails,
     );
+    expect(screen.getByText("Evidence ID").closest("div")).toHaveClass(
+      "run-fact-evidence-id",
+    );
     expect(container.querySelector(".run-provenance > .reproducibility-note"))
-      .not.toBeInTheDocument();
+      .toBeVisible();
   });
 });

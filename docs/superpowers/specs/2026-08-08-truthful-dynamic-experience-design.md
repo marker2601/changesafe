@@ -165,23 +165,23 @@ The seven generated files remain deterministic and byte-for-byte verifiable. The
 |---|---|---|
 | dbt model SQL | Preserves the current field and adds the compatible alias or cast when required. | Breaking existing consumers during phase one. |
 | dbt model YAML | Enforces the output contract using DataHub-backed names, types, and nullability. | SQL/YAML drift and invented constraints. |
-| compatibility test | Proves the old and new outputs agree, or proves the old field is still present for deferred removal. | Silent divergence or premature removal. |
+| compatibility test | Checks old and new outputs, or guards the old field when dbt executes the deferred-removal test. | Silent divergence or premature removal. |
 | migration notes | Records owner, evidence, migration window, consumers, and exit criteria. | An uncoordinated phase-two change. |
 | rollback guide | Identifies the exact generated files and recovery order. | Incomplete or unsafe reversal. |
 | pull-request body | Summarizes deterministic risk, impact, and verification gates. | Publishing without reviewer context. |
 | manifest | Binds the request, evidence checksum, risk, paths, and exact UTF-8 hashes. | Artifact substitution or drift after verification. |
 
-The removal test remains a dbt singular compile-time guard. Its generated comment becomes:
+The removal test remains a dbt singular execution-time guard. Its generated comment becomes:
 
 ```sql
--- Phase-one safety guard: dbt passes because this query returns zero rows.
--- If cust_email is removed too early, compilation fails before publication.
+-- Phase-one safety guard: dbt returns zero rows while this field exists.
+-- If cust_email is removed too early, warehouse execution fails on the missing column.
 select cust_email
 from {{ ref('order_details') }}
 where false
 ```
 
-This is valid because a dbt singular test passes when its query returns zero rows, while resolving the selected column still requires the field to exist. The validation label for removal must say `Phase-one field remains available`, not `compares old and new values`.
+This is valid because a dbt singular test passes when its query returns zero rows, while warehouse query analysis still resolves the selected column. ChangeSafe generates and statically verifies the guard but does not execute warehouse SQL. The validation label for removal must say `Phase-one removal guard references the field`, not `compares old and new values`.
 
 All Rename, Remove, and Type change bundles must pass the shared twelve-check verifier. The executable dbt sample must continue to parse and build, and operation-specific generated SQL must parse with the Snowflake dialect.
 
@@ -260,7 +260,7 @@ The redesign is complete only when:
 - impact cards read as computed findings and expose a clear supporting-evidence action;
 - operation-specific impact copy is correct;
 - each artifact explains its purpose and protected failure;
-- the removal compile guard is technically unchanged but clearly explained;
+- the removal execution guard is technically unchanged but clearly explained;
 - all three operations produce different operation-appropriate risk/artifacts and pass the verifier; and
 - the complete repository and browser quality gates pass.
 

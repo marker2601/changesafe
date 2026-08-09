@@ -79,8 +79,11 @@ function durablePublicationMode(
 
 function analysisEnd(events: RunEvent[]): number | null {
   const ordered = [...events].sort((left, right) => left.sequence - right.sequence);
-  const event = ordered.find((candidate) => ANALYSIS_END_STATES.has(candidate.state));
-  return timestamp(event?.created_at);
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const event = ordered[index];
+    if (ANALYSIS_END_STATES.has(event.state)) return timestamp(event.created_at);
+  }
+  return null;
 }
 
 export function RunProvenance({
@@ -176,6 +179,13 @@ export function RunProvenance({
           : run.state === "failed"
             ? `Stopped after ${elapsed}`
             : `Completed in ${elapsed}`;
+  const reproducibilityLabel = !run
+    ? "Every completed run records its evidence identity."
+    : replay
+      ? "Same request + same evidence = same verified result."
+      : provenance?.mode === "live"
+        ? "Live metadata can change; retrieval time anchors this run's context."
+        : "Evidence identity is recorded after metadata context is loaded.";
 
   const copyChecksum = async () => {
     if (!snapshotHash || !navigator.clipboard) return;
@@ -208,7 +218,7 @@ export function RunProvenance({
           </dt>
           <dd>{elapsedLabel}</dd>
         </div>
-        <div>
+        <div className="run-fact-evidence-id">
           <dt>Evidence ID</dt>
           <dd>
             <code title={snapshotHash ?? undefined}>{evidenceId}</code>
@@ -237,6 +247,7 @@ export function RunProvenance({
           </dd>
         </div>
       </dl>
+      <p className="reproducibility-note">{reproducibilityLabel}</p>
       <details>
         <summary>About this run</summary>
         {config === null && !provenance ? (
@@ -283,15 +294,6 @@ export function RunProvenance({
             External publication still requires explicit owner authorization.
           </p>
         )}
-        {replay ? (
-          <p className="reproducibility-note">
-            Same request + same evidence = same verified result.
-          </p>
-        ) : provenance?.mode === "live" ? (
-          <p className="reproducibility-note">
-            Live metadata can change; the retrieval time records this run's context.
-          </p>
-        ) : null}
       </details>
     </section>
   );

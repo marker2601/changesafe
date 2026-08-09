@@ -31,7 +31,7 @@ describe("ImpactClassification", () => {
     expect(onSelect).toHaveBeenCalledWith(impacts[4]);
   });
 
-  it("marks only the selected finding as connected to the evidence view", () => {
+  it("keeps the finding stable and puts active state on a clear trace action", () => {
     const impacts = goldenRun.analysis?.impacts ?? [];
 
     render(
@@ -42,10 +42,15 @@ describe("ImpactClassification", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("button", {
-        name: "Trace supporting evidence for Data integrity",
-      }),
-    ).toHaveAttribute("aria-expanded", "true");
+    const finding = screen.getAllByTestId("impact-category")[0]
+      .querySelector("article");
+    const clear = screen.getByRole("button", {
+      name: "Clear evidence trace for Data integrity",
+    });
+
+    expect(finding).not.toHaveClass("is-selected");
+    expect(clear).toHaveAttribute("aria-expanded", "true");
+    expect(clear).toHaveClass("is-active");
+    expect(clear).toHaveTextContent("Clear evidence trace");
   });
 });
