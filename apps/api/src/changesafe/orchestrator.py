@@ -45,6 +45,12 @@ class ChangeSafeOrchestrator:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
+    async def wait_for_idle(self) -> None:
+        """Wait for every in-flight background analysis to finish safely."""
+
+        while self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
     async def start(
         self, change: ChangeRequest, *, session_id: str | None = None
     ) -> RunView:

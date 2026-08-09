@@ -197,7 +197,6 @@ def test_operational_artifacts_describe_the_compatibility_layer_transition() -> 
                 asset_urn=TARGET,
                 operation=ChangeOperation.REMOVE,
                 field="cust_email",
-                old_type="TEXT",
                 source_commit="remove-email",
                 requested_by="demo-user",
             ),
@@ -298,7 +297,6 @@ def test_custom_seeded_field_and_model_names_are_not_hard_coded() -> None:
         operation=ChangeOperation.RENAME,
         field="loyalty_code",
         new_field="customer_loyalty_code",
-        old_type="STRING",
         source_commit="rename-loyalty",
         requested_by="demo-user",
     )
@@ -457,7 +455,6 @@ def test_non_null_id_fields_do_not_invent_uniqueness_constraints() -> None:
         operation=ChangeOperation.RENAME,
         field="customer_id",
         new_field="account_id",
-        old_type="STRING",
         source_commit="rename-customer-id",
         requested_by="demo-user",
     )

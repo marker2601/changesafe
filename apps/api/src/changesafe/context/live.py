@@ -473,6 +473,9 @@ class LiveDataHubContext:
         calls: list[ToolEvidence] = []
         entities = await self._call("get_entities", calls, urns=[change.asset_urn])
         schema = await self._load_schema_fields(change.asset_urn, calls)
+        schema_fields = _normalize_schema_fields(schema)
+        if not any(field.name == change.field for field in schema_fields):
+            raise ContextLoadError("Target field is absent from the DataHub schema")
         upstream_lineage = await self._load_lineage(
             change,
             calls,

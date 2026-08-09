@@ -210,6 +210,7 @@ def create_app(
         try:
             yield
         finally:
+            await orchestrator.wait_for_idle()
             close = getattr(active_context, "close", None)
             if callable(close):
                 result = close()

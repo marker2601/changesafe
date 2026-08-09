@@ -29,6 +29,7 @@ from changesafe.domain import (
     StrictModel,
     ToolEvidence,
 )
+from changesafe.sql_types import canonical_sql_type
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_SNAPSHOT = REPO_ROOT / "fixtures" / "datahub" / "golden-context.json"
@@ -66,6 +67,19 @@ class RecordedDataHubCatalog(StrictModel):
         expected = {item.name for item in self.schema_fields}
         if set(self.fields) != expected:
             raise ValueError("recorded field contexts must exactly match schema_fields")
+        schema_by_name = {item.name: item for item in self.schema_fields}
+        for name, recorded in self.fields.items():
+            try:
+                if canonical_sql_type(recorded.field_type) != canonical_sql_type(
+                    schema_by_name[name].data_type
+                ):
+                    raise ValueError(
+                        "recorded field context type must match its schema field"
+                    )
+            except ValueError as exc:
+                raise ValueError(
+                    "recorded field context type must match its schema field"
+                ) from exc
         return self
 
 

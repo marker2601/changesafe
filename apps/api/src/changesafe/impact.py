@@ -154,8 +154,12 @@ def classify_impacts(
                 "recorded consumers and frequent queries operating."
             ),
             basis=(
-                f"DataHub reports {context.usage_tier} usage and "
-                f"{len(downstream_urns)} downstream dependencies."
+                (
+                    "DataHub has no recorded query usage and "
+                    if context.usage_tier == "none"
+                    else f"DataHub reports {context.usage_tier} query usage and "
+                )
+                + f"{len(downstream_urns)} downstream dependencies."
             ),
             evidence_urns=_unique([target, *usage_urns, *downstream_urns]),
         ),

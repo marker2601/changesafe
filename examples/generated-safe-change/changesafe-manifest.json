@@ -18,7 +18,7 @@
   "files": {
     "PR_BODY.md": "b1ea544965497f67ecc35d2ef014a368b4c363f8f6d876c7a28ec3a5b4258b6e",
     "ROLLBACK.md": "7708a3bdd26b8adcfcca5d9bdfb2c5792194f94588da8b50724d49ae5bf24149",
-    "migrations/2026-08-09-cust-email-rename.md": "90047cf4b080ef9473b131ac53948567317206917af7d287d2cd4b9c4bfa43f5",
+    "migrations/2026-08-09-cust-email-rename.md": "3b28efe99cb1478a92bb2e5a9b362fa8ba58aae5981a718bcabdfc794ca01b12",
     "models/marts/order_details__changesafe.sql": "c6e99a3fbe339789fb1a636f7123d1ce7c0b3d1c19496bfbb477e83a06016922",
     "models/marts/order_details__changesafe.yml": "97c375fc35732994e4364b2205154c6ca0f8a334ec9af11dc8a312556a53fad0",
     "tests/assert_cust_email_compatibility.sql": "ae5f780fbbb697e58e03314a09a047eacbca9c48d21498ba256d8e6f5d8a2b11"

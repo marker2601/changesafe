@@ -1,7 +1,9 @@
 # Migration: rename `cust_email` to `primary_email`
 
-**Owner:** Ian Chen  
-**Risk:** 85/100 — Critical  
+**Owner:** Ian Chen
+
+**Risk:** 85/100 — Critical
+
 **Deprecation window:** through 2026-09-08
 
 ## Phase one

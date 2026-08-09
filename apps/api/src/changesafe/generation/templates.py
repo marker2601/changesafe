@@ -359,8 +359,8 @@ def _migration_notes(
     ) or "- No downstream assets were returned by the complete lineage query."
     return (
         f"# Migration: {_change_title(change)}\n\n"
-        f"**Owner:** {owner}  \n"
-        f"**Risk:** {risk.score}/100 — {risk.band.value.title()}  \n"
+        f"**Owner:** {owner}\n\n"
+        f"**Risk:** {risk.score}/100 — {risk.band.value.title()}\n\n"
         f"**Deprecation window:** through {ends.isoformat()}\n\n"
         "## Phase one\n\n"
         f"The governed base model remains unchanged in phase one: `{governed_model}`.\n"

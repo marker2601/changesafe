@@ -11,7 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from changesafe.sql_types import validate_snowflake_type
+from changesafe.sql_types import canonical_sql_type, validate_snowflake_type
 
 SQL_TYPE_PATTERN = (
     r"^[A-Za-z][A-Za-z0-9_ ]*(?:\(\s*\d+(?:\s*,\s*\d+)?\s*\))?$"
@@ -87,8 +87,12 @@ class RunState(StrEnum):
 class ChangeRequest(StrictModel):
     asset_urn: str = Field(min_length=8, pattern=r"^urn:li:")
     operation: ChangeOperation
-    field: str = Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
-    new_field: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    field: str = Field(
+        min_length=1, max_length=128, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
+    )
+    new_field: str | None = Field(
+        default=None, max_length=128, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
+    )
     old_type: str | None = Field(default=None, pattern=SQL_TYPE_PATTERN)
     new_type: str | None = Field(default=None, pattern=SQL_TYPE_PATTERN)
     source_commit: str = Field(min_length=1, max_length=200)
@@ -108,10 +112,22 @@ class ChangeRequest(StrictModel):
                 raise ValueError("new_field is required for a rename")
             if self.new_field == self.field:
                 raise ValueError("new_field must differ from field")
+            if self.old_type is not None or self.new_type is not None:
+                raise ValueError("type fields are only valid for a type change")
+        elif self.operation is ChangeOperation.REMOVE:
+            if any(
+                value is not None
+                for value in (self.new_field, self.old_type, self.new_type)
+            ):
+                raise ValueError("operation fields are only valid for their operation")
         elif self.operation is ChangeOperation.TYPE_CHANGE:
+            if self.new_field is not None:
+                raise ValueError("new_field is only valid for a rename")
+            if not self.old_type:
+                raise ValueError("old_type is required for a type change")
             if not self.new_type:
                 raise ValueError("new_type is required for a type change")
-            if self.old_type and self.new_type.upper() == self.old_type.upper():
+            if canonical_sql_type(self.new_type) == canonical_sql_type(self.old_type):
                 raise ValueError("new_type must differ from old_type")
         return self
 

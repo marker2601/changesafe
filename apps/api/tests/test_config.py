@@ -1,5 +1,4 @@
 import os
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -20,7 +19,8 @@ def test_replay_defaults_need_no_credentials(tmp_path: Path) -> None:
     assert settings.live_context_enabled is False
     assert settings.public_pr_enabled is False
     assert settings.public_writeback_enabled is False
-    assert settings.llm_max_run_cost_usd == Decimal("0.536")
+    assert not hasattr(settings, "llm_enabled")
+    assert not hasattr(settings, "llm_max_run_cost_usd")
 
 
 @pytest.mark.parametrize("gate", ["public_pr_enabled", "public_writeback_enabled"])
@@ -111,7 +111,6 @@ def test_public_config_never_contains_credentials(tmp_path: Path) -> None:
         "github_publication_available": False,
         "datahub_writeback_available": False,
         "owner_activity_available": True,
-        "openai_model": "gpt-5.6-luna",
     }
     assert "secret" not in str(public).lower()
 
@@ -163,7 +162,7 @@ def test_blank_optional_env_placeholders_are_treated_as_unconfigured(
     assert settings.datahub_gms_url is None
     assert settings.datahub_gms_token is None
     assert settings.datahub_ui_url is None
-    assert settings.openai_api_key is None
+    assert "openai_api_key" not in settings.__class__.model_fields
     assert settings.github_token is None
     assert settings.changesafe_github_repository is None
     assert settings.changesafe_admin_token is None

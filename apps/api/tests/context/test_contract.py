@@ -212,6 +212,31 @@ async def test_replay_rejects_duplicate_schema_field_names(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_replay_rejects_field_context_type_that_differs_from_schema(
+    tmp_path: Path,
+) -> None:
+    payload = minimal_catalog()
+    payload["fields"]["cust_email"]["field_type"] = "NUMBER"
+    port = write_catalog(tmp_path, payload)
+
+    with pytest.raises(ContextLoadError, match="contract validation"):
+        await port.discover_schema(TARGET)
+
+
+@pytest.mark.asyncio
+async def test_replay_accepts_equivalent_field_context_and_schema_types(
+    tmp_path: Path,
+) -> None:
+    payload = minimal_catalog()
+    payload["fields"]["cust_email"]["field_type"] = "STRING"
+    port = write_catalog(tmp_path, payload)
+
+    context = await port.load(golden_change())
+
+    assert context.field_type == "STRING"
+
+
+@pytest.mark.asyncio
 async def test_replay_rejects_an_unknown_selected_field(tmp_path: Path) -> None:
     port = write_catalog(tmp_path, minimal_catalog())
     change = golden_change().model_copy(

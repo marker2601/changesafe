@@ -25,8 +25,6 @@ def golden_change() -> ChangeRequest:
         operation=ChangeOperation.RENAME,
         field="customer_email",
         new_field="primary_email",
-        old_type="STRING",
-        new_type="STRING",
         source_commit="demo-unsafe-change",
         requested_by="demo-user",
     )
@@ -147,6 +145,7 @@ def test_removal_without_downstream_context_is_medium() -> None:
         update={
             "operation": ChangeOperation.REMOVE,
             "new_field": None,
+            "old_type": None,
             "new_type": None,
         }
     )
@@ -173,7 +172,7 @@ def test_type_change_rejects_old_type_that_disagrees_with_datahub() -> None:
         operation=ChangeOperation.TYPE_CHANGE,
         field="customer_email",
         old_type="SMALLINT",
-        new_type="BIGINT",
+        new_type="FLOAT",
         source_commit="misstated-old-type",
         requested_by="demo-user",
     )
@@ -183,17 +182,16 @@ def test_type_change_rejects_old_type_that_disagrees_with_datahub() -> None:
 
 
 def test_type_change_rejects_new_type_equal_to_datahub_type() -> None:
-    change = ChangeRequest(
-        asset_urn=TARGET,
-        operation=ChangeOperation.TYPE_CHANGE,
-        field="customer_email",
-        new_type="STRING",
-        source_commit="no-op-type-change",
-        requested_by="demo-user",
-    )
-
-    with pytest.raises(ValueError, match="no-op"):
-        score_change(change, golden_context())
+    with pytest.raises(ValueError, match="must differ"):
+        ChangeRequest(
+            asset_urn=TARGET,
+            operation=ChangeOperation.TYPE_CHANGE,
+            field="customer_email",
+            old_type="VARCHAR",
+            new_type="STRING",
+            source_commit="no-op-type-change",
+            requested_by="demo-user",
+        )
 
 
 @pytest.mark.parametrize(
@@ -211,6 +209,7 @@ def test_parameter_widening_is_scored_from_datahub_type(
         asset_urn=TARGET,
         operation=ChangeOperation.TYPE_CHANGE,
         field="customer_email",
+        old_type=current_type,
         new_type=new_type,
         source_commit="widen-parameterized-type",
         requested_by="demo-user",
@@ -238,6 +237,7 @@ def test_parameter_narrowing_is_scored_as_incompatible(
         asset_urn=TARGET,
         operation=ChangeOperation.TYPE_CHANGE,
         field="customer_email",
+        old_type=current_type,
         new_type=new_type,
         source_commit="narrow-parameterized-type",
         requested_by="demo-user",
@@ -257,18 +257,16 @@ def test_parameter_narrowing_is_scored_as_incompatible(
 def test_snowflake_type_alias_no_ops_are_rejected(
     current_type: str, new_type: str
 ) -> None:
-    change = ChangeRequest(
-        asset_urn=TARGET,
-        operation=ChangeOperation.TYPE_CHANGE,
-        field="customer_email",
-        new_type=new_type,
-        source_commit="alias-no-op",
-        requested_by="demo-user",
-    )
-    context = golden_context().model_copy(update={"field_type": current_type})
-
-    with pytest.raises(ValueError, match="no-op"):
-        score_change(change, context)
+    with pytest.raises(ValueError, match="must differ"):
+        ChangeRequest(
+            asset_urn=TARGET,
+            operation=ChangeOperation.TYPE_CHANGE,
+            field="customer_email",
+            old_type=current_type,
+            new_type=new_type,
+            source_commit="alias-no-op",
+            requested_by="demo-user",
+        )
 
 
 @pytest.mark.parametrize(

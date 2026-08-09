@@ -152,3 +152,22 @@ async def test_context_contract_failure_persists_safe_public_error(
     assert result.error is not None
     assert result.error.code == "CONTEXT_LOAD_FAILED"
     assert "snapshot" not in result.error.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_idle_drains_background_analysis_before_shutdown(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs.db")
+    orchestrator = ChangeSafeOrchestrator(
+        store=store,
+        context_port=ReplayDataHubContext.from_default(),
+        generator=ArtifactGenerationService(),
+    )
+
+    run = await orchestrator.start(golden_change())
+    await orchestrator.wait_for_idle()
+
+    completed = await store.get(run.run_id)
+    assert completed is not None
+    assert completed.state is RunState.AWAITING_APPROVAL

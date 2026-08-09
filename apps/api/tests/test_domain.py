@@ -70,6 +70,78 @@ def test_rename_requires_new_field() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("operation", "unexpected"),
+    [
+        (ChangeOperation.RENAME, {"old_type": "TEXT"}),
+        (ChangeOperation.RENAME, {"new_type": "VARCHAR(320)"}),
+        (ChangeOperation.REMOVE, {"new_field": "primary_email"}),
+        (ChangeOperation.REMOVE, {"old_type": "TEXT"}),
+        (ChangeOperation.REMOVE, {"new_type": "VARCHAR(320)"}),
+        (ChangeOperation.TYPE_CHANGE, {"new_field": "primary_email"}),
+    ],
+)
+def test_change_request_rejects_operation_irrelevant_fields(
+    operation: ChangeOperation, unexpected: dict[str, str]
+) -> None:
+    values = {
+        "asset_urn": TARGET,
+        "operation": operation,
+        "field": "customer_email",
+        "source_commit": "demo-unsafe-change",
+        "requested_by": "demo-user",
+    }
+    if operation is ChangeOperation.RENAME:
+        values["new_field"] = "primary_email"
+    if operation is ChangeOperation.TYPE_CHANGE:
+        values.update({"old_type": "TEXT", "new_type": "VARCHAR(320)"})
+    values.update(unexpected)
+
+    with pytest.raises(ValidationError, match="only valid"):
+        ChangeRequest.model_validate(values)
+
+
+@pytest.mark.parametrize("missing", ["old_type", "new_type"])
+def test_type_change_requires_both_type_contract_values(missing: str) -> None:
+    values = {
+        "asset_urn": TARGET,
+        "operation": ChangeOperation.TYPE_CHANGE,
+        "field": "customer_email",
+        "old_type": "TEXT",
+        "new_type": "VARCHAR(320)",
+        "source_commit": "demo-unsafe-change",
+        "requested_by": "demo-user",
+    }
+    values.pop(missing)
+
+    with pytest.raises(ValidationError, match=missing):
+        ChangeRequest.model_validate(values)
+
+
+def test_type_change_rejects_canonically_equal_types() -> None:
+    with pytest.raises(ValidationError, match="must differ"):
+        ChangeRequest(
+            asset_urn=TARGET,
+            operation=ChangeOperation.TYPE_CHANGE,
+            field="customer_email",
+            old_type="TEXT",
+            new_type="VARCHAR",
+            source_commit="demo-unsafe-change",
+            requested_by="demo-user",
+        )
+
+
+def test_change_request_bounds_field_identifiers() -> None:
+    with pytest.raises(ValidationError, match="at most 128"):
+        ChangeRequest(
+            asset_urn=TARGET,
+            operation=ChangeOperation.REMOVE,
+            field="a" * 129,
+            source_commit="demo-unsafe-change",
+            requested_by="demo-user",
+        )
+
+
 def test_type_change_requires_new_type() -> None:
     with pytest.raises(ValidationError, match="new_type"):
         ChangeRequest(

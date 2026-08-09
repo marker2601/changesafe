@@ -87,8 +87,6 @@ def golden_change() -> ChangeRequest:
         operation=ChangeOperation.RENAME,
         field="customer_email",
         new_field="primary_email",
-        old_type="STRING",
-        new_type="STRING",
         source_commit="demo-unsafe-change",
         requested_by="demo-user",
     )
@@ -1053,6 +1051,35 @@ async def test_live_adapter_rejects_non_allowlisted_asset_before_tool_calls() ->
         await port.load(change)
 
     assert runner.calls == []
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_rejects_unknown_field_before_lineage_or_query_calls(
+) -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+        }
+    )
+    change = golden_change().model_copy(
+        update={"field": "unknown_field", "new_field": "preferred_field"}
+    )
+
+    with pytest.raises(ContextLoadError, match="Target field is absent"):
+        await LiveDataHubContext(runner=runner, allowlist={TARGET}).load(change)
+
+    assert [tool for tool, _ in runner.calls] == [
+        "get_entities",
+        "list_schema_fields",
+    ]
 
 
 @pytest.mark.asyncio

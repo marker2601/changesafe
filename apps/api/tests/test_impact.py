@@ -105,3 +105,19 @@ async def test_financial_impact_never_becomes_a_fabricated_amount() -> None:
     assert financial.confidence is EvidenceConfidence.UNAVAILABLE
     assert financial.qualifier == "Not quantified from available metadata"
     assert financial.evidence_urns == [context.target_urn]
+
+
+@pytest.mark.asyncio
+async def test_none_usage_is_described_as_no_recorded_usage() -> None:
+    context = await ReplayDataHubContext.from_default().load(golden_change())
+    sparse = context.model_copy(
+        update={"usage_tier": "none", "queries": [], "downstream_assets": []}
+    )
+
+    operational = next(
+        impact
+        for impact in classify_impacts(golden_change(), sparse)
+        if impact.category is ImpactCategory.OPERATIONAL_CONTINUITY
+    )
+
+    assert operational.basis.startswith("DataHub has no recorded query usage")

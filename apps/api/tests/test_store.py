@@ -16,8 +16,6 @@ def golden_change() -> ChangeRequest:
         operation=ChangeOperation.RENAME,
         field="customer_email",
         new_field="primary_email",
-        old_type="STRING",
-        new_type="STRING",
         source_commit="demo-unsafe-change",
         requested_by="demo-user",
     )

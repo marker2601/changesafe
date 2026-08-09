@@ -496,7 +496,7 @@ async def test_app_lifespan_closes_the_context_adapter(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_creation_ignores_unused_llm_budget_when_generation_is_deterministic(
+async def test_run_creation_ignores_legacy_openai_settings(
     tmp_path: Path,
 ) -> None:
     settings = Settings(
@@ -504,7 +504,6 @@ async def test_run_creation_ignores_unused_llm_budget_when_generation_is_determi
         mode=Mode.AUTO,
         changesafe_data_path=tmp_path / "runs.db",
         openai_api_key="configured-test-key",
-        changesafe_llm_budget_usd="0.01",
     )
     app = create_app(
         settings=settings, context_port=ReplayDataHubContext.from_default()
@@ -514,11 +513,12 @@ async def test_run_creation_ignores_unused_llm_budget_when_generation_is_determi
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/api/runs", json=GOLDEN_CHANGE)
 
+    await app.state.orchestrator.wait_for_idle()
     assert response.status_code == 202
 
 
 @pytest.mark.asyncio
-async def test_preflight_llm_fallback_releases_budget_reservation(
+async def test_repeated_run_creation_ignores_legacy_openai_settings(
     tmp_path: Path,
 ) -> None:
     settings = Settings(
@@ -526,8 +526,6 @@ async def test_preflight_llm_fallback_releases_budget_reservation(
         mode=Mode.AUTO,
         changesafe_data_path=tmp_path / "runs.db",
         openai_api_key="configured-test-key",
-        openai_max_input_tokens_per_call=512,
-        changesafe_llm_budget_usd="0.3",
     )
     app = create_app(
         settings=settings, context_port=ReplayDataHubContext.from_default()
@@ -544,6 +542,7 @@ async def test_preflight_llm_fallback_releases_budget_reservation(
                 RunState.AWAITING_APPROVAL,
             )
 
+    await app.state.orchestrator.wait_for_idle()
     assert await app.state.store.llm_committed_cost_usd() == 0
 
 
