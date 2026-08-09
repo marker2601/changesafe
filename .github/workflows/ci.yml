@@ -105,7 +105,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:18000/ | grep -q "ChangeSafe"
           run_id=$(curl --fail --silent \
             -H 'Content-Type: application/json' \
-            -d '{"asset_urn":"urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)","operation":"rename","field":"customer_email","new_field":"primary_email","old_type":"STRING","new_type":"STRING","source_commit":"ci-container-smoke","requested_by":"ci"}' \
+            -d '{"asset_urn":"urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)","operation":"rename","field":"cust_email","new_field":"primary_email","source_commit":"showcase-ecommerce-safe-rename","requested_by":"ci"}' \
             http://127.0.0.1:18000/api/runs \
             | python3 -c "import json,sys; print(json.load(sys.stdin)['run_id'])")
           for attempt in $(seq 1 50); do
@@ -116,7 +116,7 @@ jobs:
             sleep 0.2
           done
           export RUN_JSON="${run_json}"
-          python3 -c "import json,os; r=json.loads(os.environ['RUN_JSON']); assert r['state']=='awaiting_approval'; assert r['analysis']['risk']['score']==90; assert len(r['analysis']['context']['downstream_assets'])==4; assert len(r['analysis']['artifacts']['files'])==7; assert r['analysis']['validation']['passed']"
+          python3 -c "import json,os; r=json.loads(os.environ['RUN_JSON']); assert r['state']=='awaiting_approval'; assert r['analysis']['risk']['score']==80; assert len(r['analysis']['impacts'])==6; assert len(r['analysis']['context']['downstream_assets'])==7; assert len(r['analysis']['artifacts']['files'])==7; assert r['analysis']['validation']['passed']"
           curl --fail --silent -X POST "http://127.0.0.1:18000/api/runs/${run_id}/approve" | grep -q '"mode":"preview"'
           curl --fail --silent "http://127.0.0.1:18000/api/runs/${run_id}/publication.patch" | grep -q '^diff --git'
 
