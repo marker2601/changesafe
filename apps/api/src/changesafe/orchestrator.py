@@ -15,6 +15,7 @@ from changesafe.domain import (
     RunView,
 )
 from changesafe.generation.service import ArtifactGenerationService
+from changesafe.impact import classify_impacts
 from changesafe.risk import score_change
 from changesafe.store import RunStore
 from changesafe.verification import verify_artifacts
@@ -113,6 +114,7 @@ class ChangeSafeOrchestrator:
                 evidence=context.evidence,
             )
             risk = score_change(run.request, context)
+            impacts = classify_impacts(run.request, context)
             await self.store.transition(
                 run.run_id,
                 RunState.GENERATING,
@@ -138,6 +140,7 @@ class ChangeSafeOrchestrator:
                 artifacts=artifacts,
                 validation=validation,
                 publication_eligible=validation.passed,
+                impacts=impacts,
             )
             if not validation.passed:
                 return await self.store.transition(

@@ -8,6 +8,7 @@ from changesafe.generation.service import ArtifactGenerationService
 from changesafe.orchestrator import ChangeSafeOrchestrator
 from changesafe.store import RunStore
 
+
 async def analyzed_run(
     tmp_path: Path,
     *,

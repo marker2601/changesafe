@@ -32,6 +32,7 @@ from changesafe.domain import (
 )
 from changesafe.redaction import redact
 
+
 def _as_list(value: Any) -> list[Any]:
     if value is None:
         return []

@@ -276,6 +276,33 @@ async def test_approval_rejects_a_stale_deterministic_risk_result(
 
 
 @pytest.mark.asyncio
+async def test_approval_rejects_stale_impact_classification(
+    tmp_path: Path,
+) -> None:
+    store, context, run = await analyzed_run(tmp_path)
+    assert run.analysis is not None
+    stale_impact = run.analysis.impacts[0].model_copy(
+        update={"summary": "A stale pre-upgrade classification."}
+    )
+    stale_analysis = run.analysis.model_copy(
+        update={"impacts": [stale_impact, *run.analysis.impacts[1:]]}
+    )
+    await persist_analysis(store, run.run_id, stale_analysis)
+    service = PublicationService(
+        store=RunStore(store.database),
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=store.database,
+        ),
+        context_port=context,
+    )
+
+    with pytest.raises(PublicationStateError, match="current safety policy"):
+        await service.approve(run.run_id, supplied_admin_token=None)
+
+
+@pytest.mark.asyncio
 async def test_partial_writeback_retry_does_not_duplicate_github_side_effect(
     tmp_path: Path,
 ) -> None:

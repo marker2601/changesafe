@@ -16,6 +16,7 @@ from changesafe.generation.service import ArtifactGenerationService
 from changesafe.generation.templates import GenerationNarrative
 from changesafe.risk import score_change
 
+
 async def inputs():
     change = golden_change()
     context = await ReplayDataHubContext.from_default().load(change)

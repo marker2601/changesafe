@@ -24,6 +24,7 @@ from changesafe.domain import (
     RunState,
     RunView,
 )
+from changesafe.impact import classify_impacts
 from changesafe.publication.base import GitHubPublisherPort, publication_key
 from changesafe.publication.github import GitHubPublicationError, GitHubPublisher
 from changesafe.publication.preview import build_unified_patch
@@ -82,6 +83,9 @@ class PublicationService:
         assert run.analysis is not None
         try:
             current_risk = score_change(run.request, run.analysis.context)
+            current_impacts = classify_impacts(
+                run.request, run.analysis.context
+            )
             current_validation = verify_artifacts(
                 run.analysis.artifacts,
                 run.request,
@@ -94,6 +98,7 @@ class PublicationService:
         if (
             not current_validation.passed
             or current_risk != run.analysis.risk
+            or current_impacts != run.analysis.impacts
             or current_validation != run.analysis.validation
             or run.analysis.publication_eligible != current_validation.passed
         ):

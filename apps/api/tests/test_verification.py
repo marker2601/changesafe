@@ -6,7 +6,6 @@ from changesafe.domain import (
     ArtifactBundle,
     ArtifactFile,
     ChangeOperation,
-    ChangeRequest,
 )
 from changesafe.generation.templates import generate_artifacts
 from changesafe.risk import score_change

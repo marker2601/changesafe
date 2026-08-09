@@ -40,6 +40,29 @@ class RiskBand(StrEnum):
     CRITICAL = "critical"
 
 
+class ImpactCategory(StrEnum):
+    DATA_INTEGRITY = "data_integrity"
+    PRIVACY_COMPLIANCE = "privacy_compliance"
+    OPERATIONAL_CONTINUITY = "operational_continuity"
+    TRUST_DECISION_QUALITY = "trust_decision_quality"
+    FINANCIAL_EXPOSURE = "financial_exposure"
+    ORGANIZATIONAL_IMPACT = "organizational_impact"
+
+
+class ImpactSeverity(StrEnum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    INFORMATIONAL = "informational"
+
+
+class EvidenceConfidence(StrEnum):
+    DIRECT = "direct"
+    INFERRED = "inferred"
+    UNAVAILABLE = "unavailable"
+
+
 class RunState(StrEnum):
     CREATED = "created"
     LOADING_CONTEXT = "loading_context"
@@ -177,6 +200,17 @@ class RiskResult(StrictModel):
     recommended_strategy: str
 
 
+class ImpactAssessment(StrictModel):
+    category: ImpactCategory
+    label: str = Field(min_length=1)
+    severity: ImpactSeverity
+    confidence: EvidenceConfidence
+    summary: str = Field(min_length=1)
+    qualifier: str | None = None
+    basis: str = Field(min_length=1)
+    evidence_urns: list[str] = Field(min_length=1)
+
+
 class ArtifactFile(StrictModel):
     path: str
     content: str
@@ -268,6 +302,7 @@ class AnalysisResult(StrictModel):
     artifacts: ArtifactBundle
     validation: ValidationReport
     publication_eligible: bool
+    impacts: list[ImpactAssessment] = Field(default_factory=list)
 
 
 class PublicError(StrictModel):
