@@ -131,6 +131,7 @@ export function App({ api = browserApi }: AppProps) {
                 activeImpact={activeImpact}
                 context={analysis.context}
                 dataHubOrigin={config?.datahub_ui_url}
+                request={run.request}
               />
             ) : run?.state === "context_fallback_required" ? (
               <div className="analysis-stage fallback-stage">

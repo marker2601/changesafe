@@ -14,8 +14,17 @@ describe("ImpactGraph", () => {
       <ImpactGraph
         activeImpact={analysis.impacts[0]}
         context={analysis.context}
+        request={goldenRun.request}
       />,
     );
+
+    expect(screen.getAllByTestId("lineage-flow")).toHaveLength(2);
+    expect(
+      screen.getByRole("heading", {
+        name: "Tracing what depends on cust_email",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("Showing evidence for Data integrity")).toBeVisible();
 
     const node = screen.getByRole("button", {
       name: /Customer Analytics Measures/,
@@ -44,6 +53,7 @@ describe("ImpactGraph", () => {
         activeImpact={analysis.impacts[0]}
         context={analysis.context}
         dataHubOrigin="https://datahub.example.com"
+        request={goldenRun.request}
       />,
     );
 
@@ -60,5 +70,36 @@ describe("ImpactGraph", () => {
     );
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noreferrer");
+  });
+
+  it("dims unrelated nodes only while an impact evidence filter is active", () => {
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    const { rerender } = render(
+      <ImpactGraph
+        activeImpact={analysis.impacts[4]}
+        context={analysis.context}
+        request={goldenRun.request}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Customer Analytics Measures/ }),
+    ).toHaveClass("is-highlighted");
+    expect(
+      screen.getByRole("button", {
+        name: /^ORDER_DETAILS, dataset, direct evidence$/,
+      }),
+    ).toHaveClass("is-dimmed");
+
+    rerender(
+      <ImpactGraph
+        activeImpact={null}
+        context={analysis.context}
+        request={goldenRun.request}
+      />,
+    );
+
+    expect(document.querySelectorAll(".is-dimmed")).toHaveLength(0);
   });
 });

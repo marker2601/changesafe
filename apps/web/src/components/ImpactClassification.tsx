@@ -73,6 +73,7 @@ export function ImpactClassification({
                   <p className="impact-qualifier">{impact.qualifier}</p>
                 ) : null}
                 <button
+                  aria-controls="dependency-evidence-map"
                   aria-expanded={active}
                   aria-label={`Trace supporting evidence for ${impact.label}`}
                   className="impact-trace"

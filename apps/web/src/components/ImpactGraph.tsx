@@ -10,6 +10,7 @@ import { useState, type ComponentType } from "react";
 
 import type {
   AffectedAsset,
+  ChangeRequest,
   ContextBundle,
   ImpactAssessment,
 } from "../types";
@@ -19,6 +20,7 @@ interface ImpactGraphProps {
   context: ContextBundle;
   activeImpact: ImpactAssessment | null;
   dataHubOrigin?: string | null;
+  request: ChangeRequest;
 }
 
 function assetIcon(asset: AffectedAsset): ComponentType<{ "aria-hidden"?: boolean }> {
@@ -44,9 +46,19 @@ export function ImpactGraph({
   context,
   activeImpact,
   dataHubOrigin,
+  request,
 }: ImpactGraphProps) {
   const [selectedAsset, setSelectedAsset] = useState<AffectedAsset | null>(null);
   const highlighted = new Set(activeImpact?.evidence_urns ?? []);
+  const graphAssets = [...context.upstream_assets, ...context.downstream_assets];
+  const highlightedAssetCount = graphAssets.filter((asset) =>
+    highlighted.has(asset.urn),
+  ).length;
+  const dimUnrelated = activeImpact !== null && highlightedAssetCount > 0;
+  const assetClassName = (asset: AffectedAsset) => {
+    if (highlighted.has(asset.urn)) return "is-highlighted";
+    return dimUnrelated ? "is-dimmed" : "";
+  };
   return (
     <section className="dependency-panel" aria-labelledby="dependency-heading">
       <header className="dependency-heading">
@@ -56,10 +68,12 @@ export function ImpactGraph({
               ? "Live dependency evidence"
               : "Recorded dependency evidence"}
           </span>
-          <h2 id="dependency-heading">Tracing what depends on cust_email</h2>
+          <h2 id="dependency-heading">
+            Tracing what depends on {request.field}
+          </h2>
           <p>
-            We&apos;re finding the models, reports and teams that rely on this field
-            before preparing the change.
+            DataHub evidence connects upstream inputs, this governed model, and
+            every recorded dependent. The moving light shows relationship direction.
           </p>
         </div>
         <strong>
@@ -69,7 +83,20 @@ export function ImpactGraph({
         </strong>
       </header>
 
-      <div className="dependency-map">
+      {activeImpact ? (
+        <p className="active-impact-filter" aria-live="polite">
+          <strong>Showing evidence for {activeImpact.label}</strong>
+          <span>
+            {highlightedAssetCount > 0
+              ? `${highlightedAssetCount} matching graph ${
+                  highlightedAssetCount === 1 ? "node is" : "nodes are"
+                } highlighted.`
+              : "Its supporting metadata is recorded outside the lineage nodes."}
+          </span>
+        </p>
+      ) : null}
+
+      <div className="dependency-map" id="dependency-evidence-map">
         <section className="asset-column upstream-column" aria-label="Upstream inputs">
           <h3>Upstream inputs</h3>
           {context.upstream_assets.map((asset) => {
@@ -77,7 +104,7 @@ export function ImpactGraph({
             return (
               <button
                 aria-label={`${asset.name}, ${pathLabel(asset)} evidence`}
-                className={highlighted.has(asset.urn) ? "is-highlighted" : ""}
+                className={assetClassName(asset)}
                 key={asset.urn}
                 onClick={() => setSelectedAsset(asset)}
                 type="button"
@@ -93,11 +120,16 @@ export function ImpactGraph({
           })}
         </section>
 
-        <div className="map-direction" aria-hidden="true">
+        <div className="lineage-flow" data-testid="lineage-flow" aria-hidden="true">
+          <span className="lineage-flow-light" />
           <ArrowRight />
         </div>
 
-        <article className="target-node">
+        <article
+          className={`target-node${
+            highlighted.has(context.target_urn) ? " is-highlighted" : ""
+          }`}
+        >
           <span className="target-platform">dbt governed model</span>
           <Database aria-hidden="true" />
           <strong>{context.target_name}</strong>
@@ -105,7 +137,8 @@ export function ImpactGraph({
           <em>PII · Governed</em>
         </article>
 
-        <div className="map-direction" aria-hidden="true">
+        <div className="lineage-flow" data-testid="lineage-flow" aria-hidden="true">
+          <span className="lineage-flow-light" />
           <ArrowRight />
         </div>
 
@@ -119,7 +152,7 @@ export function ImpactGraph({
             return (
               <button
                 aria-label={`${asset.name}, ${asset.entity_type}, ${pathLabel(asset)} evidence`}
-                className={highlighted.has(asset.urn) ? "is-highlighted" : ""}
+                className={assetClassName(asset)}
                 key={asset.urn}
                 onClick={() => setSelectedAsset(asset)}
                 type="button"
