@@ -4,41 +4,49 @@ import pytest
 
 from changesafe.context.base import ContextLoadError, DecisionWriteback
 from changesafe.context.replay import ReplayDataHubContext
-from changesafe.domain import ChangeOperation, ChangeRequest, ContextMode, RiskBand
+from changesafe.demo import DEMO_TARGET_URN, golden_change
+from changesafe.domain import ContextMode, RiskBand
 
-TARGET = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
-
-
-def golden_change() -> ChangeRequest:
-    return ChangeRequest(
-        asset_urn=TARGET,
-        operation=ChangeOperation.RENAME,
-        field="customer_email",
-        new_field="primary_email",
-        old_type="STRING",
-        new_type="STRING",
-        source_commit="demo-unsafe-change",
-        requested_by="demo-user",
-    )
+TARGET = DEMO_TARGET_URN
 
 
 @pytest.mark.asyncio
-async def test_replay_contract_finds_the_golden_blast_radius() -> None:
+async def test_replay_contract_finds_the_golden_dependencies() -> None:
     port = ReplayDataHubContext.from_default()
 
     context = await port.load(golden_change())
 
     assert context.provenance.mode is ContextMode.SNAPSHOT
     assert len(context.provenance.snapshot_hash or "") == 64
-    assert len(context.downstream_assets) == 4
-    assert {asset.domain for asset in context.downstream_assets} == {
-        "Analytics",
-        "Marketing",
-        "Support",
-        "Executive Reporting",
+    assert len(context.downstream_assets) == 7
+    assert {asset.domain for asset in context.downstream_assets if asset.domain} == {
+        "Data Platform Team",
+        "Ecommerce Operations",
     }
     assert context.usage_tier == "high"
-    assert "urn:li:tag:PII" in context.field_tags
+    assert "urn:li:tag:b2fd91.PII_Data" in context.field_tags
+
+
+@pytest.mark.asyncio
+async def test_replay_uses_the_official_order_entry_scenario() -> None:
+    port = ReplayDataHubContext.from_default()
+
+    context = await port.load(golden_change())
+
+    assert context.target_urn == (
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,"
+        "b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+    )
+    assert context.target_name == "order_details"
+    assert context.field == "cust_email"
+    assert context.field_type in {"TEXT", "VARCHAR"}
+    assert "urn:li:tag:b2fd91.PII_Data" in context.field_tags
+    assert any(
+        "powerbi" in asset.urn.lower() for asset in context.downstream_assets
+    )
+    assert any(
+        "looker" in asset.urn.lower() for asset in context.downstream_assets
+    )
 
 
 @pytest.mark.asyncio

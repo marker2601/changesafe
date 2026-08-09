@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from changesafe.demo import DEMO_TARGET_URN
 from changesafe.domain import (
     ChangeOperation,
     ChangeRequest,
@@ -13,7 +14,7 @@ from changesafe.domain import (
     ContextProvenance,
 )
 
-TARGET = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
+TARGET = DEMO_TARGET_URN
 
 
 def test_rename_requires_new_field() -> None:

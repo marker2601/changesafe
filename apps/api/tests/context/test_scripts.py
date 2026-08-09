@@ -35,20 +35,14 @@ def test_snapshot_capture_writes_canonical_redacted_bytes(tmp_path: Path) -> Non
 def test_seed_spec_contains_required_graph_and_governance_definitions() -> None:
     seed = build_seed_spec()
 
-    assert len(seed["assets"]) == 7
-    assert len(seed["downstream_from_target"]) == 4
-    assert seed["tag"] == "urn:li:tag:ChangeSafe:Deprecating"
-    assert seed["owners"] == [
-        {
-            "urn": "urn:li:corpuser:data-platform",
-            "type": "TECHNICAL_OWNER",
-        },
-        {
-            "urn": "urn:li:corpuser:customer-analytics",
-            "type": "DATA_OWNER",
-        },
+    assert seed["base_datapack"] == "showcase-ecommerce"
+    assert seed["load_command"] == "datahub datapack load showcase-ecommerce"
+    assert seed["field"] == "cust_email"
+    assert seed["required_official_context"]["governance_tags"] == [
+        "urn:li:tag:b2fd91.PII_Data"
     ]
-    assert set(seed["structured_properties"]) == {
+    assert seed["overlay"]["tag"] == "urn:li:tag:ChangeSafe:Deprecating"
+    assert set(seed["overlay"]["structured_properties"]) == {
         "urn:li:structuredProperty:changesafe.riskLevel",
         "urn:li:structuredProperty:changesafe.changeStatus",
         "urn:li:structuredProperty:changesafe.lastRunId",
@@ -66,22 +60,10 @@ def test_seed_builds_stable_idempotent_metadata_upserts() -> None:
         "urn:li:structuredProperty:changesafe.riskLevel",
         "propertyDefinition",
     ) in identities
-    assert any(aspect == "schemaMetadata" for _, aspect in identities)
-    assert any(aspect == "upstreamLineage" for _, aspect in identities)
     assert any(aspect == "queryProperties" for _, aspect in identities)
-    assert (
-        "urn:li:corpuser:data-platform",
-        "corpUserInfo",
-    ) in identities
-    ownership = next(
-        proposal for proposal in proposals if proposal.aspectName == "ownership"
-    )
-    assert {
-        (owner.owner, owner.type) for owner in ownership.aspect.owners
-    } == {
-        ("urn:li:corpuser:data-platform", "TECHNICAL_OWNER"),
-        ("urn:li:corpuser:customer-analytics", "DATAOWNER"),
-    }
+    assert not any(aspect == "schemaMetadata" for _, aspect in identities)
+    assert not any(aspect == "upstreamLineage" for _, aspect in identities)
+    assert not any(aspect == "ownership" for _, aspect in identities)
 
     class FakeEmitter:
         def __init__(self) -> None:

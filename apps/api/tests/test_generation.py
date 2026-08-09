@@ -6,6 +6,7 @@ import yaml
 from pydantic import ValidationError
 
 from changesafe.context.replay import ReplayDataHubContext
+from changesafe.demo import DEMO_TARGET_URN, golden_change
 from changesafe.domain import (
     AffectedAsset,
     ChangeOperation,
@@ -21,20 +22,7 @@ from changesafe.generation.templates import (
 from changesafe.risk import score_change
 from changesafe.verification import verify_artifacts
 
-TARGET = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
-
-
-def golden_change() -> ChangeRequest:
-    return ChangeRequest(
-        asset_urn=TARGET,
-        operation=ChangeOperation.RENAME,
-        field="customer_email",
-        new_field="primary_email",
-        old_type="STRING",
-        new_type="STRING",
-        source_commit="demo-unsafe-change",
-        requested_by="demo-user",
-    )
+TARGET = DEMO_TARGET_URN
 
 
 def test_golden_rename_generates_exact_manifest() -> None:
@@ -45,9 +33,9 @@ def test_golden_rename_generates_exact_manifest() -> None:
     bundle = generate_artifacts(change, context, risk)
 
     assert sorted(bundle.files) == sorted(EXPECTED_GOLDEN_PATHS)
-    model = bundle.files["models/marts/dim_customers.sql"].content
-    assert "customer_email" in model
-    assert "customer_email as primary_email" in model.lower()
+    model = bundle.files["models/marts/order_details.sql"].content
+    assert "cust_email" in model
+    assert "cust_email as primary_email" in model.lower()
     assert bundle.manifest_hash == bundle.files["changesafe-manifest.json"].sha256
 
 
@@ -83,9 +71,9 @@ def test_sample_dbt_project_matches_the_generated_golden_migration() -> None:
     root = Path("fixtures/dbt_project")
 
     for path in (
-        "models/marts/dim_customers.sql",
-        "models/marts/dim_customers.yml",
-        "tests/assert_customer_email_compatibility.sql",
+        "models/marts/order_details.sql",
+        "models/marts/order_details.yml",
+        "tests/assert_cust_email_compatibility.sql",
     ):
         assert (root / path).read_text(encoding="utf-8") == bundle.files[path].content
 
@@ -97,26 +85,26 @@ def test_sample_dbt_project_matches_the_generated_golden_migration() -> None:
             ChangeRequest(
                 asset_urn=TARGET,
                 operation=ChangeOperation.REMOVE,
-                field="customer_email",
-                old_type="STRING",
+                field="cust_email",
+                old_type="TEXT",
                 source_commit="remove-email",
                 requested_by="demo-user",
             ),
-            "tests/assert_customer_email_retained.sql",
-            "customer_email",
+            "tests/assert_cust_email_retained.sql",
+            "cust_email",
         ),
         (
             ChangeRequest(
                 asset_urn=TARGET,
                 operation=ChangeOperation.TYPE_CHANGE,
-                field="customer_email",
-                old_type="STRING",
+                field="cust_email",
+                old_type="TEXT",
                 new_type="VARCHAR(320)",
                 source_commit="type-email",
                 requested_by="demo-user",
             ),
-            "tests/assert_customer_email_type_compatibility.sql",
-            "cast(customer_email as VARCHAR(320)) as customer_email__new_type",
+            "tests/assert_cust_email_type_compatibility.sql",
+            "cast(cust_email as VARCHAR(320)) as cust_email__new_type",
         ),
     ],
 )
@@ -134,15 +122,15 @@ def test_each_supported_operation_generates_and_verifies(
     assert report.passed is True
     assert set(bundle.files) == set(expected_artifact_paths(change, context))
     assert expected_test in bundle.files
-    assert expected_projection in bundle.files["models/marts/dim_customers.sql"].content
+    assert expected_projection in bundle.files["models/marts/order_details.sql"].content
 
 
 def test_type_change_uses_shared_alias_aware_metadata_comparison() -> None:
     change = ChangeRequest(
         asset_urn=TARGET,
         operation=ChangeOperation.TYPE_CHANGE,
-        field="customer_email",
-        old_type="STRING",
+        field="cust_email",
+        old_type="TEXT",
         new_type="VARCHAR(200)",
         source_commit="alias-aware-type-change",
         requested_by="demo-user",
@@ -220,7 +208,7 @@ def test_llm_transformation_expression_is_advisory_not_executable() -> None:
     context = asyncio.run(ReplayDataHubContext.from_default().load(change))
     narrative = GenerationNarrative(
         transformation_expression=(
-            "customer_email || (select max(secret) from sensitive_table)"
+            "cust_email || (select max(secret) from sensitive_table)"
         ),
         explanation="Explain the change.",
         deprecation_language="Retain the old field for 30 days.",
@@ -232,10 +220,10 @@ def test_llm_transformation_expression_is_advisory_not_executable() -> None:
     bundle = generate_artifacts(
         change, context, score_change(change, context), narrative
     )
-    model = bundle.files["models/marts/dim_customers.sql"].content
+    model = bundle.files["models/marts/order_details.sql"].content
 
     assert "sensitive_table" not in model
-    assert "customer_email as primary_email" in model
+    assert "cust_email as primary_email" in model
 
 
 def test_rename_rejects_case_insensitive_destination_collision() -> None:
@@ -250,8 +238,8 @@ def test_type_change_rejects_generated_alias_collision() -> None:
     change = ChangeRequest(
         asset_urn=TARGET,
         operation=ChangeOperation.TYPE_CHANGE,
-        field="customer_email",
-        old_type="STRING",
+        field="cust_email",
+        old_type="TEXT",
         new_type="VARCHAR(320)",
         source_commit="type-alias-collision",
         requested_by="demo-user",
@@ -262,7 +250,7 @@ def test_type_change_rejects_generated_alias_collision() -> None:
             "schema_fields": [
                 *context.schema_fields,
                 SchemaField(
-                    name="CUSTOMER_EMAIL__NEW_TYPE",
+                    name="CUST_EMAIL__NEW_TYPE",
                     data_type="VARCHAR(320)",
                 ),
             ]
@@ -290,7 +278,7 @@ def test_rename_contract_uses_datahub_type_not_request_hints() -> None:
 
     bundle = generate_artifacts(change, context, score_change(change, context))
     contract = yaml.safe_load(
-        bundle.files["models/marts/dim_customers.yml"].content
+        bundle.files["models/marts/order_details.yml"].content
     )
     columns = contract["models"][0]["columns"]
     preferred = next(column for column in columns if column["name"] == "primary_email")
@@ -314,16 +302,16 @@ def test_nullable_alias_inherits_nullability_without_invented_not_null() -> None
 
     bundle = generate_artifacts(change, context, score_change(change, context))
     contract = yaml.safe_load(
-        bundle.files["models/marts/dim_customers.yml"].content
+        bundle.files["models/marts/order_details.yml"].content
     )
     columns = contract["models"][0]["columns"]
     changed = {
         column["name"]: column.get("tests", [])
         for column in columns
-        if column["name"] in {"customer_email", "primary_email"}
+        if column["name"] in {"cust_email", "primary_email"}
     }
 
-    assert changed == {"customer_email": [], "primary_email": []}
+    assert changed == {"cust_email": [], "primary_email": []}
 
 
 def test_non_null_id_fields_do_not_invent_uniqueness_constraints() -> None:
@@ -338,12 +326,12 @@ def test_non_null_id_fields_do_not_invent_uniqueness_constraints() -> None:
     )
     context = asyncio.run(ReplayDataHubContext.from_default().load(golden_change()))
     context = context.model_copy(
-        update={"field": "customer_id", "field_type": "STRING"}
+        update={"field": "customer_id", "field_type": "NUMBER"}
     )
 
     bundle = generate_artifacts(change, context, score_change(change, context))
     contract = yaml.safe_load(
-        bundle.files["models/marts/dim_customers.yml"].content
+        bundle.files["models/marts/order_details.yml"].content
     )
     columns = contract["models"][0]["columns"]
     changed = {

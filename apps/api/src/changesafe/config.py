@@ -18,6 +18,8 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from changesafe.demo import DEMO_TARGET_URN
+
 DEFAULT_PRIVATE_ENV = Path("C:/Users/harik/ChangeSafe/private/changesafe.env")
 
 
@@ -62,9 +64,7 @@ class Settings(BaseSettings):
     datahub_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
     datahub_retry_count: int = Field(default=1, ge=0, le=2)
     save_document_restrict_updates: bool = True
-    demo_urn_allowlist: str = (
-        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
-    )
+    demo_urn_allowlist: str = DEMO_TARGET_URN
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-5.6-luna"
     openai_input_cost_per_million_usd: Decimal = Field(

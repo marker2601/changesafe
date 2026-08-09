@@ -1,19 +1,18 @@
-# ChangeSafe: rename `customer_email` to `primary_email`
+# ChangeSafe: rename `cust_email` to `primary_email`
 
 This phase-one migration preserves the existing interface and includes deterministic validation, deprecation evidence, and rollback steps.
 
-## Deterministic risk: 90/100 — Critical
+## Deterministic risk: 80/100 — Critical
 
 - **+25** Column rename
-- **+20** 4 downstream assets
-- **+15** Dashboard or executive report downstream
+- **+25** 7 downstream assets
 - **+10** Governed, confidential, or PII field
 - **+10** High query usage
 - **+10** Cross-domain impact
 
 ## Impact
 
-4 downstream assets across 4 domains were found in DataHub.
+7 downstream assets across 2 domains were found in DataHub.
 
 ## Validation
 

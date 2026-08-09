@@ -1,0 +1,179 @@
+version: 2
+
+models:
+  - name: order_details
+    description: Governed phase-one compatibility migration.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: order_id
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: order_date
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: order_mode
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: order_status
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: order_total
+        data_type: "FLOAT"
+        tests: [not_null]
+      - name: cost_of_delivery
+        data_type: "FLOAT"
+        tests: [not_null]
+      - name: delivery_type
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: wait_till_complete_yn
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: payment_method_code
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: customer_id
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: cust_first_name
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: cust_last_name
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: cust_email
+        data_type: "TEXT"
+        description: Deprecated compatibility field retained during phase one.
+        tests: [not_null]
+      - name: primary_email
+        data_type: "TEXT"
+        description: Preferred field for migrated consumers.
+        tests: [not_null]
+      - name: phone_number
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: customer_class
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: billing_address_line1
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: billing_address_line2
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: billing_town_city
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: billing_country
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: billing_zipcode
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: billing_region
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: shipping_address_line1
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: shipping_address_line2
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: shipping_town_city
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: shipping_country
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: shipping_zipcode
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: shipping_region
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: warehouse_id
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: warehouse_name
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: promotion_id
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: promotion_name
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: promotion_description
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: line_item_id
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: product_id
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: product_name
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: product_description
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: category_id
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: category_name
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: unit_price
+        data_type: "FLOAT"
+        tests: [not_null]
+      - name: quantity
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: line_total
+        data_type: "FLOAT"
+        tests: [not_null]
+      - name: dispatch_date
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: return_date
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: gift_wrap
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: condition
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: estimated_delivery
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: list_price
+        data_type: "FLOAT"
+        tests: [not_null]
+      - name: product_status
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: quantity_on_hand
+        data_type: "NUMBER"
+        tests: [not_null]
+      - name: stock_status
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: discount_amount
+        data_type: "FLOAT"
+        tests: [not_null]
+      - name: discount_percent
+        data_type: "FLOAT"
+        tests: [not_null]
+      - name: delivery_status
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: return_status
+        data_type: "TEXT"
+        tests: [not_null]
+      - name: updated_at
+        data_type: "TIMESTAMP_LTZ"
+        tests: [not_null]

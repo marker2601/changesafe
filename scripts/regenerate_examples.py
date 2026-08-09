@@ -12,13 +12,6 @@ from changesafe.generation.templates import generate_artifacts
 from changesafe.risk import score_change
 
 ROOT = Path(__file__).resolve().parents[1]
-DBT_FIXTURE_PATHS = (
-    "models/marts/dim_customers.sql",
-    "models/marts/dim_customers.yml",
-    "tests/assert_customer_email_compatibility.sql",
-)
-
-
 def _sync_file(path: Path, content: str, *, check: bool) -> bool:
     if check:
         return not path.is_file() or path.read_text(encoding="utf-8") != content
@@ -35,6 +28,11 @@ async def regenerate(*, check: bool = False) -> None:
     )
     context = await ReplayDataHubContext.from_default().load(change)
     bundle = generate_artifacts(change, context, score_change(change, context))
+    dbt_fixture_paths = tuple(
+        path
+        for path in bundle.files
+        if path.startswith("models/marts/") or path.startswith("tests/")
+    )
     destination = ROOT / "examples" / "generated-safe-change"
     mismatches: list[str] = []
     if check:
@@ -49,7 +47,7 @@ async def regenerate(*, check: bool = False) -> None:
         if _sync_file(path, artifact.content, check=check):
             mismatches.append(artifact.path)
     fixture = ROOT / "fixtures" / "dbt_project"
-    for artifact_path in DBT_FIXTURE_PATHS:
+    for artifact_path in dbt_fixture_paths:
         artifact = bundle.files[artifact_path]
         if _sync_file(fixture / artifact_path, artifact.content, check=check):
             mismatches.append(f"fixtures/dbt_project/{artifact_path}")

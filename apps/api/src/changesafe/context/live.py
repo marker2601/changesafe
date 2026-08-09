@@ -32,24 +32,6 @@ from changesafe.domain import (
 )
 from changesafe.redaction import redact
 
-GOLDEN_TARGET = (
-    "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
-)
-GOLDEN_FIELD = "customer_email"
-GOLDEN_DOWNSTREAM_URNS = {
-    "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
-    (
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,"
-        "marketing.campaign_audiences,PROD)"
-    ),
-    (
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,"
-        "support.customer_contact_queue,PROD)"
-    ),
-    "urn:li:dashboard:(looker,customer_retention_dashboard)",
-}
-
-
 def _as_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -765,15 +747,6 @@ def _normalize_context(
             continue
         downstream.append(asset)
         seen_downstream.add(asset.urn)
-
-    if (
-        change.asset_urn == GOLDEN_TARGET
-        and change.field == GOLDEN_FIELD
-        and {asset.urn for asset in downstream} != GOLDEN_DOWNSTREAM_URNS
-    ):
-        raise ContextLoadError(
-            "Seeded DataHub lineage contract requires exactly four downstream assets"
-        )
 
     query_items = (
         queries_raw.get("queries", []) if isinstance(queries_raw, dict) else []

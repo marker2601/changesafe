@@ -1,241 +1,589 @@
 {
-  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-  "target_name": "dim_customers",
-  "target_domain": "Analytics",
-  "field": "customer_email",
-  "field_type": "STRING",
-  "schema_fields": [
-    {"name": "customer_id", "data_type": "STRING", "nullable": false},
-    {"name": "customer_name", "data_type": "STRING", "nullable": true},
-    {"name": "customer_email", "data_type": "STRING", "nullable": false},
-    {"name": "customer_status", "data_type": "STRING", "nullable": true},
-    {"name": "created_at", "data_type": "TIMESTAMP", "nullable": true}
-  ],
-  "upstream_assets": [
-    {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,sales.customers_raw,PROD)",
-      "name": "customers_raw",
-      "entity_type": "dataset",
-      "domain": "Sales",
-      "field": "email",
-      "lineage_path": []
-    },
-    {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.stg_customers,PROD)",
-      "name": "stg_customers",
-      "entity_type": "dataset",
-      "domain": "Analytics",
-      "field": "customer_email",
-      "lineage_path": []
-    }
-  ],
   "downstream_assets": [
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
-      "name": "customer_360",
+      "domain": "Ecommerce Operations",
       "entity_type": "dataset",
-      "domain": "Analytics",
-      "field": "customer_email",
+      "field": "cust_email",
       "lineage_path": [
-        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)"
-      ]
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)"
+      ],
+      "name": "ORDER_DETAILS",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)"
     },
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
-      "name": "campaign_audiences",
+      "domain": null,
       "entity_type": "dataset",
-      "domain": "Marketing",
-      "field": "customer_email",
+      "field": "cust_email",
       "lineage_path": [
-        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)"
-      ]
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details_replica,PROD)"
+      ],
+      "name": "ORDER_DETAILS_REPLICA",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details_replica,PROD)"
     },
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
-      "name": "customer_contact_queue",
-      "entity_type": "dataset",
-      "domain": "Support",
-      "field": "customer_email",
+      "domain": null,
+      "entity_type": "semantic_model",
+      "field": "CUST_EMAIL",
       "lineage_path": [
-        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)"
-      ]
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Customer_Analytics_Measures,PROD)"
+      ],
+      "name": "Customer Analytics Measures",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Customer_Analytics_Measures,PROD)"
     },
     {
-      "urn": "urn:li:dashboard:(looker,customer_retention_dashboard)",
-      "name": "customer_retention_dashboard",
-      "entity_type": "dashboard",
-      "domain": "Executive Reporting",
-      "field": "customer_email",
-      "is_executive": true,
+      "domain": null,
+      "entity_type": "semantic_model",
+      "field": "CUST_EMAIL",
       "lineage_path": [
-        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
-        "urn:li:dashboard:(looker,customer_retention_dashboard)"
-      ]
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Geographic_Measures,PROD)"
+      ],
+      "name": "Geographic Measures",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Geographic_Measures,PROD)"
+    },
+    {
+      "domain": null,
+      "entity_type": "semantic_model",
+      "field": "CUST_EMAIL",
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Essential_KPI_Measures,PROD)"
+      ],
+      "name": "Essential KPI Measures",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Essential_KPI_Measures,PROD)"
+    },
+    {
+      "domain": "Data Platform Team",
+      "entity_type": "view",
+      "field": "cust_email",
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry-looker.view.order_details,PROD)"
+      ],
+      "name": "order_details",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry-looker.view.order_details,PROD)"
+    },
+    {
+      "domain": "Data Platform Team",
+      "entity_type": "explore",
+      "field": "order_details.cust_email",
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry-looker.view.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry.explore.order_details,PROD)"
+      ],
+      "name": "Order Details",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry.explore.order_details,PROD)"
     }
-  ],
-  "owners": [
-    {
-      "urn": "urn:li:corpuser:data-platform",
-      "name": "Data Platform",
-      "ownership_type": "TECHNICAL_OWNER"
-    },
-    {
-      "urn": "urn:li:corpuser:customer-analytics",
-      "name": "Customer Analytics",
-      "ownership_type": "DATA_OWNER"
-    }
-  ],
-  "field_tags": ["urn:li:tag:PII"],
-  "glossary_terms": ["urn:li:glossaryTerm:CustomerEmail"],
-  "structured_properties": {
-    "urn:li:structuredProperty:io.acryl.common.usageTier": ["HIGH"]
-  },
-  "usage_tier": "high",
-  "queries": [
-    "select customer_email from analytics.dim_customers where customer_status = 'active'",
-    "select count(distinct customer_email) from analytics.dim_customers"
   ],
   "evidence": [
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
       "kind": "schema",
-      "label": "customer_email STRING"
+      "label": "cust_email TEXT",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
     },
     {
-      "urn": "urn:li:tag:PII",
       "kind": "governance",
-      "label": "PII"
+      "label": "PII Data",
+      "urn": "urn:li:tag:b2fd91.PII_Data"
     },
     {
-      "urn": "urn:li:glossaryTerm:CustomerEmail",
       "kind": "governance",
-      "label": "Customer Email"
+      "label": "Authoritative Source",
+      "urn": "urn:li:tag:b2fd91.Authoritative Source"
     },
     {
-      "urn": "urn:li:query:customer-email-usage",
+      "kind": "governance",
+      "label": "Personal data",
+      "urn": "urn:li:glossaryTerm:b2fd91.1598cf93-c199-43a1-8833-fce96faa9a1a"
+    },
+    {
       "kind": "usage",
-      "label": "High query usage"
+      "label": "High query usage",
+      "urn": "urn:li:query:changesafe-order-details-cust-email-usage"
     },
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
       "kind": "lineage",
-      "label": "customer_360"
+      "label": "ORDER_DETAILS",
+      "path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)"
+      ],
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)"
     },
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
       "kind": "lineage",
-      "label": "campaign_audiences"
+      "label": "Customer Analytics Measures",
+      "path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Customer_Analytics_Measures,PROD)"
+      ],
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Customer_Analytics_Measures,PROD)"
     },
     {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
       "kind": "lineage",
-      "label": "customer_contact_queue"
-    },
-    {
-      "urn": "urn:li:dashboard:(looker,customer_retention_dashboard)",
-      "kind": "lineage",
-      "label": "customer_retention_dashboard"
+      "label": "Order Details explore",
+      "path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry-looker.view.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry.explore.order_details,PROD)"
+      ],
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry.explore.order_details,PROD)"
     }
   ],
-  "tool_evidence": [
+  "field": "cust_email",
+  "field_tags": [
+    "urn:li:tag:b2fd91.PII_Data",
+    "urn:li:tag:b2fd91.Authoritative Source"
+  ],
+  "field_type": "TEXT",
+  "glossary_terms": [
+    "urn:li:glossaryTerm:b2fd91.1598cf93-c199-43a1-8833-fce96faa9a1a"
+  ],
+  "owners": [
     {
-      "tool": "get_entities",
-      "parameters": {
-        "urns": ["urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"]
-      },
-      "duration_ms": 118,
-      "result_count": 1,
-      "referenced_urns": ["urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"]
+      "name": "Data Platform Team",
+      "ownership_type": "TECHNICAL_OWNER",
+      "urn": "urn:li:corpGroup:b2fd91.ORG_DATA_PLATFORM"
     },
     {
-      "tool": "list_schema_fields",
-      "parameters": {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "keywords": null,
-        "limit": 200,
-        "offset": 0
-      },
-      "duration_ms": 96,
-      "result_count": 5,
-      "referenced_urns": ["urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"]
-    },
-    {
-      "tool": "get_lineage",
-      "parameters": {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "column": "customer_email",
-        "upstream": true,
-        "max_hops": 3,
-        "max_results": 30,
-        "offset": 0
-      },
-      "duration_ms": 141,
-      "result_count": 2,
-      "referenced_urns": [
-        "urn:li:dataset:(urn:li:dataPlatform:postgres,sales.customers_raw,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.stg_customers,PROD)"
-      ]
-    },
-    {
-      "tool": "get_lineage",
-      "parameters": {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "column": "customer_email",
-        "upstream": false,
-        "max_hops": 3,
-        "max_results": 30,
-        "offset": 0
-      },
-      "duration_ms": 164,
-      "result_count": 3,
-      "referenced_urns": [
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)"
-      ]
-    },
-    {
-      "tool": "get_lineage",
-      "parameters": {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "column": null,
-        "upstream": false,
-        "max_hops": 3,
-        "max_results": 30,
-        "offset": 0
-      },
-      "duration_ms": 172,
-      "result_count": 4,
-      "referenced_urns": [
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.customer_360,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing.campaign_audiences,PROD)",
-        "urn:li:dataset:(urn:li:dataPlatform:snowflake,support.customer_contact_queue,PROD)",
-        "urn:li:dashboard:(looker,customer_retention_dashboard)"
-      ]
-    },
-    {
-      "tool": "get_dataset_queries",
-      "parameters": {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
-        "column": "customer_email",
-        "start": 0,
-        "count": 10
-      },
-      "duration_ms": 132,
-      "result_count": 2,
-      "referenced_urns": [
-        "urn:li:query:changesafe-customer-email-1",
-        "urn:li:query:changesafe-customer-email-2"
-      ]
+      "name": "Ian Chen",
+      "ownership_type": "BUSINESS_OWNER",
+      "urn": "urn:li:corpuser:b2fd91.EMP006"
     }
   ],
   "provenance": {
+    "adapter_version": "datahub-agent-context/1.7.0",
     "mode": "snapshot",
-    "retrieved_at": "2026-08-06T18:42:00Z",
-    "adapter_version": "datahub-agent-context/1.7.0"
-  }
+    "retrieved_at": "2026-08-08T20:00:00Z"
+  },
+  "queries": [
+    "select cust_email, order_status from order_entry_db.analytics.order_details",
+    "select count(distinct cust_email) from order_entry_db.analytics.order_details"
+  ],
+  "schema_fields": [
+    {
+      "data_type": "NUMBER",
+      "name": "order_id",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "order_date",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "order_mode",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "order_status",
+      "nullable": false
+    },
+    {
+      "data_type": "FLOAT",
+      "name": "order_total",
+      "nullable": false
+    },
+    {
+      "data_type": "FLOAT",
+      "name": "cost_of_delivery",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "delivery_type",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "wait_till_complete_yn",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "payment_method_code",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "customer_id",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "cust_first_name",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "cust_last_name",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "cust_email",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "phone_number",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "customer_class",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "billing_address_line1",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "billing_address_line2",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "billing_town_city",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "billing_country",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "billing_zipcode",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "billing_region",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "shipping_address_line1",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "shipping_address_line2",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "shipping_town_city",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "shipping_country",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "shipping_zipcode",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "shipping_region",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "warehouse_id",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "warehouse_name",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "promotion_id",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "promotion_name",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "promotion_description",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "line_item_id",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "product_id",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "product_name",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "product_description",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "category_id",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "category_name",
+      "nullable": false
+    },
+    {
+      "data_type": "FLOAT",
+      "name": "unit_price",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "quantity",
+      "nullable": false
+    },
+    {
+      "data_type": "FLOAT",
+      "name": "line_total",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "dispatch_date",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "return_date",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "gift_wrap",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "condition",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "estimated_delivery",
+      "nullable": false
+    },
+    {
+      "data_type": "FLOAT",
+      "name": "list_price",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "product_status",
+      "nullable": false
+    },
+    {
+      "data_type": "NUMBER",
+      "name": "quantity_on_hand",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "stock_status",
+      "nullable": false
+    },
+    {
+      "data_type": "FLOAT",
+      "name": "discount_amount",
+      "nullable": false
+    },
+    {
+      "data_type": "FLOAT",
+      "name": "discount_percent",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "delivery_status",
+      "nullable": false
+    },
+    {
+      "data_type": "TEXT",
+      "name": "return_status",
+      "nullable": false
+    },
+    {
+      "data_type": "TIMESTAMP_LTZ",
+      "name": "updated_at",
+      "nullable": false
+    }
+  ],
+  "structured_properties": {
+    "urn:li:structuredProperty:showcase.costCenter": [
+      "Data Platform"
+    ],
+    "urn:li:structuredProperty:showcase.dataFreshnessSla": [
+      "Daily"
+    ],
+    "urn:li:structuredProperty:showcase.dataQualityScore": [
+      86.8
+    ],
+    "urn:li:structuredProperty:showcase.retentionPeriod": [
+      "90 days"
+    ]
+  },
+  "target_domain": "Data Platform Team",
+  "target_name": "order_details",
+  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+  "tool_evidence": [
+    {
+      "duration_ms": 118,
+      "parameters": {
+        "urns": [
+          "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+        ]
+      },
+      "referenced_urns": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      ],
+      "result_count": 1,
+      "tool": "get_entities"
+    },
+    {
+      "duration_ms": 96,
+      "parameters": {
+        "keywords": null,
+        "limit": 200,
+        "offset": 0,
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      },
+      "referenced_urns": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      ],
+      "result_count": 55,
+      "tool": "list_schema_fields"
+    },
+    {
+      "duration_ms": 141,
+      "parameters": {
+        "column": "cust_email",
+        "max_hops": 3,
+        "max_results": 30,
+        "offset": 0,
+        "upstream": true,
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      },
+      "referenced_urns": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.order_entry_db.order_entry.customers,PROD)"
+      ],
+      "result_count": 1,
+      "tool": "get_lineage"
+    },
+    {
+      "duration_ms": 164,
+      "parameters": {
+        "column": "cust_email",
+        "max_hops": 3,
+        "max_results": 30,
+        "offset": 0,
+        "upstream": false,
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      },
+      "referenced_urns": [
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Customer_Analytics_Measures,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry.explore.order_details,PROD)"
+      ],
+      "result_count": 7,
+      "tool": "get_lineage"
+    },
+    {
+      "duration_ms": 172,
+      "parameters": {
+        "column": null,
+        "max_hops": 3,
+        "max_results": 30,
+        "offset": 0,
+        "upstream": false,
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      },
+      "referenced_urns": [
+        "urn:li:dataset:(urn:li:dataPlatform:snowflake,b2fd91.order_entry_db.analytics.order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:powerbi,b2fd91.datahub_order_entries.Customer_Analytics_Measures,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:looker,b2fd91.order-entry.explore.order_details,PROD)"
+      ],
+      "result_count": 7,
+      "tool": "get_lineage"
+    },
+    {
+      "duration_ms": 132,
+      "parameters": {
+        "column": "cust_email",
+        "count": 10,
+        "start": 0,
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      },
+      "referenced_urns": [
+        "urn:li:query:changesafe-order-details-cust-email-usage"
+      ],
+      "result_count": 2,
+      "tool": "get_dataset_queries"
+    }
+  ],
+  "upstream_assets": [
+    {
+      "domain": "Data Platform Team",
+      "entity_type": "dataset",
+      "field": "cust_email",
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,changesafe.showcase_ecommerce.stg_order_details,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      ],
+      "name": "stg_order_details",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,changesafe.showcase_ecommerce.stg_order_details,PROD)"
+    },
+    {
+      "domain": "Data Platform Team",
+      "entity_type": "dataset",
+      "field": "cust_email",
+      "lineage_path": [
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.order_entry_db.order_entry.customers,PROD)",
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+      ],
+      "name": "customers",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.order_entry_db.order_entry.customers,PROD)"
+    }
+  ],
+  "usage_tier": "high"
 }

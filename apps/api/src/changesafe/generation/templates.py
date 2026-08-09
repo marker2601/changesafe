@@ -21,10 +21,10 @@ from changesafe.domain import (
 )
 from changesafe.sql_types import canonical_sql_type, type_change_kind
 
-MODEL_SQL = "models/marts/dim_customers.sql"
-MODEL_YAML = "models/marts/dim_customers.yml"
-COMPATIBILITY_TEST = "tests/assert_customer_email_compatibility.sql"
-MIGRATION_NOTES = "migrations/2026-08-06-customer-email-rename.md"
+MODEL_SQL = "models/marts/order_details.sql"
+MODEL_YAML = "models/marts/order_details.yml"
+COMPATIBILITY_TEST = "tests/assert_cust_email_compatibility.sql"
+MIGRATION_NOTES = "migrations/2026-08-08-cust-email-rename.md"
 ROLLBACK = "ROLLBACK.md"
 PR_BODY = "PR_BODY.md"
 MANIFEST = "changesafe-manifest.json"

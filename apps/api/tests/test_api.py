@@ -9,22 +9,12 @@ from changesafe.api import create_app
 from changesafe.config import Mode, Settings
 from changesafe.context.base import ContextTransportError, DecisionWriteback
 from changesafe.context.replay import ReplayDataHubContext
+from changesafe.demo import golden_change
 from changesafe.domain import ChangeRequest, DataHubReceipt, RunState
 from changesafe.generation.openai_generator import OpenAIGenerationPlanner
 from changesafe.publication.service import PublicationFailure
 
-GOLDEN_CHANGE = {
-    "asset_urn": (
-        "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
-    ),
-    "operation": "rename",
-    "field": "customer_email",
-    "new_field": "primary_email",
-    "old_type": "STRING",
-    "new_type": "STRING",
-    "source_commit": "demo-unsafe-change",
-    "requested_by": "demo-user",
-}
+GOLDEN_CHANGE = golden_change().model_dump(mode="json")
 
 
 class UnavailableLiveContext:
@@ -87,13 +77,13 @@ async def test_api_runs_complete_replay_analysis_and_serves_artifact(
 
         run = await wait_for_state(client, run_id, RunState.AWAITING_APPROVAL)
         artifact = await client.get(
-            f"/api/runs/{run_id}/artifacts/models/marts/dim_customers.sql"
+            f"/api/runs/{run_id}/artifacts/models/marts/order_details.sql"
         )
 
-    assert run["analysis"]["risk"]["score"] == 90
-    assert len(run["analysis"]["context"]["downstream_assets"]) == 4
+    assert run["analysis"]["risk"]["score"] == 80
+    assert len(run["analysis"]["context"]["downstream_assets"]) == 7
     assert artifact.status_code == 200
-    assert "customer_email as primary_email" in artifact.text.lower()
+    assert "cust_email as primary_email" in artifact.text.lower()
 
 
 @pytest.mark.asyncio

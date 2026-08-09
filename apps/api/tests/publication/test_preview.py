@@ -35,7 +35,7 @@ async def test_replay_approval_creates_truthful_downloadable_preview(
     assert receipt.writeback.label == "NOT WRITTEN — SNAPSHOT MODE"
     assert receipt.patch is not None
     assert "--- /dev/null\n+++ b/PR_BODY.md\n" in receipt.patch
-    assert "diff --git a/models/marts/dim_customers.sql" in receipt.patch
+    assert "diff --git a/models/marts/order_details.sql" in receipt.patch
     assert "\r" not in receipt.patch
     assert persisted is not None
     assert persisted.state is RunState.COMPLETED
@@ -117,7 +117,7 @@ async def test_patch_accepts_verified_operation_specific_paths(tmp_path: Path) -
 
     patch = build_unified_patch(artifacts)
 
-    assert "tests/assert_customer_email_retained.sql" in patch
+    assert "tests/assert_cust_email_retained.sql" in patch
 
 
 @pytest.mark.asyncio

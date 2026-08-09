@@ -1,10 +1,10 @@
 {
-  "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)",
+  "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
   "operation": "rename",
-  "field": "customer_email",
+  "field": "cust_email",
   "new_field": "primary_email",
-  "old_type": "STRING",
-  "new_type": "STRING",
-  "source_commit": "demo-unsafe-change",
-  "requested_by": "demo-user"
+  "old_type": null,
+  "new_type": null,
+  "source_commit": "showcase-ecommerce-safe-rename",
+  "requested_by": "judge-demo"
 }

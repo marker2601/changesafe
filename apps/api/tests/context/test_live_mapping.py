@@ -183,8 +183,12 @@ async def test_live_adapter_maps_agent_context_tool_envelopes() -> None:
     relationships = lineage["relationships"]
     assert isinstance(relationships, list)
     relationships[0]["urn"] = "urn:li:dataset:unexpected"
-    with pytest.raises(ContextLoadError, match="exactly four"):
-        await port.load(golden_change())
+
+    changed_context = await port.load(golden_change())
+
+    assert {asset.urn for asset in changed_context.downstream_assets} != set(
+        DOWNSTREAM_URNS
+    )
 
 
 @pytest.mark.asyncio

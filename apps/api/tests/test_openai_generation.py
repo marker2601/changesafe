@@ -6,7 +6,8 @@ import pytest
 import respx
 
 from changesafe.context.replay import ReplayDataHubContext
-from changesafe.domain import ChangeOperation, ChangeRequest, LlmUsage
+from changesafe.demo import golden_change
+from changesafe.domain import LlmUsage
 from changesafe.generation.openai_generator import (
     GenerationPlanningError,
     OpenAIGenerationPlanner,
@@ -15,20 +16,8 @@ from changesafe.generation.service import ArtifactGenerationService
 from changesafe.generation.templates import GenerationNarrative
 from changesafe.risk import score_change
 
-TARGET = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
-
-
 async def inputs():
-    change = ChangeRequest(
-        asset_urn=TARGET,
-        operation=ChangeOperation.RENAME,
-        field="customer_email",
-        new_field="primary_email",
-        old_type="STRING",
-        new_type="STRING",
-        source_commit="demo-unsafe-change",
-        requested_by="demo-user",
-    )
+    change = golden_change()
     context = await ReplayDataHubContext.from_default().load(change)
     return change, context, score_change(change, context)
 
@@ -86,7 +75,7 @@ def openai_response(narrative: GenerationNarrative) -> dict:
 @respx.mock
 async def test_openai_planner_uses_strict_bounded_response_schema() -> None:
     expected = GenerationNarrative(
-        transformation_expression="lower(customer_email)",
+        transformation_expression="lower(cust_email)",
         explanation="Normalize the compatibility value.",
         deprecation_language="Retain the old field for 30 days.",
         migration_summary="Expose both names during phase one.",
@@ -197,6 +186,6 @@ async def test_generation_service_falls_back_to_conservative_templates() -> None
 
     assert len(bundle.files) == 7
     assert (
-        "customer_email as primary_email"
-        in bundle.files["models/marts/dim_customers.sql"].content.lower()
+        "cust_email as primary_email"
+        in bundle.files["models/marts/order_details.sql"].content.lower()
     )

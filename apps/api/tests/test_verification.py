@@ -1,6 +1,7 @@
 import asyncio
 
 from changesafe.context.replay import ReplayDataHubContext
+from changesafe.demo import DEMO_TARGET_URN, golden_change
 from changesafe.domain import (
     ArtifactBundle,
     ArtifactFile,
@@ -11,22 +12,13 @@ from changesafe.generation.templates import generate_artifacts
 from changesafe.risk import score_change
 from changesafe.verification import verify_artifacts
 
-TARGET = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
-MODEL_SQL = "models/marts/dim_customers.sql"
-MODEL_YAML = "models/marts/dim_customers.yml"
+TARGET = DEMO_TARGET_URN
+MODEL_SQL = "models/marts/order_details.sql"
+MODEL_YAML = "models/marts/order_details.yml"
 
 
 def golden_inputs():
-    change = ChangeRequest(
-        asset_urn=TARGET,
-        operation=ChangeOperation.RENAME,
-        field="customer_email",
-        new_field="primary_email",
-        old_type="STRING",
-        new_type="STRING",
-        source_commit="demo-unsafe-change",
-        requested_by="demo-user",
-    )
+    change = golden_change()
     context = asyncio.run(ReplayDataHubContext.from_default().load(change))
     bundle = generate_artifacts(change, context, score_change(change, context))
     return change, context, bundle
@@ -103,7 +95,7 @@ def test_yaml_missing_new_field_blocks_publication() -> None:
     invalid = replace_file(
         bundle,
         MODEL_YAML,
-        "version: 2\nmodels:\n  - name: dim_customers\n    columns: []\n",
+        "version: 2\nmodels:\n  - name: order_details\n    columns: []\n",
     )
 
     report = verify_artifacts(invalid, change, context)
@@ -129,9 +121,9 @@ def test_manifest_hash_tampering_blocks_publication() -> None:
 def test_generated_expression_cannot_smuggle_a_subquery() -> None:
     change, context, bundle = golden_inputs()
     unsafe_sql = bundle.files[MODEL_SQL].content.replace(
-        "customer_email as primary_email",
+        "cust_email as primary_email",
         (
-            "customer_email || "
+            "cust_email || "
             "(select max(secret) from sensitive_table) as primary_email"
         ),
     )
@@ -146,8 +138,8 @@ def test_generated_expression_cannot_smuggle_a_subquery() -> None:
 def test_duplicate_case_insensitive_output_names_block_publication() -> None:
     change, context, bundle = golden_inputs()
     duplicate_sql = bundle.files[MODEL_SQL].content.replace(
-        "customer_email as primary_email",
-        "customer_email as CUSTOMER_ID",
+        "cust_email as primary_email",
+        "cust_email as CUSTOMER_ID",
     )
     duplicate_yaml = bundle.files[MODEL_YAML].content.replace(
         "name: primary_email",
