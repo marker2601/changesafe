@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { SchemaField } from "../types";
 
@@ -16,10 +16,10 @@ export function FieldCombobox({
   value,
 }: FieldComboboxProps) {
   const listId = useId();
+  const optionRefs = useRef(new Map<string, HTMLLIElement>());
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(value);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const selected = fields.find((field) => field.name === value) ?? null;
+  const [requestedActiveIndex, setRequestedActiveIndex] = useState(0);
   const matches = useMemo(() => {
     const term = query.trim().toLowerCase();
     if (!term) return fields;
@@ -29,18 +29,28 @@ export function FieldCombobox({
         field.data_type.toLowerCase().includes(term),
     );
   }, [fields, query]);
-  const active = matches[Math.min(activeIndex, Math.max(matches.length - 1, 0))];
+  const activeIndex = Math.min(
+    requestedActiveIndex,
+    Math.max(matches.length - 1, 0),
+  );
+  const active = matches[activeIndex];
+
+  useEffect(() => {
+    if (!open || !active) return;
+    const option = optionRefs.current.get(active.name);
+    if (typeof option?.scrollIntoView === "function") {
+      option.scrollIntoView({ block: "nearest" });
+    }
+  }, [active, open]);
 
   const close = () => {
     setOpen(false);
-    setQuery(selected?.name ?? "");
-    setActiveIndex(0);
+    setRequestedActiveIndex(0);
   };
   const select = (field: SchemaField) => {
     onChange(field);
-    setQuery(field.name);
     setOpen(false);
-    setActiveIndex(0);
+    setRequestedActiveIndex(0);
   };
 
   return (
@@ -54,14 +64,23 @@ export function FieldCombobox({
         aria-label="Current field"
         autoComplete="off"
         disabled={disabled}
-        onBlur={() => window.setTimeout(close, 0)}
+        onBlur={close}
         onChange={(event) => {
           setQuery(event.target.value);
           setOpen(true);
-          setActiveIndex(0);
+          setRequestedActiveIndex(0);
         }}
-        onClick={() => setOpen(true)}
-        onFocus={() => setOpen(true)}
+        onClick={() => {
+          if (open) return;
+          setQuery(value);
+          setOpen(true);
+          setRequestedActiveIndex(0);
+        }}
+        onFocus={() => {
+          setQuery(value);
+          setOpen(true);
+          setRequestedActiveIndex(0);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -69,43 +88,50 @@ export function FieldCombobox({
           } else if (event.key === "ArrowDown") {
             event.preventDefault();
             setOpen(true);
-            setActiveIndex((current) => Math.min(current + 1, Math.max(matches.length - 1, 0)));
+            setRequestedActiveIndex((current) =>
+              Math.min(current + 1, Math.max(matches.length - 1, 0)),
+            );
           } else if (event.key === "ArrowUp") {
             event.preventDefault();
             setOpen(true);
-            setActiveIndex((current) => Math.max(current - 1, 0));
+            setRequestedActiveIndex((current) => Math.max(current - 1, 0));
           } else if (event.key === "Enter" && open && active) {
             event.preventDefault();
             select(active);
           }
         }}
         role="combobox"
-        value={query}
+        value={open ? query : value}
       />
+      {open && matches.length === 0 ? (
+        <p aria-live="polite" className="field-combobox-empty" role="status">
+          No matching DataHub fields.
+        </p>
+      ) : null}
       {open ? (
         <ul className="field-combobox-list" id={listId} role="listbox">
-          {matches.length === 0 ? (
-            <li className="field-combobox-empty" role="status">
-              No matching DataHub fields.
+          {matches.map((field, index) => (
+            <li
+              aria-selected={field.name === value}
+              className={`field-option${index === activeIndex ? " is-active" : ""}`}
+              id={`${listId}-${field.name}`}
+              key={field.name}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                select(field);
+              }}
+              ref={(element) => {
+                if (element) optionRefs.current.set(field.name, element);
+                else optionRefs.current.delete(field.name);
+              }}
+              role="option"
+            >
+              <span>{field.name}</span>
+              <small>
+                {field.data_type} · {field.nullable ? "nullable" : "required"}
+              </small>
             </li>
-          ) : (
-            matches.map((field, index) => (
-              <li
-                aria-selected={field.name === value}
-                className={`field-option${index === activeIndex ? " is-active" : ""}`}
-                id={`${listId}-${field.name}`}
-                key={field.name}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => select(field)}
-                role="option"
-              >
-                <span>{field.name}</span>
-                <small>
-                  {field.data_type} · {field.nullable ? "nullable" : "required"}
-                </small>
-              </li>
-            ))
-          )}
+          ))}
         </ul>
       ) : null}
     </div>

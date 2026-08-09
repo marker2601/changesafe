@@ -30,6 +30,7 @@ function renderForm(
       busy={false}
       draft={draft}
       onDraftChange={vi.fn()}
+      onCurrentFieldChange={vi.fn()}
       onSubmit={vi.fn()}
       schema={loadedSchema}
       {...overrides}
@@ -104,6 +105,7 @@ describe("ChangeForm", () => {
         busy={false}
         draft={{ ...DEFAULT_CHANGE_DRAFT, new_field: "" }}
         onDraftChange={vi.fn()}
+        onCurrentFieldChange={vi.fn()}
         onSubmit={vi.fn()}
         schema={loadedSchema}
       />,
@@ -111,14 +113,17 @@ describe("ChangeForm", () => {
     expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
   });
 
-  it("explains a safe discovery failure and permits an explicit recorded fallback in auto mode", () => {
+  it("explains a safe discovery failure and permits an explicit recorded fallback in auto mode", async () => {
+    const user = userEvent.setup();
     const loadRecorded = vi.fn();
+    const retry = vi.fn();
     renderForm(DEFAULT_CHANGE_DRAFT, {
       schema: {
         ...loadedSchema,
         catalog: null,
         error: "Live DataHub is unavailable.",
         source: "active",
+        retry,
         loadRecorded,
       },
       context: null,
@@ -128,7 +133,35 @@ describe("ChangeForm", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Live DataHub is unavailable.");
     expect(screen.getByRole("button", { name: "Use recorded fields" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Use recorded fields" }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(loadRecorded).toHaveBeenCalledOnce();
   });
+
+  it("keeps recorded fallback unavailable in live mode and explains a loading schema", () => {
+    const { rerender } = renderForm(DEFAULT_CHANGE_DRAFT, {
+      schema: { ...loadedSchema, catalog: null, loading: true },
+      mode: "live",
+    });
+    expect(screen.getByRole("textbox", { name: "Current field" })).toHaveValue(
+      "Loading fields…",
+    );
+    expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
+
+    rerender(<ChangeForm busy={false} draft={DEFAULT_CHANGE_DRAFT} onDraftChange={vi.fn()} onCurrentFieldChange={vi.fn()} onSubmit={vi.fn()} schema={{ ...loadedSchema, catalog: null, error: "Live schema failed." }} mode="live" />);
+    expect(screen.queryByRole("button", { name: "Use recorded fields" })).not.toBeInTheDocument();
+  });
+
+  it.each(["order_total", "order_status"]) (
+    "keeps %s field policy pending until field-scoped context is analyzed",
+    (field) => {
+      renderForm({ ...DEFAULT_CHANGE_DRAFT, field, new_field: "replacement" });
+      expect(screen.getByText("order_details")).toBeVisible();
+      expect(screen.getByText("Pending field-scoped policy")).toBeVisible();
+      expect(screen.queryByText("PII · Governed")).not.toBeInTheDocument();
+    },
+  );
 
   it("locks the submitted request into a compact evidence summary", () => {
     renderForm(DEFAULT_CHANGE_DRAFT, {

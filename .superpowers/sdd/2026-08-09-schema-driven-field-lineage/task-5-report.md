@@ -70,3 +70,27 @@ carry a previous field's type/destination into a different field request.
 - Rendered 430px and browser-flow QA are deliberately left to the controller's
   post-review visual pass, as requested; this task did not use Playwright or a
   browser.
+
+## Fixes Made
+
+### Review fix round 1/5: key schema state and make field selection controlled
+
+- Replaced asynchronously cleared catalog state with a result keyed to the
+  exact `source:assetUrn`. A new asset or source now synchronously exposes no
+  old catalog, error, or provenance while its own catalog is loading.
+- Persisted every URN transition as the active source, including an
+  `A(recorded) -> B -> A` navigation sequence.
+- Made the combobox closed value derive from the parent field value, required
+  its change callback, removed the uncancelled blur timer, and kept typed search
+  state local to an open list only.
+- Added nearest-edge scrolling for keyboard-active options in the 55-field
+  list and moved the no-results live status outside the option list.
+- Removed pre-analysis `PII - Governed` inference from the official dataset;
+  the form now says `Pending field-scoped policy` until returned analysis
+  context supports a policy claim.
+- Added coverage for loading, Retry invocation, LIVE-mode no-fallback,
+  submitted-run immutability, controlled rerenders, immediate stale suppression,
+  and source-reset navigation.
+
+GREEN after the fix: full web Vitest `104 passed` in `17` files, TypeScript,
+lint, production build, and `git diff --check` all pass.

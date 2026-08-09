@@ -28,7 +28,7 @@ interface ChangeFormProps {
   context?: ContextBundle | null;
   schema: SchemaCatalogState;
   mode?: PublicConfig["mode"];
-  onCurrentFieldChange?: (selected: SchemaField) => void;
+  onCurrentFieldChange: (selected: SchemaField) => void;
 }
 
 function platformLabel(targetUrn: string): string {
@@ -81,7 +81,11 @@ export function ChangeForm({
         platform: platformLabel(context.target_urn),
       }
     : officialDataset
-      ? { dataset: "order_details", policy: "PII · Governed", platform: "dbt" }
+      ? {
+          dataset: "order_details",
+          policy: "Pending field-scoped policy",
+          platform: "dbt",
+        }
       : {
           dataset: "Pending DataHub context",
           policy: "Pending DataHub context",
@@ -161,7 +165,7 @@ export function ChangeForm({
               <FieldCombobox
                 disabled={busy}
                 fields={schema.catalog.schema_fields}
-                onChange={(selected) => onCurrentFieldChange?.(selected)}
+                onChange={onCurrentFieldChange}
                 value={draft.field}
               />
             ) : (

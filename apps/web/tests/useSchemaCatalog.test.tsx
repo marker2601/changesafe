@@ -60,6 +60,29 @@ describe("useSchemaCatalog", () => {
     expect(result.current.catalog).toBe(secondCatalog);
   });
 
+  it("suppresses catalog and provenance synchronously when the current source key changes", async () => {
+    const firstCatalog = {
+      ...goldenSchemaCatalog,
+      target_urn: "urn:li:dataset:synchronous-first",
+    };
+    const getSchemaCatalog = vi
+      .fn()
+      .mockResolvedValueOnce(firstCatalog)
+      .mockReturnValueOnce(deferred<SchemaCatalog>().promise);
+    const api = apiWithSchema(getSchemaCatalog);
+    const { result, rerender } = renderHook(
+      ({ urn }) => useSchemaCatalog(api, urn),
+      { initialProps: { urn: firstCatalog.target_urn } },
+    );
+    await waitFor(() => expect(result.current.catalog).toBe(firstCatalog));
+
+    rerender({ urn: "urn:li:dataset:synchronous-second" });
+
+    expect(result.current.catalog).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.source).toBe("active");
+  });
+
   it("reuses a successful schema response for the same dataset in this session", async () => {
     const getSchemaCatalog = vi.fn(async () => goldenSchemaCatalog);
     const api = apiWithSchema(getSchemaCatalog);
@@ -132,5 +155,26 @@ describe("useSchemaCatalog", () => {
 
     expect(getSchemaCatalog).not.toHaveBeenCalledWith("urn:li:dataset:source-two", "recorded");
     expect(getSchemaCatalog).toHaveBeenLastCalledWith("urn:li:dataset:source-two", "active");
+  });
+
+  it("persists the active reset across recorded A to B to A navigation", async () => {
+    const getSchemaCatalog = vi.fn(async () => goldenSchemaCatalog);
+    const api = apiWithSchema(getSchemaCatalog);
+    const first = "urn:li:dataset:source-reset-a";
+    const second = "urn:li:dataset:source-reset-b";
+    const { result, rerender } = renderHook(
+      ({ urn }) => useSchemaCatalog(api, urn),
+      { initialProps: { urn: first } },
+    );
+    await waitFor(() => expect(result.current.catalog).toBe(goldenSchemaCatalog));
+    act(() => result.current.loadRecorded());
+    await waitFor(() => expect(result.current.source).toBe("recorded"));
+
+    rerender({ urn: second });
+    await waitFor(() => expect(result.current.source).toBe("active"));
+    await act(async () => undefined);
+    rerender({ urn: first });
+
+    expect(result.current.source).toBe("active");
   });
 });

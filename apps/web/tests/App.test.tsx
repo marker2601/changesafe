@@ -74,6 +74,25 @@ describe("ChangeSafe workspace", () => {
     expect(screen.getByRole("button", { name: "Analyze change" })).toBeEnabled();
   });
 
+  it("keeps a submitted request immutable until the user chooses New analysis", async () => {
+    const user = userEvent.setup();
+    const api = createGoldenApi();
+    render(<App api={api} />);
+
+    await user.click(await screen.findByRole("button", { name: "Analyze change" }));
+    expect(await screen.findByText("Request locked to this evidence set")).toBeVisible();
+    expect(screen.queryByRole("combobox", { name: "Current field" })).not.toBeInTheDocument();
+    expect(api.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ field: "cust_email", new_field: "primary_email" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Approve preview" }));
+    await user.click(await screen.findByRole("button", { name: "New analysis" }));
+    expect(await screen.findByRole("combobox", { name: "Current field" })).toHaveValue(
+      "cust_email",
+    );
+  });
+
   it("keeps the product hero structurally stable after analysis", async () => {
     const user = userEvent.setup();
     render(<App api={createGoldenApi()} />);
