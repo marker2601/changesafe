@@ -26,8 +26,8 @@ from changesafe.context.factory import build_context_port
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.domain import (
     ChangeRequest,
-    JudgeActivity,
     PublicationReceipt,
+    ReviewActivity,
     RunState,
     RunView,
 )
@@ -273,7 +273,7 @@ def create_app(
         ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Judge session ID must be a 16-128 character opaque value.",
+                detail="Session ID must be a 16-128 character opaque value.",
             )
         client = request.client.host if request.client is not None else "unknown"
         if not await run_rate_limiter.allow(client):
@@ -299,10 +299,10 @@ def create_app(
             raise HTTPException(status_code=404, detail="Run not found")
         return run
 
-    @app.get("/api/owner/activity", response_model=list[JudgeActivity])
+    @app.get("/api/owner/activity", response_model=list[ReviewActivity])
     async def owner_activity(
         x_changesafe_admin_token: str | None = Header(default=None),
-    ) -> list[JudgeActivity]:
+    ) -> list[ReviewActivity]:
         configured = active_settings.changesafe_admin_token
         if configured is None or x_changesafe_admin_token is None:
             raise HTTPException(status_code=403, detail="Owner access is required")

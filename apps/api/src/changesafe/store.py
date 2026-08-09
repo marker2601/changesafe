@@ -18,11 +18,11 @@ from changesafe.domain import (
     AnalysisResult,
     ChangeRequest,
     EvidenceRef,
-    JudgeActivity,
     LlmUsage,
     PublicationLedgerEntry,
     PublicationReceipt,
     PublicError,
+    ReviewActivity,
     RunEvent,
     RunState,
     RunView,
@@ -222,7 +222,7 @@ class RunStore:
             await connection.commit()
         return run
 
-    async def recent_activity(self, *, limit: int = 20) -> list[JudgeActivity]:
+    async def recent_activity(self, *, limit: int = 20) -> list[ReviewActivity]:
         await self.initialize()
         bounded_limit = max(1, min(limit, 50))
         async with aiosqlite.connect(self.database) as connection:
@@ -235,13 +235,13 @@ class RunStore:
             )
             rows = await cursor.fetchall()
 
-        activity: list[JudgeActivity] = []
+        activity: list[ReviewActivity] = []
         for row in rows:
             session_id = row["session_id"]
             session_label = (
-                f"judge-{hashlib.sha256(str(session_id).encode()).hexdigest()[:8]}"
+                f"session-{hashlib.sha256(str(session_id).encode()).hexdigest()[:8]}"
                 if session_id is not None
-                else "judge-unassigned"
+                else "session-unassigned"
             )
             analysis = (
                 json.loads(str(row["analysis_json"]))
@@ -264,7 +264,7 @@ class RunStore:
                 else None
             )
             activity.append(
-                JudgeActivity(
+                ReviewActivity(
                     run_id=row["run_id"],
                     session_label=session_label,
                     scenario=DEMO_DATA_PRODUCT,

@@ -127,7 +127,9 @@ async def test_owner_activity_is_private_and_session_limited(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_malformed_judge_session_id_is_rejected(tmp_path: Path) -> None:
+async def test_malformed_session_id_is_rejected_with_neutral_copy(
+    tmp_path: Path,
+) -> None:
     app = create_app(
         settings=Settings(
             _env_file=None,
@@ -145,6 +147,9 @@ async def test_malformed_judge_session_id_is_rejected(tmp_path: Path) -> None:
         )
 
     assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Session ID must be a 16-128 character opaque value."
+    )
 
 
 @pytest.mark.asyncio

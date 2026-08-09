@@ -6,7 +6,7 @@
     "new_type": null,
     "old_type": null,
     "operation": "rename",
-    "requested_by": "judge-demo",
+    "requested_by": "changesafe-demo",
     "source_commit": "showcase-ecommerce-safe-rename"
   },
   "context": {

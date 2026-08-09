@@ -1,7 +1,7 @@
 import type {
   ChangeRequest,
   ChangeSafeApi,
-  JudgeActivity,
+  ReviewActivity,
   PublicConfig,
   PublicationReceipt,
   RunEvent,
@@ -10,7 +10,7 @@ import type {
   SubscriptionErrorHandler,
 } from "./types";
 
-export const JUDGE_SESSION_KEY = "changesafe.judge-session.v1";
+export const REVIEW_SESSION_KEY = "changesafe.judge-session.v1";
 const OPAQUE_SESSION_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 export class ApiError extends Error {
@@ -50,10 +50,10 @@ export class BrowserChangeSafeApi implements ChangeSafeApi {
 
   constructor(private readonly baseUrl = "") {}
 
-  private judgeSessionId(): string {
+  private reviewSessionId(): string {
     if (this.volatileSessionId) return this.volatileSessionId;
     try {
-      const existing = window.sessionStorage.getItem(JUDGE_SESSION_KEY);
+      const existing = window.sessionStorage.getItem(REVIEW_SESSION_KEY);
       if (existing && OPAQUE_SESSION_PATTERN.test(existing)) {
         this.volatileSessionId = existing;
         return existing;
@@ -64,7 +64,7 @@ export class BrowserChangeSafeApi implements ChangeSafeApi {
     const created = globalThis.crypto.randomUUID();
     this.volatileSessionId = created;
     try {
-      window.sessionStorage.setItem(JUDGE_SESSION_KEY, created);
+      window.sessionStorage.setItem(REVIEW_SESSION_KEY, created);
     } catch {
       // The server still receives the memory-only session identifier.
     }
@@ -77,8 +77,8 @@ export class BrowserChangeSafeApi implements ChangeSafeApi {
     );
   }
 
-  async getOwnerActivity(adminToken: string): Promise<JudgeActivity[]> {
-    return responseJson<JudgeActivity[]>(
+  async getOwnerActivity(adminToken: string): Promise<ReviewActivity[]> {
+    return responseJson<ReviewActivity[]>(
       await fetch(`${this.baseUrl}/api/owner/activity`, {
         headers: { "X-ChangeSafe-Admin-Token": adminToken },
       }),
@@ -91,7 +91,7 @@ export class BrowserChangeSafeApi implements ChangeSafeApi {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-ChangeSafe-Session-ID": this.judgeSessionId(),
+          "X-ChangeSafe-Session-ID": this.reviewSessionId(),
         },
         body: JSON.stringify(change),
       }),

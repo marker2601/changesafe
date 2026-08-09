@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   BrowserChangeSafeApi,
-  JUDGE_SESSION_KEY,
+  REVIEW_SESSION_KEY,
 } from "../src/api";
 import { goldenRun } from "./fixtures";
 
@@ -28,7 +28,7 @@ describe("BrowserChangeSafeApi", () => {
     const sessionId = createHeaders.get("X-ChangeSafe-Session-ID");
     const getHeaders = new Headers(fetchStub.mock.calls[1][1]?.headers);
     expect(sessionId).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
-    expect(window.sessionStorage.getItem(JUDGE_SESSION_KEY)).toBe(sessionId);
+    expect(window.sessionStorage.getItem(REVIEW_SESSION_KEY)).toBe(sessionId);
     expect(getHeaders.has("X-ChangeSafe-Session-ID")).toBe(false);
   });
 

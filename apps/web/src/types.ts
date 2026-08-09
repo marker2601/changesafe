@@ -208,7 +208,7 @@ export interface PublicConfig {
   openai_model: string;
 }
 
-export interface JudgeActivity {
+export interface ReviewActivity {
   run_id: string;
   session_label: string;
   scenario: string;
@@ -224,7 +224,7 @@ export type SubscriptionErrorHandler = () => void;
 
 export interface ChangeSafeApi {
   getPublicConfig(): Promise<PublicConfig>;
-  getOwnerActivity(adminToken: string): Promise<JudgeActivity[]>;
+  getOwnerActivity(adminToken: string): Promise<ReviewActivity[]>;
   createRun(change: ChangeRequest): Promise<RunView>;
   getRun(runId: string): Promise<RunView>;
   approve(runId: string, adminToken?: string): Promise<PublicationReceipt>;

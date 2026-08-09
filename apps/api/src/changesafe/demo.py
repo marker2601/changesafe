@@ -1,4 +1,4 @@
-"""Canonical organizer-provided scenario used by replay and judge flows."""
+"""Canonical organizer-provided scenario used by replay and shared-review flows."""
 
 from changesafe.domain import ChangeOperation, ChangeRequest
 
@@ -20,5 +20,5 @@ def golden_change() -> ChangeRequest:
         field=DEMO_FIELD,
         new_field=DEMO_NEW_FIELD,
         source_commit="showcase-ecommerce-safe-rename",
-        requested_by="judge-demo",
+        requested_by="changesafe-demo",
     )

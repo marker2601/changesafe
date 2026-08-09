@@ -127,12 +127,13 @@ async def test_recent_activity_contains_only_operational_demo_fields(
     activity = await store.recent_activity(limit=10)
 
     assert activity[0].run_id == run.run_id
-    assert activity[0].session_label.startswith("judge-")
+    assert activity[0].session_label.startswith("session-")
     assert activity[0].scenario == "Order Entry Analytics"
     serialized = activity[0].model_dump_json()
     assert "cust_email" not in serialized
     assert "requested_by" not in serialized
     assert "judge_session_0123456789" not in serialized
+    assert "judge" not in serialized.casefold()
 
 
 @pytest.mark.asyncio

@@ -3,11 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OwnerActivity } from "../src/components/OwnerActivity";
-import type { JudgeActivity } from "../src/types";
+import type { ReviewActivity } from "../src/types";
 
-const activity: JudgeActivity = {
+const activity: ReviewActivity = {
   run_id: "019fe233-1111-7000-8000-000000000001",
-  session_label: "Judge 7A31F0",
+  session_label: "session-7a31f0",
   scenario: "Rename cust_email to primary_email",
   state: "awaiting_approval",
   context_mode: "snapshot",
@@ -26,6 +26,9 @@ describe("OwnerActivity", () => {
       <OwnerActivity loadActivity={loadActivity} onClose={vi.fn()} />,
     );
 
+    expect(
+      screen.getByRole("heading", { name: "Review activity" }),
+    ).toBeVisible();
     expect(loadActivity).not.toHaveBeenCalled();
     const token = screen.getByLabelText("Owner token");
     expect(token).toHaveAttribute("type", "password");
@@ -33,10 +36,11 @@ describe("OwnerActivity", () => {
     await user.click(screen.getByRole("button", { name: "Load activity" }));
 
     expect(loadActivity).toHaveBeenCalledWith("owner-only-secret");
-    expect(await screen.findByText("Judge 7A31F0")).toBeVisible();
+    expect(await screen.findByText("Session 7A31F0")).toBeVisible();
     expect(screen.getByText("Rename cust_email to primary_email")).toBeVisible();
     expect(screen.getByText("Awaiting Approval")).toBeVisible();
     expect(window.sessionStorage.length).toBe(0);
+    expect(screen.queryByText(/judge/i)).not.toBeInTheDocument();
   });
 
   it("shows authorization errors next to the token control", async () => {

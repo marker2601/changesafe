@@ -1,18 +1,23 @@
 import { Activity, LockKeyhole, RefreshCw, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
-import type { JudgeActivity } from "../types";
+import type { ReviewActivity } from "../types";
 
 interface OwnerActivityProps {
-  loadActivity: (adminToken: string) => Promise<JudgeActivity[]>;
+  loadActivity: (adminToken: string) => Promise<ReviewActivity[]>;
   onClose: () => void;
 }
 
-function stateLabel(state: JudgeActivity["state"]): string {
+function stateLabel(state: ReviewActivity["state"]): string {
   return state
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+function sessionLabel(label: string): string {
+  const value = label.startsWith("session-") ? label.slice("session-".length) : label;
+  return `Session ${value.toUpperCase()}`;
 }
 
 function timestamp(value: string): string {
@@ -24,7 +29,7 @@ function timestamp(value: string): string {
 
 export function OwnerActivity({ loadActivity, onClose }: OwnerActivityProps) {
   const [token, setToken] = useState("");
-  const [activity, setActivity] = useState<JudgeActivity[] | null>(null);
+  const [activity, setActivity] = useState<ReviewActivity[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,7 +74,7 @@ export function OwnerActivity({ loadActivity, onClose }: OwnerActivityProps) {
             <LockKeyhole aria-hidden="true" />
           </span>
           <div>
-            <h2>Judge activity</h2>
+            <h2>Review activity</h2>
             <p>
               See privacy-limited sessions and operational states. No IP addresses,
               names, tokens, or submitted secrets are stored here.
@@ -115,7 +120,7 @@ export function OwnerActivity({ loadActivity, onClose }: OwnerActivityProps) {
                   {activity.map((item) => (
                     <tr key={item.run_id}>
                       <td>
-                        <strong>{item.session_label}</strong>
+                        <strong>{sessionLabel(item.session_label)}</strong>
                         <code>{item.run_id.slice(0, 8)}</code>
                       </td>
                       <td>{item.scenario}</td>
@@ -137,7 +142,7 @@ export function OwnerActivity({ loadActivity, onClose }: OwnerActivityProps) {
               </table>
             </div>
           ) : (
-            <p className="activity-empty">No judge sessions have been recorded yet.</p>
+            <p className="activity-empty">No review sessions have been recorded yet.</p>
           )
         ) : (
           <p className="activity-empty">

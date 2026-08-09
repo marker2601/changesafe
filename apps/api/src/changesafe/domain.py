@@ -331,9 +331,9 @@ class RunEvent(StrictModel):
     created_at: datetime
 
 
-class JudgeActivity(StrictModel):
+class ReviewActivity(StrictModel):
     run_id: UUID
-    session_label: str = Field(pattern=r"^judge-(?:[0-9a-f]{8}|unassigned)$")
+    session_label: str = Field(pattern=r"^session-(?:[0-9a-f]{8}|unassigned)$")
     scenario: str = Field(min_length=1)
     state: RunState
     context_mode: ContextMode | None = None
