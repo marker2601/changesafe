@@ -9,7 +9,7 @@ from changesafe.api import create_app
 from changesafe.config import Mode, Settings
 from changesafe.context.base import ContextTransportError, DecisionWriteback
 from changesafe.context.replay import ReplayDataHubContext
-from changesafe.demo import golden_change
+from changesafe.demo import DEMO_TARGET_URN, golden_change
 from changesafe.domain import ChangeRequest, DataHubReceipt, RunState, SchemaCatalog
 from changesafe.generation.openai_generator import OpenAIGenerationPlanner
 from changesafe.publication.service import PublicationFailure
@@ -32,6 +32,12 @@ class UnavailableLiveContext:
         **_kwargs: object,
     ) -> DataHubReceipt:
         raise AssertionError(f"unexpected writeback for {decision.run_id}")
+
+
+class SchemaPermissionDeniedContext(UnavailableLiveContext):
+    async def discover_schema(self, asset_urn: str) -> SchemaCatalog:
+        del asset_urn
+        raise PermissionError("private allowlist configuration")
 
 
 class ClosableReplayContext:
@@ -190,6 +196,176 @@ async def test_run_creation_is_rate_limited_per_client(tmp_path: Path) -> None:
     assert accepted.status_code == 202
     assert limited.status_code == 429
     assert limited.headers["retry-after"] == "60"
+
+
+@pytest.mark.asyncio
+async def test_schema_endpoint_returns_recorded_fields_without_credentials(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=tmp_path / "runs.db",
+        ),
+        context_port=ReplayDataHubContext.from_default(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/schema-fields",
+            params={"asset_urn": DEMO_TARGET_URN, "source": "active"},
+        )
+
+    assert response.status_code == 200
+    assert len(response.json()["schema_fields"]) == 55
+    assert response.json()["provenance"]["mode"] == "snapshot"
+    assert "token" not in response.text.casefold()
+
+
+@pytest.mark.asyncio
+async def test_schema_endpoint_rejects_malformed_and_out_of_allowlist_assets(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+    malformed_app = create_app(
+        settings=settings,
+        context_port=ReplayDataHubContext.from_default(),
+    )
+    denied_app = create_app(
+        settings=settings,
+        context_port=SchemaPermissionDeniedContext(),
+    )
+    malformed_transport = httpx.ASGITransport(app=malformed_app)
+    denied_transport = httpx.ASGITransport(app=denied_app)
+
+    async with httpx.AsyncClient(
+        transport=malformed_transport, base_url="http://test"
+    ) as client:
+        malformed = await client.get(
+            "/api/schema-fields", params={"asset_urn": "invalid"}
+        )
+    async with httpx.AsyncClient(
+        transport=denied_transport, base_url="http://test"
+    ) as client:
+        denied = await client.get(
+            "/api/schema-fields", params={"asset_urn": DEMO_TARGET_URN}
+        )
+
+    assert malformed.status_code == 422
+    assert denied.status_code == 403
+    assert denied.json()["detail"] == "Asset is outside the configured allowlist"
+    assert "private" not in denied.text
+
+
+@pytest.mark.asyncio
+async def test_schema_endpoint_returns_safe_transport_failure(tmp_path: Path) -> None:
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.LIVE,
+            changesafe_data_path=tmp_path / "runs.db",
+            datahub_gms_url="https://datahub.example.test",
+            datahub_gms_token="private-token",
+        ),
+        context_port=UnavailableLiveContext(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/schema-fields", params={"asset_urn": DEMO_TARGET_URN}
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "DataHub schema could not be loaded"
+    assert "private" not in response.text
+    assert "token" not in response.text.casefold()
+
+
+@pytest.mark.asyncio
+async def test_schema_endpoint_can_explicitly_use_recorded_evidence_in_auto_mode(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.AUTO,
+            changesafe_data_path=tmp_path / "runs.db",
+            datahub_gms_url="https://datahub.example.test",
+            datahub_gms_token="private-token",
+        ),
+        context_port=UnavailableLiveContext(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/schema-fields",
+            params={"asset_urn": DEMO_TARGET_URN, "source": "recorded"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["provenance"]["mode"] == "snapshot"
+
+
+@pytest.mark.asyncio
+async def test_schema_endpoint_rejects_unconfigured_recorded_evidence(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.LIVE,
+            changesafe_data_path=tmp_path / "runs.db",
+            datahub_gms_url="https://datahub.example.test",
+            datahub_gms_token="private-token",
+        ),
+        context_port=UnavailableLiveContext(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/schema-fields",
+            params={"asset_urn": DEMO_TARGET_URN, "source": "recorded"},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Recorded DataHub evidence is not configured."
+
+
+@pytest.mark.asyncio
+async def test_schema_rate_limit_does_not_consume_run_creation_quota(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=tmp_path / "runs.db",
+            changesafe_runs_per_minute=1,
+        ),
+        context_port=ReplayDataHubContext.from_default(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first_schema = await client.get(
+            "/api/schema-fields", params={"asset_urn": DEMO_TARGET_URN}
+        )
+        limited_schema = await client.get(
+            "/api/schema-fields", params={"asset_urn": DEMO_TARGET_URN}
+        )
+        created = await client.post("/api/runs", json=GOLDEN_CHANGE)
+        await wait_for_state(
+            client, created.json()["run_id"], RunState.AWAITING_APPROVAL
+        )
+
+    assert first_schema.status_code == 200
+    assert limited_schema.status_code == 429
+    assert limited_schema.headers["retry-after"] == "60"
+    assert created.status_code == 202
 
 
 @pytest.mark.asyncio

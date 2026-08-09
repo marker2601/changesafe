@@ -12,16 +12,21 @@ from decimal import Decimal
 from inspect import isawaitable
 from pathlib import Path
 from time import monotonic
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from changesafe.config import Mode, Settings
-from changesafe.context.base import DataHubContextPort
+from changesafe.context.base import (
+    ContextAuthorizationError,
+    ContextLoadError,
+    DataHubContextPort,
+)
 from changesafe.context.factory import build_context_port
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.domain import (
@@ -30,6 +35,7 @@ from changesafe.domain import (
     ReviewActivity,
     RunState,
     RunView,
+    SchemaCatalog,
 )
 from changesafe.generation.openai_generator import OpenAIGenerationPlanner
 from changesafe.generation.service import ArtifactGenerationService
@@ -251,6 +257,8 @@ def create_app(
     app.state.publication_service = publication_service
     run_rate_limiter = RunRateLimiter(active_settings.changesafe_runs_per_minute)
     app.state.run_rate_limiter = run_rate_limiter
+    schema_rate_limiter = RunRateLimiter(active_settings.changesafe_runs_per_minute)
+    app.state.schema_rate_limiter = schema_rate_limiter
 
     @app.get("/healthz")
     async def health() -> dict[str, str]:
@@ -260,6 +268,48 @@ def create_app(
     @app.get("/api/public-config")
     async def public_config() -> dict[str, object]:
         return active_settings.public_config()
+
+    @app.get("/api/schema-fields", response_model=SchemaCatalog)
+    async def schema_fields(
+        request: Request,
+        asset_urn: Annotated[str, Query(min_length=8, pattern=r"^urn:li:")],
+        source: Literal["active", "recorded"] = "active",
+    ) -> SchemaCatalog:
+        client = request.client.host if request.client is not None else "unknown"
+        if not await schema_rate_limiter.allow(f"schema:{client}"):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Schema lookup rate limit exceeded; retry in one minute.",
+                headers={"Retry-After": "60"},
+            )
+        selected = active_context
+        if source == "recorded":
+            if isinstance(active_context, ReplayDataHubContext):
+                selected = active_context
+            elif snapshot_context is not None:
+                selected = snapshot_context
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Recorded DataHub evidence is not configured.",
+                )
+        try:
+            return await selected.discover_schema(asset_urn)
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Asset is outside the configured allowlist",
+            ) from exc
+        except ContextAuthorizationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="DataHub authorization is unavailable",
+            ) from exc
+        except ContextLoadError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="DataHub schema could not be loaded",
+            ) from exc
 
     @app.post("/api/runs", response_model=RunView, status_code=status.HTTP_202_ACCEPTED)
     async def create_run(

@@ -8,6 +8,7 @@ import type {
   PublicationReceipt,
   RunEvent,
   RunView,
+  SchemaCatalog,
 } from "../src/types";
 
 const NOW = "2026-08-08T20:00:00Z";
@@ -54,6 +55,8 @@ const downstream: AffectedAsset[] = [
       ),
       urn,
     ],
+    lineage_precision:
+      Number(pathLength) === 2 ? "exact_field" : "endpoint_field",
   };
 });
 
@@ -191,6 +194,7 @@ export const goldenRun: RunView = {
           is_production_ml: false,
           lineage_degree: 1,
           lineage_path: ["urn:li:dataset:staging", OFFICIAL_TARGET],
+          lineage_precision: "exact_field",
         },
       ],
       downstream_assets: downstream,
@@ -274,6 +278,13 @@ export const goldenRun: RunView = {
   updated_at: NOW,
 };
 
+export const goldenSchemaCatalog: SchemaCatalog = {
+  target_urn: OFFICIAL_TARGET,
+  target_name: "order_details",
+  schema_fields: goldenRun.analysis!.context.schema_fields,
+  provenance: goldenRun.analysis!.context.provenance,
+};
+
 export const previewReceipt: PublicationReceipt = {
   mode: "preview",
   idempotency_key: "d".repeat(64),
@@ -329,6 +340,7 @@ export function createGoldenApi(): ChangeSafeApi {
   };
   return {
     getPublicConfig: vi.fn(async () => publicConfig),
+    getSchemaCatalog: vi.fn(async () => goldenSchemaCatalog),
     getOwnerActivity: vi.fn(async () => []),
     createRun: vi.fn(async () => current),
     getRun: vi.fn(async () => current),

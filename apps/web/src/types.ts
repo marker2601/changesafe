@@ -41,6 +41,13 @@ export interface AffectedAsset {
   is_production_ml: boolean;
   lineage_degree: number | null;
   lineage_path: string[];
+  lineage_precision: "exact_field" | "endpoint_field" | "dataset_level";
+}
+
+export interface SchemaField {
+  name: string;
+  data_type: string;
+  nullable: boolean;
 }
 
 export interface ContextBundle {
@@ -49,11 +56,7 @@ export interface ContextBundle {
   target_domain: string | null;
   field: string;
   field_type: string;
-  schema_fields: Array<{
-    name: string;
-    data_type: string;
-    nullable: boolean;
-  }>;
+  schema_fields: SchemaField[];
   upstream_assets: AffectedAsset[];
   downstream_assets: AffectedAsset[];
   owners: Array<{ urn: string; name: string; ownership_type: string }>;
@@ -77,6 +80,15 @@ export interface ContextBundle {
     snapshot_hash: string | null;
   };
 }
+
+export interface SchemaCatalog {
+  target_urn: string;
+  target_name: string;
+  schema_fields: SchemaField[];
+  provenance: ContextBundle["provenance"];
+}
+
+export type SchemaEvidenceSource = "active" | "recorded";
 
 export interface RiskFactor {
   code: string;
@@ -225,6 +237,10 @@ export type SubscriptionErrorHandler = () => void;
 
 export interface ChangeSafeApi {
   getPublicConfig(): Promise<PublicConfig>;
+  getSchemaCatalog(
+    assetUrn: string,
+    source?: SchemaEvidenceSource,
+  ): Promise<SchemaCatalog>;
   getOwnerActivity(adminToken: string): Promise<ReviewActivity[]>;
   createRun(change: ChangeRequest): Promise<RunView>;
   getRun(runId: string): Promise<RunView>;

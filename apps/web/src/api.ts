@@ -4,6 +4,8 @@ import type {
   ReviewActivity,
   PublicConfig,
   PublicationReceipt,
+  SchemaCatalog,
+  SchemaEvidenceSource,
   RunEvent,
   RunEventHandler,
   RunView,
@@ -74,6 +76,16 @@ export class BrowserChangeSafeApi implements ChangeSafeApi {
   async getPublicConfig(): Promise<PublicConfig> {
     return responseJson<PublicConfig>(
       await fetch(`${this.baseUrl}/api/public-config`),
+    );
+  }
+
+  async getSchemaCatalog(
+    assetUrn: string,
+    source: SchemaEvidenceSource = "active",
+  ): Promise<SchemaCatalog> {
+    const query = new URLSearchParams({ asset_urn: assetUrn, source });
+    return responseJson<SchemaCatalog>(
+      await fetch(`${this.baseUrl}/api/schema-fields?${query}`),
     );
   }
 
