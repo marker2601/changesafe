@@ -1,16 +1,12 @@
 import type { AffectedAsset } from "./types";
+import { lineageDegree } from "./lineageRoute";
+
+export { lineageDegree } from "./lineageRoute";
 
 export type LineageKind = "direct" | "multi-hop" | "relationship only";
 
-export function lineageDegree(asset: AffectedAsset): number | null {
-  const pathDegree =
-    asset.lineage_path.length >= 2 ? asset.lineage_path.length - 1 : null;
-  if (asset.lineage_degree === null) return pathDegree;
-  if (pathDegree === null) return asset.lineage_degree;
-  return Math.max(asset.lineage_degree, pathDegree);
-}
-
 export function lineageKind(asset: AffectedAsset): LineageKind {
+  if (asset.lineage_precision === "dataset_level") return "relationship only";
   const degree = lineageDegree(asset);
   if (degree !== null && degree > 1) return "multi-hop";
   if (degree === 1) return "direct";
@@ -18,10 +14,12 @@ export function lineageKind(asset: AffectedAsset): LineageKind {
 }
 
 export function compactLineageLabel(asset: AffectedAsset): string {
-  const kind = lineageKind(asset);
   const degree = lineageDegree(asset);
-  if (degree === null) return kind;
-  const hops = degree === 1 ? "1 hop" : `${degree} hops`;
-  const availability = asset.lineage_path.length === 0 ? "; path unavailable" : "";
-  return `${kind} (${hops}${availability})`;
+  if (asset.lineage_precision === "dataset_level") {
+    return "dataset-level relationship";
+  }
+  if (degree === null) return "field endpoint; degree unavailable";
+  return degree === 1
+    ? "direct field route (1 hop)"
+    : `multi-hop field route (${degree} hops)`;
 }

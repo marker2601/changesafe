@@ -9,6 +9,13 @@ import {
 import { useState, type ComponentType } from "react";
 
 import { compactLineageLabel } from "../lineageEvidence";
+import {
+  buildLineageRoute,
+  formatEndpoint,
+  formatRoute,
+  type LineageRoute,
+  type RouteDirection,
+} from "../lineageRoute";
 import type {
   AffectedAsset,
   ChangeRequest,
@@ -22,6 +29,12 @@ interface ImpactGraphProps {
   activeImpact: ImpactAssessment | null;
   dataHubOrigin?: string | null;
   request: ChangeRequest;
+}
+
+interface RouteAsset {
+  asset: AffectedAsset;
+  direction: RouteDirection;
+  route: LineageRoute;
 }
 
 function assetIcon(asset: AffectedAsset): ComponentType<{ "aria-hidden"?: boolean }> {
@@ -52,20 +65,31 @@ function fieldPolicyLabel(context: ContextBundle): string {
   return "No field policy recorded";
 }
 
+function degreeLabel(route: LineageRoute): string {
+  if (route.degree === null) return "Degree not returned";
+  return `${route.degree} ${route.degree === 1 ? "hop" : "hops"}`;
+}
+
 export function ImpactGraph({
   context,
   activeImpact,
   dataHubOrigin,
   request,
 }: ImpactGraphProps) {
-  const [selectedAsset, setSelectedAsset] = useState<AffectedAsset | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<RouteAsset | null>(null);
   const highlighted = new Set(activeImpact?.evidence_urns ?? []);
-  const graphAssets = [...context.upstream_assets, ...context.downstream_assets];
-  const accessibleAssets = [
-    ...context.upstream_assets.map((asset) => ({ asset, direction: "Upstream" })),
-    ...context.downstream_assets.map((asset) => ({ asset, direction: "Downstream" })),
-  ] as const;
-  const highlightedAssetCount = graphAssets.filter((asset) =>
+  const upstreamRoutes = context.upstream_assets.map((asset) => ({
+    asset,
+    direction: "upstream" as const,
+    route: buildLineageRoute(context, asset, "upstream"),
+  }));
+  const downstreamRoutes = context.downstream_assets.map((asset) => ({
+    asset,
+    direction: "downstream" as const,
+    route: buildLineageRoute(context, asset, "downstream"),
+  }));
+  const routeAssets = [...upstreamRoutes, ...downstreamRoutes];
+  const highlightedAssetCount = routeAssets.filter(({ asset }) =>
     highlighted.has(asset.urn),
   ).length;
   const dimUnrelated = activeImpact !== null && highlightedAssetCount > 0;
@@ -73,6 +97,28 @@ export function ImpactGraph({
     if (highlighted.has(asset.urn)) return "is-highlighted";
     return dimUnrelated ? "is-dimmed" : "";
   };
+  const renderAsset = ({ asset, route, direction }: RouteAsset) => {
+    const Icon = assetIcon(asset);
+    return (
+      <button
+        aria-label={`${formatRoute(route)}, ${compactLineageLabel(asset)} evidence`}
+        className={assetClassName(asset)}
+        key={`${direction}-${asset.urn}`}
+        onClick={() => setSelectedRoute({ asset, route, direction })}
+        type="button"
+      >
+        <Icon aria-hidden />
+        <span>
+          <small>{asset.entity_type.replaceAll("_", " ")}</small>
+          <strong>{asset.name}</strong>
+          <span className="field-route">{formatRoute(route)}</span>
+          <small className="route-degree">{degreeLabel(route)}</small>
+          {route.limitation ? <em>{route.limitation}</em> : null}
+        </span>
+      </button>
+    );
+  };
+
   return (
     <section className="dependency-panel" aria-labelledby="dependency-heading">
       <header className="dependency-heading">
@@ -82,18 +128,14 @@ export function ImpactGraph({
               ? "Live dependency evidence"
               : "Recorded dependency evidence"}
           </span>
-          <h2 id="dependency-heading">
-            Tracing what depends on {request.field}
-          </h2>
+          <h2 id="dependency-heading">Tracing what depends on {request.field}</h2>
           <p>
             DataHub evidence connects upstream inputs, this governed model, and
             every recorded dependent. The moving light shows relationship direction.
           </p>
         </div>
         <strong>
-          {context.provenance.mode === "live"
-            ? "Live DataHub"
-            : "Checksummed replay"}
+          {context.provenance.mode === "live" ? "Live DataHub" : "Checksummed replay"}
         </strong>
       </header>
 
@@ -113,25 +155,11 @@ export function ImpactGraph({
       <div className="dependency-map" id="dependency-evidence-map">
         <section className="asset-column upstream-column" aria-label="Upstream inputs">
           <h3>Upstream inputs</h3>
-          {context.upstream_assets.map((asset) => {
-            const Icon = assetIcon(asset);
-            return (
-              <button
-                aria-label={`${asset.name}, ${compactLineageLabel(asset)} evidence`}
-                className={assetClassName(asset)}
-                key={asset.urn}
-                onClick={() => setSelectedAsset(asset)}
-                type="button"
-              >
-                <Icon aria-hidden />
-                <span>
-                  <small>{asset.entity_type.replaceAll("_", " ")}</small>
-                  <strong>{asset.name}</strong>
-                  <em>{compactLineageLabel(asset)}</em>
-                </span>
-              </button>
-            );
-          })}
+          {upstreamRoutes.length > 0 ? (
+            upstreamRoutes.map(renderAsset)
+          ) : (
+            <p className="route-empty">No field-level upstream evidence returned</p>
+          )}
         </section>
 
         <div className="lineage-flow" data-testid="lineage-flow" aria-hidden="true">
@@ -146,7 +174,7 @@ export function ImpactGraph({
         >
           <span className="target-platform">dbt governed model</span>
           <Database aria-hidden="true" />
-          <strong>{context.target_name}</strong>
+          <strong>{formatEndpoint({ urn: context.target_urn, name: context.target_name, field: context.field })}</strong>
           <small>{context.target_domain ?? "Data product model"}</small>
           <em>{fieldPolicyLabel(context)}</em>
         </article>
@@ -156,46 +184,29 @@ export function ImpactGraph({
           <ArrowRight />
         </div>
 
-        <section
-          className="asset-column downstream-column"
-          aria-label="Recorded dependents"
-        >
+        <section className="asset-column downstream-column" aria-label="Recorded dependents">
           <h3>Recorded dependents</h3>
-          {context.downstream_assets.map((asset) => {
-            const Icon = assetIcon(asset);
-            return (
-              <button
-                aria-label={`${asset.name}, ${asset.entity_type}, ${compactLineageLabel(asset)} evidence`}
-                className={assetClassName(asset)}
-                key={asset.urn}
-                onClick={() => setSelectedAsset(asset)}
-                type="button"
-              >
-                <Icon aria-hidden />
-                <span>
-                  <small>{asset.entity_type.replaceAll("_", " ")}</small>
-                  <strong>{asset.name}</strong>
-                  <em>{compactLineageLabel(asset)}</em>
-                </span>
-              </button>
-            );
-          })}
+          {downstreamRoutes.length > 0 ? (
+            downstreamRoutes.map(renderAsset)
+          ) : (
+            <p className="route-empty">No recorded downstream field route</p>
+          )}
         </section>
       </div>
 
       <details className="accessible-dependencies">
         <summary>Accessible dependency list</summary>
         <ul aria-label="All recorded dependencies">
-          {accessibleAssets.map(({ asset, direction }) => {
+          {routeAssets.map(({ asset, route, direction }) => {
             const dataHubUrl = safeDataHubLink(dataHubOrigin, asset.urn);
             return (
               <li key={`${direction}-${asset.urn}`}>
-                <strong>{asset.name}</strong>
+                <strong>{formatRoute(route)}</strong>
                 <span>
-                  {direction} · {asset.entity_type.replaceAll("_", " ")} ·{" "}
-                  {compactLineageLabel(asset)} · field {asset.field ?? "not recorded"}
+                  {direction === "upstream" ? "Upstream" : "Downstream"} · {asset.entity_type.replaceAll("_", " ")} · {compactLineageLabel(asset)} · {degreeLabel(route)}
                   {asset.domain ? ` · domain ${asset.domain}` : ""}
                 </span>
+                {route.limitation ? <em>{route.limitation}</em> : null}
                 {dataHubUrl ? (
                   <a
                     aria-label={`Open ${asset.name} in DataHub`}
@@ -213,13 +224,14 @@ export function ImpactGraph({
       </details>
 
       <EvidenceDrawer
-        asset={selectedAsset}
+        asset={selectedRoute?.asset ?? null}
         dataHubUrl={
-          selectedAsset
-            ? safeDataHubLink(dataHubOrigin, selectedAsset.urn)
+          selectedRoute
+            ? safeDataHubLink(dataHubOrigin, selectedRoute.asset.urn)
             : null
         }
-        onClose={() => setSelectedAsset(null)}
+        onClose={() => setSelectedRoute(null)}
+        route={selectedRoute?.route ?? null}
       />
     </section>
   );

@@ -1,39 +1,39 @@
 import { ExternalLink, Route, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
-import { lineageDegree, lineageKind } from "../lineageEvidence";
+import { formatEndpoint, formatRoute, type LineageRoute } from "../lineageRoute";
 import type { AffectedAsset } from "../types";
 
 interface EvidenceDrawerProps {
   asset: AffectedAsset | null;
+  route: LineageRoute | null;
   onClose: () => void;
   dataHubUrl?: string | null;
 }
 
-function evidenceLabel(asset: AffectedAsset): string {
-  const kind = lineageKind(asset);
-  const degree = lineageDegree(asset);
-  const hops = degree === 1 ? "1 hop" : `${degree} hops`;
-  if (asset.lineage_path.length > 0) {
-    return `${kind === "direct" ? "Direct" : "Multi-hop"} field evidence; ${hops} recorded`;
-  }
-  if (degree !== null) {
-    return `${kind === "direct" ? "Direct" : "Multi-hop"} relationship evidence; ${hops} recorded, concrete path unavailable`;
-  }
-  return "Recorded relationship; path unavailable";
+function evidenceLabel(route: LineageRoute): string {
+  if (route.precision === "dataset_level") return "Dataset-level relationship evidence";
+  if (route.degree === null) return "Field endpoint evidence; degree unavailable";
+  const type = route.precision === "exact_field" ? "field" : "endpoint";
+  return `${route.degree === 1 ? "Direct" : "Multi-hop"} ${type} evidence; ${route.degree} ${route.degree === 1 ? "hop" : "hops"} recorded`;
+}
+
+function rawField(field: string | null): string {
+  return field ?? "Not returned by DataHub";
 }
 
 export function EvidenceDrawer({
   asset,
+  route,
   onClose,
   dataHubUrl,
 }: EvidenceDrawerProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (asset) closeRef.current?.focus();
-  }, [asset]);
+    if (asset && route) closeRef.current?.focus();
+  }, [asset, route]);
 
-  if (!asset) return null;
+  if (!asset || !route) return null;
   return (
     <div
       aria-label={`Evidence for ${asset.name}`}
@@ -43,41 +43,53 @@ export function EvidenceDrawer({
     >
       <header>
         <span>DataHub evidence</span>
-        <button
-          aria-label="Close evidence"
-          onClick={onClose}
-          ref={closeRef}
-          type="button"
-        >
+        <button aria-label="Close evidence" onClick={onClose} ref={closeRef} type="button">
           <X aria-hidden="true" />
         </button>
       </header>
-      <h3>{asset.name}</h3>
+      <h3>{formatRoute(route)}</h3>
       <p className="evidence-kind">
         <Route aria-hidden="true" />
-        {evidenceLabel(asset)}
+        {evidenceLabel(route)}
       </p>
+      {route.limitation ? <p className="route-limitation">{route.limitation}</p> : null}
       <dl>
+        <div>
+          <dt>Source</dt>
+          <dd>{formatEndpoint(route.source)}</dd>
+        </div>
+        <div>
+          <dt>Destination</dt>
+          <dd>{formatEndpoint(route.destination)}</dd>
+        </div>
+        <div>
+          <dt>Precision</dt>
+          <dd>{route.precision.replaceAll("_", " ")}</dd>
+        </div>
+        <div>
+          <dt>Source field</dt>
+          <dd className="raw-field">{rawField(route.source.field)}</dd>
+        </div>
+        <div>
+          <dt>Destination field</dt>
+          <dd className="raw-field">{rawField(route.destination.field)}</dd>
+        </div>
         <div>
           <dt>Type</dt>
           <dd>{asset.entity_type.replaceAll("_", " ")}</dd>
         </div>
-        <div>
-          <dt>Field</dt>
-          <dd>{asset.field ?? "Not recorded"}</dd>
-        </div>
-        <div>
-          <dt>Domain</dt>
-          <dd>{asset.domain ?? "Not assigned"}</dd>
-        </div>
       </dl>
       <div className="urn-block">
-        <span>Entity URN</span>
-        <code>{asset.urn}</code>
+        <span>Source URN</span>
+        <code>{route.source.urn}</code>
       </div>
-      {asset.lineage_path.length ? (
+      <div className="urn-block">
+        <span>Destination URN</span>
+        <code>{route.destination.urn}</code>
+      </div>
+      {route.orderedAssetPath.length > 0 ? (
         <ol className="evidence-path" aria-label="Recorded lineage path">
-          {asset.lineage_path.map((urn, index) => (
+          {route.orderedAssetPath.map((urn, index) => (
             <li key={`${urn}-${index}`}>
               <span>{index + 1}</span>
               <code>{urn}</code>

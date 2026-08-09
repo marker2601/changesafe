@@ -665,10 +665,10 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .asset-column h3 { margin: 0 0 2px; color: var(--quiet); font-size: 8px; letter-spacing: .09em; text-transform: uppercase; }
 .asset-column button {
   display: flex;
-  min-height: 54px;
-  align-items: center;
+  min-height: 72px;
+  align-items: flex-start;
   gap: 8px;
-  padding: 7px 8px;
+  padding: 9px 8px;
   border: 1px solid var(--line);
   border-radius: 5px;
   color: var(--text);
@@ -680,11 +680,14 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .asset-column button:hover, .asset-column button.is-highlighted { border-color: var(--cyan); box-shadow: 0 0 18px rgb(62 228 208 / 12%); }
 .asset-column button.is-highlighted { background: var(--cyan-soft); }
 .asset-column button.is-dimmed { opacity: .34; }
-.asset-column button > svg { width: 25px; height: 25px; flex: 0 0 auto; color: var(--cyan); }
-.asset-column button span { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.asset-column button > svg { width: 25px; height: 25px; flex: 0 0 auto; margin-top: 2px; color: var(--cyan); }
+.asset-column button > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .asset-column button small { color: var(--quiet); font-size: 7px; letter-spacing: .06em; text-transform: uppercase; }
-.asset-column button strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.asset-column button em { color: var(--muted); font-size: 7px; font-style: normal; }
+.asset-column button strong { overflow-wrap: anywhere; font-size: 9px; }
+.field-route { color: var(--cyan); font-size: 8px; font-weight: 750; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
+.route-degree { color: var(--quiet); }
+.asset-column button em { color: var(--amber); font-size: 7px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }
+.route-empty { margin: 0; padding: 11px; border: 1px dashed var(--line); color: var(--muted); font-size: 9px; line-height: 1.4; }
 .lineage-flow {
   position: relative;
   display: flex;
@@ -726,7 +729,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   text-align: center;
 }
 .target-node > svg { width: 55px; height: 55px; margin: 18px 0 11px; color: var(--cyan); }
-.target-node strong { font-size: 15px; }
+.target-node strong { font-size: 15px; overflow-wrap: anywhere; }
 .target-node small { margin-top: 4px; color: var(--muted); font-size: 9px; }
 .target-node em { margin-top: 13px; padding: 5px 8px; border-radius: 4px; color: var(--cyan); background: #0b4444; font-size: 9px; font-style: normal; }
 .target-node.is-highlighted { border-color: var(--lime); box-shadow: 0 0 50px rgb(190 255 30 / 19%); }
@@ -734,6 +737,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .accessible-dependencies { margin-top: 9px; }
 .accessible-dependencies ul { display: grid; gap: 5px; padding-left: 20px; color: var(--muted); font-size: 10px; }
 .accessible-dependencies li span { display: block; margin-top: 2px; color: var(--quiet); }
+.accessible-dependencies li strong { display: block; color: var(--text); overflow-wrap: anywhere; }
+.accessible-dependencies li em { display: block; margin-top: 3px; color: var(--amber); font-size: 9px; font-style: normal; line-height: 1.4; }
 .accessible-dependencies li a { display: inline-block; margin-top: 3px; color: var(--cyan); }
 
 .evidence-drawer {
@@ -754,13 +759,15 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .evidence-drawer header { display: flex; align-items: center; justify-content: space-between; color: var(--cyan); font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
 .evidence-drawer header button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; }
 .evidence-drawer header svg { width: 16px; }
-.evidence-drawer h3 { margin: 12px 0 0; font-size: 20px; }
+.evidence-drawer h3 { margin: 12px 0 0; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
 .evidence-kind { display: flex; align-items: center; gap: 7px; color: var(--cyan); font-size: 11px; }
 .evidence-kind svg { width: 16px; }
+.route-limitation { margin: 10px 0 0; padding: 8px; border-left: 2px solid var(--amber); color: #ffd88f; background: rgb(225 169 50 / 10%); font-size: 10px; line-height: 1.4; }
 .evidence-drawer dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 15px 0; }
 .evidence-drawer dl div, .urn-block { padding: 9px; border: 1px solid var(--line); background: var(--panel); }
 .evidence-drawer dt, .urn-block span { color: var(--muted); font-size: 8px; text-transform: uppercase; }
 .evidence-drawer dd { margin: 4px 0 0; font-size: 10px; text-transform: capitalize; }
+.evidence-drawer dd.raw-field { overflow-wrap: anywhere; text-transform: none; }
 .urn-block code { display: block; margin-top: 5px; overflow-wrap: anywhere; color: #c9d5d7; font-size: 8px; line-height: 1.45; }
 .evidence-path { display: grid; gap: 5px; margin: 12px 0; padding: 0; list-style: none; }
 .evidence-path li { display: grid; grid-template-columns: 22px 1fr; gap: 6px; align-items: start; }
@@ -948,6 +955,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   .dependency-map > .lineage-flow:nth-of-type(2) { order: 3; }
   .downstream-column { order: 4; }
   .asset-column { grid-template-columns: 1fr; }
+  .asset-column button { min-height: 0; }
   .analysis-stage, .scenario-ready { min-height: 430px; padding: 24px; }
   .timeline-panel { overflow: hidden; }
   .timeline-panel ol { display: grid; min-width: 0; grid-template-columns: 1fr; overflow: visible; }
@@ -966,6 +974,12 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   .owner-activity-drawer { padding: 16px; }
   .owner-activity-drawer form > div { grid-template-columns: 1fr; }
   .app-footer { align-items: flex-start; padding: 13px 14px; flex-direction: column; gap: 4px; }
+}
+
+@media (max-width: 430px) {
+  .dependency-map { padding: 11px; }
+  .field-route { line-height: 1.5; }
+  .lineage-flow { min-height: 42px; }
 }
 
 @media (max-width: 430px) {

@@ -34,7 +34,7 @@ describe("ImpactGraph", () => {
 
     expect(screen.getByRole("dialog", { name: /Evidence for/ })).toBeVisible();
     expect(
-      screen.getByText("Multi-hop field evidence; 2 hops recorded"),
+      screen.getByText("Multi-hop endpoint evidence; 2 hops recorded"),
     ).toBeVisible();
     expect(
       screen.getAllByText(analysis.context.downstream_assets[2].urn).length,
@@ -104,12 +104,14 @@ describe("ImpactGraph", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: /Customer Analytics Measures.*multi-hop.*path unavailable/i,
+        name: /Customer Analytics Measures.*multi-hop/i,
       }),
     );
 
     expect(
-      screen.getByText(/Multi-hop relationship evidence.*path unavailable/i),
+      within(screen.getByRole("dialog", { name: /Evidence for/ })).getByText(
+        "2 hops; intermediate column mapping not returned by DataHub",
+      ),
     ).toBeVisible();
     expect(
       screen.queryByRole("list", { name: "Recorded lineage path" }),
@@ -141,7 +143,7 @@ describe("ImpactGraph", () => {
 
     expect(
       screen.getByRole("button", {
-        name: /ORDER_DETAILS.*multi-hop \(2 hops\) evidence/i,
+        name: /ORDER_DETAILS.*multi-hop field route \(2 hops\) evidence/i,
       }),
     ).toBeVisible();
   });
@@ -164,16 +166,20 @@ describe("ImpactGraph", () => {
       name: "All recorded dependencies",
     });
 
-    expect(within(list).getByText("stg_order_details")).toBeVisible();
+    expect(
+      within(list).getByText(/stg_order_details\.cust_email.*order_details\.cust_email/),
+    ).toBeVisible();
     expect(
       within(list).getByText(
-        "Upstream · dataset · direct (1 hop) · field cust_email · domain Data Platform Team",
+        "Upstream · dataset · direct field route (1 hop) · 1 hop · domain Data Platform Team",
       ),
     ).toBeVisible();
-    expect(within(list).getByText("ORDER_DETAILS")).toBeVisible();
+    expect(
+      within(list).getByText(/order_details\.cust_email.*ORDER_DETAILS\.cust_email/),
+    ).toBeVisible();
     expect(
       within(list).getByText(
-        "Downstream · dataset · direct (1 hop) · field cust_email · domain Ecommerce Operations",
+        "Downstream · dataset · direct field route (1 hop) · 1 hop · domain Ecommerce Operations",
       ),
     ).toBeVisible();
 
@@ -192,6 +198,112 @@ describe("ImpactGraph", () => {
         analysis.context.upstream_assets[0].urn,
       )}`,
     );
+  });
+
+  it("shows the same exact directional field routes in cards, the drawer, and the accessible list", async () => {
+    const user = userEvent.setup();
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    const downstream = analysis.context.downstream_assets[0];
+    const context = {
+      ...analysis.context,
+      upstream_assets: [analysis.context.upstream_assets[0]],
+      downstream_assets: [
+        downstream,
+        {
+          ...analysis.context.downstream_assets[2],
+          lineage_degree: 2,
+          lineage_path: [
+            analysis.context.target_urn,
+            "urn:li:dataset:intermediate",
+            analysis.context.downstream_assets[2].urn,
+          ],
+          lineage_precision: "endpoint_field" as const,
+        },
+      ],
+    };
+    render(
+      <ImpactGraph activeImpact={null} context={context} request={goldenRun.request} />,
+    );
+
+    expect(
+      within(screen.getByRole("region", { name: "Upstream inputs" })).getByText(
+        "stg_order_details.cust_email → order_details.cust_email",
+      ),
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole("region", { name: "Recorded dependents" })).getByText(
+        "order_details.cust_email → ORDER_DETAILS.cust_email",
+      ),
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole("region", { name: "Recorded dependents" })).getByText(
+        "2 hops; intermediate column mapping not returned by DataHub",
+      ),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: /Customer Analytics Measures/ }));
+    expect(
+      screen.getAllByText("2 hops; intermediate column mapping not returned by DataHub"),
+    ).toHaveLength(3);
+    expect(screen.getByText("Source field")).toBeVisible();
+    expect(screen.getByText("Destination field")).toBeVisible();
+
+    await user.click(screen.getByText("Accessible dependency list"));
+    const list = screen.getByRole("list", { name: "All recorded dependencies" });
+    expect(
+      within(list).getByText("stg_order_details.cust_email → order_details.cust_email"),
+    ).toBeVisible();
+    expect(
+      within(list).getByText("order_details.cust_email → ORDER_DETAILS.cust_email"),
+    ).toBeVisible();
+    expect(
+      within(list).getByText("2 hops; intermediate column mapping not returned by DataHub"),
+    ).toBeVisible();
+  });
+
+  it("does not fabricate a field suffix for dataset-level evidence and renders evidence-empty states", async () => {
+    const user = userEvent.setup();
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    const context = {
+      ...analysis.context,
+      upstream_assets: [],
+      downstream_assets: [
+        {
+          ...analysis.context.downstream_assets[0],
+          name: "Order Details dashboard",
+          field: null,
+          lineage_precision: "dataset_level" as const,
+          lineage_degree: 1,
+          lineage_path: [],
+        },
+      ],
+    };
+    render(
+      <ImpactGraph activeImpact={null} context={context} request={goldenRun.request} />,
+    );
+
+    expect(screen.getByText("No field-level upstream evidence returned")).toBeVisible();
+    expect(screen.queryByText("No recorded downstream field route")).not.toBeInTheDocument();
+    expect(screen.queryByText("Order Details dashboard.cust_email")).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText("Dataset-level relationship; destination field not returned by DataHub"),
+    ).toHaveLength(2);
+
+    await user.click(screen.getByText("Accessible dependency list"));
+    expect(
+      screen.getAllByText("Dataset-level relationship; destination field not returned by DataHub"),
+    ).toHaveLength(2);
+
+    render(
+      <ImpactGraph
+        activeImpact={null}
+        context={{ ...context, downstream_assets: [] }}
+        request={goldenRun.request}
+      />,
+    );
+    expect(screen.getByText("No recorded downstream field route")).toBeVisible();
   });
 
   it("derives the target policy label from recorded field metadata", () => {
@@ -239,7 +351,7 @@ describe("ImpactGraph", () => {
     ).toHaveClass("is-highlighted");
     expect(
       screen.getByRole("button", {
-        name: /^ORDER_DETAILS, dataset, direct \(1 hop\) evidence$/,
+        name: /ORDER_DETAILS\.cust_email, direct field route \(1 hop\) evidence$/,
       }),
     ).toHaveClass("is-dimmed");
 
