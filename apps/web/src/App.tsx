@@ -2,6 +2,7 @@ import { ArrowRight, Database, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import { browserApi } from "./api";
+import { changeSummary, DEFAULT_CHANGE_DRAFT } from "./changeDraft";
 import { ApprovalPanel } from "./components/ApprovalPanel";
 import { ArtifactExplorer } from "./components/ArtifactExplorer";
 import { ChangeForm } from "./components/ChangeForm";
@@ -35,6 +36,7 @@ export function App({ api = browserApi }: AppProps) {
   const [selectedImpact, setSelectedImpact] = useState<ImpactAssessment | null>(
     null,
   );
+  const [draft, setDraft] = useState(DEFAULT_CHANGE_DRAFT);
   const [ownerActivityOpen, setOwnerActivityOpen] = useState(false);
   const analysis = run?.analysis;
   const activeImpact =
@@ -49,6 +51,7 @@ export function App({ api = browserApi }: AppProps) {
     : "#";
   const blocking =
     analysis?.validation.checks.filter((check) => check.blocking) ?? [];
+  const displayedChange = run?.request ?? draft;
 
   return (
     <div className="app-shell">
@@ -103,8 +106,10 @@ export function App({ api = browserApi }: AppProps) {
           <aside className="request-rail">
             <ChangeForm
               busy={busy}
+              draft={draft}
+              onDraftChange={setDraft}
               onSubmit={analyze}
-              submitted={Boolean(run)}
+              submittedRequest={run?.request ?? null}
             />
             {analysis ? (
               <>
@@ -160,13 +165,10 @@ export function App({ api = browserApi }: AppProps) {
               </div>
             ) : (
               <div className="scenario-ready">
-                <span>Official judge scenario ready</span>
+                <span>Ready to trace this change</span>
                 <Database aria-hidden="true" />
                 <h2>order_details</h2>
-                <p>
-                  Rename <strong>cust_email</strong> to <strong>primary_email</strong>
-                  while keeping every recorded consumer working.
-                </p>
+                <p>{changeSummary(displayedChange)}</p>
                 <div>
                   <span>Order Entry Analytics</span>
                   <ArrowRight aria-hidden="true" />

@@ -1,41 +1,50 @@
 import { ArrowRight, Database, Play, ShieldCheck, Snowflake } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import type { FormEvent } from "react";
 
+import {
+  changeSummary,
+  draftToRequest,
+  sourceCommitForOperation,
+  type ChangeDraft,
+} from "../changeDraft";
 import type { ChangeOperation, ChangeRequest } from "../types";
-
-const TARGET =
-  "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)";
 
 interface ChangeFormProps {
   busy: boolean;
+  draft: ChangeDraft;
+  onDraftChange: (draft: ChangeDraft) => void;
   onSubmit: (change: ChangeRequest) => void | Promise<void>;
-  submitted?: boolean;
+  submittedRequest?: ChangeRequest | null;
 }
 
-export function ChangeForm({ busy, onSubmit, submitted = false }: ChangeFormProps) {
-  const [assetUrn, setAssetUrn] = useState(TARGET);
-  const [operation, setOperation] = useState<ChangeOperation>("rename");
-  const [field, setField] = useState("cust_email");
-  const [newField, setNewField] = useState("primary_email");
-  const [oldType, setOldType] = useState("TEXT");
-  const [newType, setNewType] = useState("VARCHAR(320)");
-  const [sourceCommit, setSourceCommit] = useState(
-    "showcase-ecommerce-safe-rename",
-  );
-
+export function ChangeForm({
+  busy,
+  draft,
+  onDraftChange,
+  onSubmit,
+  submittedRequest = null,
+}: ChangeFormProps) {
+  const submitted = submittedRequest !== null;
+  const displayed = submittedRequest ?? draft;
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void onSubmit({
-      asset_urn: assetUrn,
+    void onSubmit(draftToRequest(draft));
+  };
+
+  const changeOperation = (operation: ChangeOperation) => {
+    onDraftChange({
+      ...draft,
       operation,
-      field,
-      new_field: operation === "rename" ? newField : null,
-      old_type: operation === "type_change" ? oldType : null,
-      new_type: operation === "type_change" ? newType : null,
-      source_commit: sourceCommit,
-      requested_by: "judge-demo",
+      source_commit: sourceCommitForOperation(operation),
     });
   };
+
+  const destination =
+    displayed.operation === "rename"
+      ? displayed.new_field
+      : displayed.operation === "remove"
+        ? "retain through phase one"
+        : `${displayed.new_type} compatibility field`;
 
   return (
     <form
@@ -49,7 +58,7 @@ export function ChangeForm({ busy, onSubmit, submitted = false }: ChangeFormProp
         <p>
           {submitted
             ? "This request is bound to the evidence and artifacts shown here."
-            : "Propose the rename. ChangeSafe will discover who and what it affects."}
+            : changeSummary(draft)}
         </p>
       </header>
 
@@ -57,9 +66,9 @@ export function ChangeForm({ busy, onSubmit, submitted = false }: ChangeFormProp
         <label>
           Operation
           <select
-            value={operation}
+            value={draft.operation}
             onChange={(event) =>
-              setOperation(event.target.value as ChangeOperation)
+              changeOperation(event.target.value as ChangeOperation)
             }
           >
             <option value="rename">Rename field</option>
@@ -70,9 +79,9 @@ export function ChangeForm({ busy, onSubmit, submitted = false }: ChangeFormProp
       ) : null}
 
       <p className="change-route" aria-label="Proposed field transition">
-        <strong>{field}</strong>
+        <strong>{displayed.field}</strong>
         <ArrowRight aria-hidden="true" />
-        <strong>{operation === "rename" ? newField : operation.replace("_", " ")}</strong>
+        <strong>{destination}</strong>
       </p>
 
       {!submitted ? (
@@ -81,46 +90,54 @@ export function ChangeForm({ busy, onSubmit, submitted = false }: ChangeFormProp
             Current field
             <input
               required
-              value={field}
-              onChange={(event) => setField(event.target.value)}
+              value={draft.field}
+              onChange={(event) =>
+                onDraftChange({ ...draft, field: event.target.value })
+              }
             />
           </label>
           <ArrowRight aria-hidden="true" />
-          {operation === "rename" ? (
+          {draft.operation === "rename" ? (
             <label>
               New field
               <input
                 required
-                value={newField}
-                onChange={(event) => setNewField(event.target.value)}
+                value={draft.new_field}
+                onChange={(event) =>
+                  onDraftChange({ ...draft, new_field: event.target.value })
+                }
               />
             </label>
           ) : (
             <span className="operation-destination">
-              {operation === "remove"
+              {draft.operation === "remove"
                 ? "Retain temporarily"
-                : "Compatible alias"}
+                : `${draft.new_type} alias`}
             </span>
           )}
         </div>
       ) : null}
 
-      {!submitted && operation === "type_change" ? (
+      {!submitted && draft.operation === "type_change" ? (
         <div className="field-pair">
           <label>
             Current type
             <input
               required
-              value={oldType}
-              onChange={(event) => setOldType(event.target.value)}
+            value={draft.old_type}
+            onChange={(event) =>
+              onDraftChange({ ...draft, old_type: event.target.value })
+            }
             />
           </label>
           <label>
             New type
             <input
               required
-              value={newType}
-              onChange={(event) => setNewType(event.target.value)}
+            value={draft.new_type}
+            onChange={(event) =>
+              onDraftChange({ ...draft, new_type: event.target.value })
+            }
             />
           </label>
         </div>
@@ -162,8 +179,10 @@ export function ChangeForm({ busy, onSubmit, submitted = false }: ChangeFormProp
               Dataset URN
               <input
                 required
-                value={assetUrn}
-                onChange={(event) => setAssetUrn(event.target.value)}
+                value={draft.asset_urn}
+                onChange={(event) =>
+                  onDraftChange({ ...draft, asset_urn: event.target.value })
+                }
                 spellCheck={false}
               />
             </label>
@@ -171,8 +190,10 @@ export function ChangeForm({ busy, onSubmit, submitted = false }: ChangeFormProp
               Source commit
               <input
                 required
-                value={sourceCommit}
-                onChange={(event) => setSourceCommit(event.target.value)}
+                value={draft.source_commit}
+                onChange={(event) =>
+                  onDraftChange({ ...draft, source_commit: event.target.value })
+                }
               />
             </label>
           </details>

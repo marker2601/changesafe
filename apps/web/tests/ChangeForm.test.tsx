@@ -1,14 +1,35 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChangeForm } from "../src/components/ChangeForm";
+import {
+  DEFAULT_CHANGE_DRAFT,
+  sourceCommitForOperation,
+} from "../src/changeDraft";
+import type { ChangeDraft } from "../src/changeDraft";
+
+function renderForm(
+  draft: ChangeDraft = DEFAULT_CHANGE_DRAFT,
+  overrides: Partial<ComponentProps<typeof ChangeForm>> = {},
+) {
+  return render(
+    <ChangeForm
+      busy={false}
+      draft={draft}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
 
 describe("ChangeForm", () => {
   it("seeds the golden rename and submits its exact contract", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
-    render(<ChangeForm busy={false} onSubmit={onSubmit} />);
+    renderForm(DEFAULT_CHANGE_DRAFT, { onSubmit });
 
     expect(screen.getByLabelText("Current field")).toHaveValue("cust_email");
     expect(screen.getByLabelText("New field")).toHaveValue("primary_email");
@@ -23,23 +44,55 @@ describe("ChangeForm", () => {
         old_type: null,
         new_type: null,
         source_commit: "showcase-ecommerce-safe-rename",
+        requested_by: "changesafe-web",
       }),
     );
   });
 
-  it("shows type controls only for a type change", async () => {
+  it("reports operation-specific draft and source commit changes", async () => {
     const user = userEvent.setup();
-    render(<ChangeForm busy={false} onSubmit={vi.fn()} />);
+    const onDraftChange = vi.fn();
+    renderForm(DEFAULT_CHANGE_DRAFT, { onDraftChange });
 
-    await user.selectOptions(screen.getByLabelText("Operation"), "type_change");
+    await user.selectOptions(screen.getByLabelText("Operation"), "remove");
+
+    expect(onDraftChange).toHaveBeenCalledWith({
+      ...DEFAULT_CHANGE_DRAFT,
+      operation: "remove",
+      source_commit: sourceCommitForOperation("remove"),
+    });
+  });
+
+  it("shows type controls and guidance only for a type change", () => {
+    renderForm({
+      ...DEFAULT_CHANGE_DRAFT,
+      operation: "type_change",
+      source_commit: sourceCommitForOperation("type_change"),
+    });
 
     expect(screen.getByLabelText("Current type")).toBeVisible();
     expect(screen.getByLabelText("New type")).toBeVisible();
     expect(screen.queryByLabelText("New field")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Keep cust_email and add a safely cast VARCHAR(320) compatibility field during phase one.",
+      ),
+    ).toBeVisible();
   });
 
   it("locks the submitted request into a compact evidence summary", () => {
-    render(<ChangeForm busy={false} onSubmit={vi.fn()} submitted />);
+    renderForm(DEFAULT_CHANGE_DRAFT, {
+      submittedRequest: {
+        asset_urn: DEFAULT_CHANGE_DRAFT.asset_urn,
+        operation: "rename",
+        field: "cust_email",
+        new_field: "primary_email",
+        old_type: null,
+        new_type: null,
+        source_commit: DEFAULT_CHANGE_DRAFT.source_commit,
+        requested_by: "changesafe-web",
+      },
+    });
 
     expect(screen.getAllByText("cust_email").length).toBeGreaterThan(0);
     expect(screen.getAllByText("primary_email").length).toBeGreaterThan(0);

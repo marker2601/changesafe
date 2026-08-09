@@ -13,6 +13,22 @@ import type {
 import { createGoldenApi, goldenRun, RUN_ID } from "./fixtures";
 
 describe("ChangeSafe workspace", () => {
+  it("keeps the ready scenario synchronized with the selected operation", async () => {
+    const user = userEvent.setup();
+    render(<App api={createGoldenApi()} />);
+
+    await user.selectOptions(screen.getByLabelText("Operation"), "remove");
+
+    expect(
+      screen.getAllByText(
+        "Delay removal of cust_email until every recorded consumer has migrated.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByText("Official judge scenario ready"),
+    ).not.toBeInTheDocument();
+  });
+
   it("blocks a new analysis while a saved run is being restored", async () => {
     let resolveRun: (run: RunView) => void = () => undefined;
     const pendingRun = new Promise<RunView>((resolve) => {
