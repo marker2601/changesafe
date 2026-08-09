@@ -427,14 +427,26 @@ def verify_artifacts(
         and new_field.lower() in compatibility_text
         and "is distinct from" in compatibility_text
     )
+    if change.operation is ChangeOperation.REMOVE:
+        compatibility_label = "Phase-one field remains available"
+        compatibility_detail = (
+            f"The singular guard compiles only while {change.field} exists."
+            if comparison_valid
+            else "The singular guard does not prove the phase-one field exists."
+        )
+    else:
+        compatibility_label = "Compatibility test compares old and new values"
+        compatibility_detail = (
+            "The singular test fails on divergent values."
+            if comparison_valid
+            else "The compatibility test does not compare both field values."
+        )
     checks.append(
         _check(
             "compatibility_test",
-            "Compatibility test compares old and new values",
+            compatibility_label,
             comparison_valid,
-            "The singular test fails on divergent values."
-            if comparison_valid
-            else "The compatibility test does not compare both field values.",
+            compatibility_detail,
         )
     )
 

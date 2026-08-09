@@ -125,6 +125,27 @@ def test_each_supported_operation_generates_and_verifies(
     assert expected_projection in bundle.files["models/marts/order_details.sql"].content
 
 
+def test_remove_guard_explains_zero_row_and_compile_failure_semantics() -> None:
+    change = ChangeRequest(
+        asset_urn=TARGET,
+        operation=ChangeOperation.REMOVE,
+        field="cust_email",
+        source_commit="showcase-ecommerce-safe-remove",
+        requested_by="changesafe-demo",
+    )
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+
+    bundle = generate_artifacts(change, context, score_change(change, context))
+
+    assert bundle.files["tests/assert_cust_email_retained.sql"].content == (
+        "-- Phase-one safety guard: dbt passes because this query returns zero rows.\n"
+        "-- If cust_email is removed too early, compilation fails before publication.\n"
+        "select cust_email\n"
+        "from {{ ref('order_details') }}\n"
+        "where false\n"
+    )
+
+
 def test_type_change_uses_shared_alias_aware_metadata_comparison() -> None:
     change = ChangeRequest(
         asset_urn=TARGET,

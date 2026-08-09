@@ -327,7 +327,10 @@ def _compatibility_test(change: ChangeRequest, context: ContextBundle) -> str:
     preferred = _preferred_field(change)
     if change.operation is ChangeOperation.REMOVE:
         return (
-            "-- This compiles only while the phase-one field remains available.\n"
+            "-- Phase-one safety guard: dbt passes because this query returns "
+            "zero rows.\n"
+            f"-- If {change.field} is removed too early, compilation fails before "
+            "publication.\n"
             f"select {change.field}\n"
             f"from {{{{ ref('{model}') }}}}\n"
             "where false\n"

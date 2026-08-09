@@ -39,6 +39,19 @@ def test_golden_artifacts_pass_every_blocking_check() -> None:
     assert all(check.passed for check in report.checks if check.blocking)
 
 
+def test_remove_guard_has_operation_specific_validation_language() -> None:
+    change = golden_change().model_copy(
+        update={"operation": ChangeOperation.REMOVE, "new_field": None}
+    )
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+    bundle = generate_artifacts(change, context, score_change(change, context))
+
+    check = verify_artifacts(bundle, change, context).check("compatibility_test")
+
+    assert check.label == "Phase-one field remains available"
+    assert "compiles only while cust_email exists" in check.detail
+
+
 def test_legacy_invalid_type_parameters_fail_context_alignment() -> None:
     rename, context, _bundle = golden_inputs()
     valid = rename.model_copy(
