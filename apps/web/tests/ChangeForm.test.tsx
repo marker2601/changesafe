@@ -4,12 +4,22 @@ import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChangeForm } from "../src/components/ChangeForm";
+import type { SchemaCatalogState } from "../src/hooks/useSchemaCatalog";
 import {
   DEFAULT_CHANGE_DRAFT,
   sourceCommitForOperation,
 } from "../src/changeDraft";
 import type { ChangeDraft } from "../src/changeDraft";
-import { goldenRun } from "./fixtures";
+import { goldenRun, goldenSchemaCatalog } from "./fixtures";
+
+const loadedSchema: SchemaCatalogState = {
+  catalog: goldenSchemaCatalog,
+  loading: false,
+  error: null,
+  source: "active",
+  retry: vi.fn(),
+  loadRecorded: vi.fn(),
+};
 
 function renderForm(
   draft: ChangeDraft = DEFAULT_CHANGE_DRAFT,
@@ -21,6 +31,7 @@ function renderForm(
       draft={draft}
       onDraftChange={vi.fn()}
       onSubmit={vi.fn()}
+      schema={loadedSchema}
       {...overrides}
     />,
   );
@@ -32,7 +43,7 @@ describe("ChangeForm", () => {
     const onSubmit = vi.fn();
     renderForm(DEFAULT_CHANGE_DRAFT, { onSubmit });
 
-    expect(screen.getByLabelText("Current field")).toHaveValue("cust_email");
+    expect(screen.getByRole("combobox", { name: "Current field" })).toHaveValue("cust_email");
     expect(screen.getByLabelText("New field")).toHaveValue("primary_email");
     await user.click(screen.getByRole("button", { name: "Analyze change" }));
 
@@ -71,7 +82,8 @@ describe("ChangeForm", () => {
       source_commit: sourceCommitForOperation("type_change"),
     });
 
-    expect(screen.getByLabelText("Current type")).toBeVisible();
+    expect(screen.getByLabelText("Current type")).toHaveValue("TEXT");
+    expect(screen.getByLabelText("Current type")).toHaveAttribute("readOnly");
     expect(screen.getByLabelText("New type")).toBeVisible();
     expect(screen.queryByLabelText("New field")).not.toBeInTheDocument();
     expect(
@@ -79,6 +91,43 @@ describe("ChangeForm", () => {
         "Keep cust_email and add a safely cast VARCHAR(320) compatibility field during phase one.",
       ),
     ).toBeVisible();
+  });
+
+  it("stops analysis until a returned field and required destination are present", () => {
+    const { rerender } = renderForm(
+      { ...DEFAULT_CHANGE_DRAFT, field: "not_returned", new_field: "" },
+    );
+    expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
+
+    rerender(
+      <ChangeForm
+        busy={false}
+        draft={{ ...DEFAULT_CHANGE_DRAFT, new_field: "" }}
+        onDraftChange={vi.fn()}
+        onSubmit={vi.fn()}
+        schema={loadedSchema}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
+  });
+
+  it("explains a safe discovery failure and permits an explicit recorded fallback in auto mode", () => {
+    const loadRecorded = vi.fn();
+    renderForm(DEFAULT_CHANGE_DRAFT, {
+      schema: {
+        ...loadedSchema,
+        catalog: null,
+        error: "Live DataHub is unavailable.",
+        source: "active",
+        loadRecorded,
+      },
+      context: null,
+      mode: "auto",
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Live DataHub is unavailable.");
+    expect(screen.getByRole("button", { name: "Use recorded fields" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
   });
 
   it("locks the submitted request into a compact evidence summary", () => {

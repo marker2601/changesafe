@@ -4,11 +4,20 @@ import type { FormEvent } from "react";
 import {
   changeSummary,
   draftToRequest,
+  isOfficialDataset,
   isOfficialScenario,
   sourceCommitForOperation,
   type ChangeDraft,
 } from "../changeDraft";
-import type { ChangeOperation, ChangeRequest, ContextBundle } from "../types";
+import type { SchemaCatalogState } from "../hooks/useSchemaCatalog";
+import type {
+  ChangeOperation,
+  ChangeRequest,
+  ContextBundle,
+  PublicConfig,
+  SchemaField,
+} from "../types";
+import { FieldCombobox } from "./FieldCombobox";
 
 interface ChangeFormProps {
   busy: boolean;
@@ -17,6 +26,9 @@ interface ChangeFormProps {
   onSubmit: (change: ChangeRequest) => void | Promise<void>;
   submittedRequest?: ChangeRequest | null;
   context?: ContextBundle | null;
+  schema: SchemaCatalogState;
+  mode?: PublicConfig["mode"];
+  onCurrentFieldChange?: (selected: SchemaField) => void;
 }
 
 function platformLabel(targetUrn: string): string {
@@ -43,17 +55,32 @@ export function ChangeForm({
   onSubmit,
   submittedRequest = null,
   context = null,
+  schema,
+  mode = "replay",
+  onCurrentFieldChange,
 }: ChangeFormProps) {
   const submitted = submittedRequest !== null;
   const displayed = submittedRequest ?? draft;
   const official = isOfficialScenario(displayed);
+  const officialDataset = isOfficialDataset(displayed);
+  const selectedField = schema.catalog?.schema_fields.find(
+    (field) => field.name === draft.field,
+  );
+  const operationComplete =
+    draft.operation === "rename"
+      ? Boolean(draft.new_field.trim())
+      : draft.operation === "type_change"
+        ? Boolean(draft.new_type.trim())
+        : true;
+  const canAnalyze =
+    !busy && !schema.loading && !schema.error && Boolean(selectedField) && operationComplete;
   const facts = context
     ? {
         dataset: context.target_name,
         policy: fieldPolicy(context),
         platform: platformLabel(context.target_urn),
       }
-    : official
+    : officialDataset
       ? { dataset: "order_details", policy: "PII · Governed", platform: "dbt" }
       : {
           dataset: "Pending DataHub context",
@@ -125,50 +152,71 @@ export function ChangeForm({
       </p>
 
       {!submitted ? (
-        <div className="rename-pair">
+        <>
           <label>
             Current field
-            <input
-              required
-              value={draft.field}
-              onChange={(event) =>
-                onDraftChange({ ...draft, field: event.target.value })
-              }
-            />
-          </label>
-          <ArrowRight aria-hidden="true" />
-          {draft.operation === "rename" ? (
-            <label>
-              New field
-              <input
-                required
-                value={draft.new_field}
-                onChange={(event) =>
-                  onDraftChange({ ...draft, new_field: event.target.value })
-                }
+            {schema.loading ? (
+              <input aria-label="Current field" disabled value="Loading fields…" />
+            ) : schema.catalog ? (
+              <FieldCombobox
+                disabled={busy}
+                fields={schema.catalog.schema_fields}
+                onChange={(selected) => onCurrentFieldChange?.(selected)}
+                value={draft.field}
               />
-            </label>
-          ) : (
-            <span className="operation-destination">
-              {draft.operation === "remove"
-                ? "Retain temporarily"
-                : `${draft.new_type} alias`}
-            </span>
-          )}
-        </div>
+            ) : (
+              <input aria-label="Current field" disabled value="Schema unavailable" />
+            )}
+          </label>
+          {schema.catalog ? (
+            <p className="schema-source">
+              {schema.catalog.provenance.mode === "live"
+                ? "Reading schema from Live DataHub"
+                : "Reading checksum-verified recorded schema"}
+            </p>
+          ) : null}
+          {schema.error ? (
+            <div className="schema-error" role="alert">
+              <span>{schema.error}</span>
+              <button className="button button-secondary" onClick={schema.retry} type="button">
+                Retry
+              </button>
+              {mode === "auto" && schema.source === "active" ? (
+                <button className="button button-secondary" onClick={schema.loadRecorded} type="button">
+                  Use recorded fields
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="rename-pair">
+            <ArrowRight aria-hidden="true" />
+            {draft.operation === "rename" ? (
+              <label>
+                New field
+                <input
+                  required
+                  value={draft.new_field}
+                  onChange={(event) =>
+                    onDraftChange({ ...draft, new_field: event.target.value })
+                  }
+                />
+              </label>
+            ) : (
+              <span className="operation-destination">
+                {draft.operation === "remove"
+                  ? "Retain temporarily"
+                  : `${draft.new_type} alias`}
+              </span>
+            )}
+          </div>
+        </>
       ) : null}
 
       {!submitted && draft.operation === "type_change" ? (
         <div className="field-pair">
           <label>
             Current type
-            <input
-              required
-            value={draft.old_type}
-            onChange={(event) =>
-              onDraftChange({ ...draft, old_type: event.target.value })
-            }
-            />
+            <input readOnly required value={selectedField?.data_type ?? ""} />
           </label>
           <label>
             New type
@@ -221,7 +269,14 @@ export function ChangeForm({
                 required
                 value={draft.asset_urn}
                 onChange={(event) =>
-                  onDraftChange({ ...draft, asset_urn: event.target.value })
+                  onDraftChange({
+                    ...draft,
+                    asset_urn: event.target.value,
+                    field: "",
+                    new_field: "",
+                    old_type: "",
+                    new_type: "",
+                  })
                 }
                 spellCheck={false}
               />
@@ -240,7 +295,7 @@ export function ChangeForm({
 
           <button
             className="button button-primary"
-            disabled={busy}
+            disabled={!canAnalyze}
             type="submit"
           >
             <Play aria-hidden="true" />

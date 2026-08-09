@@ -28,6 +28,12 @@ export function sourceCommitForOperation(operation: ChangeOperation): string {
   return OPERATION_COMMITS[operation];
 }
 
+export function isOfficialDataset(
+  change: Pick<ChangeDraft, "asset_urn">,
+): boolean {
+  return change.asset_urn === OFFICIAL_TARGET;
+}
+
 type ScenarioRequest = Pick<
   ChangeRequest,
   | "asset_urn"

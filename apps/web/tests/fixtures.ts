@@ -16,6 +16,64 @@ export const RUN_ID = "0198f000-0000-7000-8000-000000000000";
 export const OFFICIAL_TARGET =
   "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)";
 
+export const schemaFields = [
+  { name: "order_id", data_type: "NUMBER", nullable: false },
+  { name: "order_date", data_type: "TEXT", nullable: false },
+  { name: "order_mode", data_type: "TEXT", nullable: false },
+  { name: "order_status", data_type: "NUMBER", nullable: false },
+  { name: "order_total", data_type: "FLOAT", nullable: false },
+  { name: "cost_of_delivery", data_type: "FLOAT", nullable: false },
+  { name: "delivery_type", data_type: "TEXT", nullable: false },
+  { name: "wait_till_complete_yn", data_type: "TEXT", nullable: false },
+  { name: "payment_method_code", data_type: "TEXT", nullable: false },
+  { name: "customer_id", data_type: "NUMBER", nullable: false },
+  { name: "cust_first_name", data_type: "TEXT", nullable: false },
+  { name: "cust_last_name", data_type: "TEXT", nullable: false },
+  { name: "cust_email", data_type: "TEXT", nullable: false },
+  { name: "phone_number", data_type: "TEXT", nullable: false },
+  { name: "customer_class", data_type: "TEXT", nullable: false },
+  { name: "billing_address_line1", data_type: "TEXT", nullable: false },
+  { name: "billing_address_line2", data_type: "TEXT", nullable: false },
+  { name: "billing_town_city", data_type: "TEXT", nullable: false },
+  { name: "billing_country", data_type: "TEXT", nullable: false },
+  { name: "billing_zipcode", data_type: "NUMBER", nullable: false },
+  { name: "billing_region", data_type: "TEXT", nullable: false },
+  { name: "shipping_address_line1", data_type: "TEXT", nullable: false },
+  { name: "shipping_address_line2", data_type: "TEXT", nullable: false },
+  { name: "shipping_town_city", data_type: "TEXT", nullable: false },
+  { name: "shipping_country", data_type: "TEXT", nullable: false },
+  { name: "shipping_zipcode", data_type: "NUMBER", nullable: false },
+  { name: "shipping_region", data_type: "TEXT", nullable: false },
+  { name: "warehouse_id", data_type: "NUMBER", nullable: false },
+  { name: "warehouse_name", data_type: "TEXT", nullable: false },
+  { name: "promotion_id", data_type: "NUMBER", nullable: false },
+  { name: "promotion_name", data_type: "TEXT", nullable: false },
+  { name: "promotion_description", data_type: "TEXT", nullable: false },
+  { name: "line_item_id", data_type: "NUMBER", nullable: false },
+  { name: "product_id", data_type: "NUMBER", nullable: false },
+  { name: "product_name", data_type: "TEXT", nullable: false },
+  { name: "product_description", data_type: "TEXT", nullable: false },
+  { name: "category_id", data_type: "NUMBER", nullable: false },
+  { name: "category_name", data_type: "TEXT", nullable: false },
+  { name: "unit_price", data_type: "FLOAT", nullable: false },
+  { name: "quantity", data_type: "NUMBER", nullable: false },
+  { name: "line_total", data_type: "FLOAT", nullable: false },
+  { name: "dispatch_date", data_type: "TEXT", nullable: false },
+  { name: "return_date", data_type: "TEXT", nullable: false },
+  { name: "gift_wrap", data_type: "TEXT", nullable: false },
+  { name: "condition", data_type: "TEXT", nullable: false },
+  { name: "estimated_delivery", data_type: "TEXT", nullable: false },
+  { name: "list_price", data_type: "FLOAT", nullable: false },
+  { name: "product_status", data_type: "TEXT", nullable: false },
+  { name: "quantity_on_hand", data_type: "NUMBER", nullable: false },
+  { name: "stock_status", data_type: "TEXT", nullable: false },
+  { name: "discount_amount", data_type: "FLOAT", nullable: false },
+  { name: "discount_percent", data_type: "FLOAT", nullable: false },
+  { name: "delivery_status", data_type: "TEXT", nullable: false },
+  { name: "return_status", data_type: "TEXT", nullable: false },
+  { name: "updated_at", data_type: "TIMESTAMP_LTZ", nullable: false },
+] satisfies SchemaCatalog["schema_fields"];
+
 const downstream: AffectedAsset[] = [
   [
     "ORDER_DETAILS",
@@ -178,11 +236,7 @@ export const goldenRun: RunView = {
       target_domain: "Data Platform Team",
       field: "cust_email",
       field_type: "TEXT",
-      schema_fields: [
-        { name: "order_id", data_type: "NUMBER", nullable: false },
-        { name: "cust_email", data_type: "TEXT", nullable: false },
-        { name: "updated_at", data_type: "TIMESTAMP_LTZ", nullable: false },
-      ],
+      schema_fields: schemaFields,
       upstream_assets: [
         {
           urn: "urn:li:dataset:(urn:li:dataPlatform:dbt,changesafe.showcase_ecommerce.stg_order_details,PROD)",
@@ -281,7 +335,7 @@ export const goldenRun: RunView = {
 export const goldenSchemaCatalog: SchemaCatalog = {
   target_urn: OFFICIAL_TARGET,
   target_name: "order_details",
-  schema_fields: goldenRun.analysis!.context.schema_fields,
+  schema_fields: schemaFields,
   provenance: goldenRun.analysis!.context.provenance,
 };
 

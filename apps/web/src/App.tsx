@@ -5,7 +5,7 @@ import { browserApi } from "./api";
 import {
   changeSummary,
   DEFAULT_CHANGE_DRAFT,
-  isOfficialScenario,
+  isOfficialDataset,
 } from "./changeDraft";
 import { ApprovalPanel } from "./components/ApprovalPanel";
 import { ArtifactExplorer } from "./components/ArtifactExplorer";
@@ -20,7 +20,8 @@ import { RiskCard } from "./components/RiskCard";
 import { RunProvenance } from "./components/RunProvenance";
 import { ValidationPanel } from "./components/ValidationPanel";
 import { useRun } from "./hooks/useRun";
-import type { ChangeSafeApi, ImpactAssessment } from "./types";
+import { useSchemaCatalog } from "./hooks/useSchemaCatalog";
+import type { ChangeSafeApi, ImpactAssessment, SchemaField } from "./types";
 
 interface AppProps {
   api?: ChangeSafeApi;
@@ -42,6 +43,7 @@ export function App({ api = browserApi }: AppProps) {
     null,
   );
   const [draft, setDraft] = useState(DEFAULT_CHANGE_DRAFT);
+  const schema = useSchemaCatalog(api, draft.asset_urn);
   const [ownerActivityOpen, setOwnerActivityOpen] = useState(false);
   const analysis = run?.analysis;
   const timelinePublicationMode =
@@ -69,14 +71,14 @@ export function App({ api = browserApi }: AppProps) {
   const blocking =
     analysis?.validation.checks.filter((check) => check.blocking) ?? [];
   const displayedChange = run?.request ?? draft;
-  const officialDraft = isOfficialScenario(displayedChange);
+  const officialDataset = isOfficialDataset(displayedChange);
   const heroEvidenceBadge = analysis
     ? analysis.context.provenance.mode === "live"
       ? `Live DataHub evidence · ${analysis.context.target_name}`
-      : officialDraft
+      : officialDataset
         ? "Official DataHub showcase-ecommerce"
         : `Recorded DataHub evidence · ${analysis.context.target_name}`
-    : officialDraft
+    : officialDataset
       ? "Official DataHub showcase-ecommerce"
       : run
         ? "DataHub context pending"
@@ -84,6 +86,15 @@ export function App({ api = browserApi }: AppProps) {
   const resetAnalysis = () => {
     setSelectedImpact(null);
     reset();
+  };
+  const selectCurrentField = (selected: SchemaField) => {
+    setDraft((current) => ({
+      ...current,
+      field: selected.name,
+      old_type: selected.data_type,
+      new_field: current.field === selected.name ? current.new_field : "",
+      new_type: current.field === selected.name ? current.new_type : "",
+    }));
   };
 
   return (
@@ -139,6 +150,9 @@ export function App({ api = browserApi }: AppProps) {
               onSubmit={analyze}
               submittedRequest={run?.request ?? null}
               context={analysis?.context ?? null}
+              mode={config?.mode}
+              onCurrentFieldChange={selectCurrentField}
+              schema={schema}
             />
             {analysis ? (
               <>
@@ -218,11 +232,11 @@ export function App({ api = browserApi }: AppProps) {
               <div className="scenario-ready">
                 <span>Ready to trace this change</span>
                 <Database aria-hidden="true" />
-                <h2>{officialDraft ? "order_details" : "Context not loaded"}</h2>
+                <h2>{officialDataset ? "order_details" : "Context not loaded"}</h2>
                 <p>{changeSummary(displayedChange)}</p>
                 <div>
                   <span>
-                    {officialDraft
+                    {officialDataset
                       ? "Official ecommerce evidence"
                       : "Dataset facts pending"}
                   </span>

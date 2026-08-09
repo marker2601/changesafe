@@ -4,6 +4,7 @@ import {
   changeSummary,
   DEFAULT_CHANGE_DRAFT,
   draftToRequest,
+  isOfficialDataset,
   sourceCommitForOperation,
 } from "../src/changeDraft";
 
@@ -36,6 +37,20 @@ describe("change draft presentation", () => {
     expect(sourceCommitForOperation("type_change")).toBe(
       "showcase-ecommerce-safe-type-change",
     );
+  });
+
+  it("recognizes the official dataset without treating every selected field as the default scenario", () => {
+    const anotherOfficialField = {
+      ...DEFAULT_CHANGE_DRAFT,
+      field: "order_total",
+    };
+    expect(isOfficialDataset(anotherOfficialField)).toBe(true);
+    expect(
+      isOfficialDataset({
+        ...DEFAULT_CHANGE_DRAFT,
+        asset_urn: "urn:li:dataset:other",
+      }),
+    ).toBe(false);
   });
 
   it("normalizes irrelevant fields before submission", () => {

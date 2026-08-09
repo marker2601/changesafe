@@ -37,23 +37,41 @@ describe("ChangeSafe workspace", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("removes preset claims when the draft no longer matches the official scenario", async () => {
+  it("keeps official dataset context while clearing default-scenario claims for a different returned field", async () => {
     const user = userEvent.setup();
     render(<App api={createGoldenApi()} />);
 
-    await user.clear(screen.getByLabelText("Current field"));
-    await user.type(screen.getByLabelText("Current field"), "order_status");
+    const field = await screen.findByRole("combobox", { name: "Current field" });
+    await user.click(field);
+    await user.clear(field);
+    await user.type(field, "order_status");
+    await user.click(screen.getByRole("option", { name: /order_status.*number/i }));
 
     expect(screen.getByText("Custom change request")).toBeVisible();
-    expect(screen.getAllByText("Pending DataHub context")).toHaveLength(3);
-    expect(screen.queryByText("Order Entry Analytics")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Official DataHub showcase-ecommerce"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("Dataset verified during analysis")).toBeVisible();
-    expect(
-      screen.getByRole("heading", { name: "Context not loaded" }),
-    ).toBeVisible();
+    expect(screen.getAllByText("order_details")).toHaveLength(2);
+    expect(screen.getByText("Official DataHub showcase-ecommerce")).toBeVisible();
+    expect(screen.getByText("Official ecommerce evidence")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "order_details" })).toBeVisible();
+  });
+
+  it("binds a selected schema field to its native type and requires a fresh destination", async () => {
+    const user = userEvent.setup();
+    render(<App api={createGoldenApi()} />);
+
+    const field = await screen.findByRole("combobox", { name: "Current field" });
+    await user.click(field);
+    await user.clear(field);
+    await user.type(field, "order_total");
+    await user.click(screen.getByRole("option", { name: /order_total.*float.*required/i }));
+
+    expect(screen.getByRole("combobox", { name: "Current field" })).toHaveValue("order_total");
+    await user.selectOptions(screen.getByLabelText("Operation"), "type_change");
+    expect(screen.getByLabelText("Current type")).toHaveValue("FLOAT");
+    expect(screen.getByLabelText("New type")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("New type"), "NUMBER(18,2)");
+    expect(screen.getByRole("button", { name: "Analyze change" })).toBeEnabled();
   });
 
   it("keeps the product hero structurally stable after analysis", async () => {
