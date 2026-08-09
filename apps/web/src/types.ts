@@ -91,6 +91,34 @@ export interface RiskResult {
   recommended_strategy: string;
 }
 
+export type ImpactCategory =
+  | "data_integrity"
+  | "privacy_compliance"
+  | "operational_continuity"
+  | "trust_decision_quality"
+  | "financial_exposure"
+  | "organizational_impact";
+
+export type ImpactSeverity =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low"
+  | "informational";
+
+export type EvidenceConfidence = "direct" | "inferred" | "unavailable";
+
+export interface ImpactAssessment {
+  category: ImpactCategory;
+  label: string;
+  severity: ImpactSeverity;
+  confidence: EvidenceConfidence;
+  summary: string;
+  qualifier: string | null;
+  basis: string;
+  evidence_urns: string[];
+}
+
 export interface ArtifactFile {
   path: string;
   content: string;
@@ -140,6 +168,7 @@ export interface AnalysisResult {
   artifacts: ArtifactBundle;
   validation: ValidationReport;
   publication_eligible: boolean;
+  impacts: ImpactAssessment[];
 }
 
 export interface PublicError {
@@ -174,7 +203,19 @@ export interface PublicConfig {
   llm_available: boolean;
   github_publication_available: boolean;
   datahub_writeback_available: boolean;
+  owner_activity_available: boolean;
   openai_model: string;
+}
+
+export interface JudgeActivity {
+  run_id: string;
+  session_label: string;
+  scenario: string;
+  state: RunState;
+  context_mode: "live" | "snapshot" | null;
+  publication_mode: "live" | "preview" | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export type RunEventHandler = (event: RunEvent) => void;
@@ -182,6 +223,7 @@ export type SubscriptionErrorHandler = () => void;
 
 export interface ChangeSafeApi {
   getPublicConfig(): Promise<PublicConfig>;
+  getOwnerActivity(adminToken: string): Promise<JudgeActivity[]>;
   createRun(change: ChangeRequest): Promise<RunView>;
   getRun(runId: string): Promise<RunView>;
   approve(runId: string, adminToken?: string): Promise<PublicationReceipt>;

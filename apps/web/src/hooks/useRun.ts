@@ -96,13 +96,10 @@ export function useRun(api: ChangeSafeApi) {
       .then((value) => {
         if (!current || !recoveryActive.current) return;
         recoveryActive.current = false;
-        lastSequence.current = recoveredSession.lastSequence;
+        lastSequence.current = 0;
         reconnects.current = 0;
+        setEvents([]);
         setRun(value);
-        if (STREAM_END_STATES.has(value.state)) {
-          setBusy(false);
-          return;
-        }
         setActiveRunId(value.run_id);
         setBusy(!RECOVERED_ACTION_STATES.has(value.state));
       })

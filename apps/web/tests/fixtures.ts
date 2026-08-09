@@ -10,6 +10,8 @@ import type {
 
 const NOW = "2026-08-08T12:00:00Z";
 export const RUN_ID = "0198f000-0000-7000-8000-000000000000";
+const GOLDEN_TARGET =
+  "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)";
 
 const downstream = [
   ["revenue_by_customer", "Analytics", false],
@@ -130,6 +132,53 @@ export const goldenRun: RunView = {
       })),
     },
     publication_eligible: true,
+    impacts: ([
+      ["data_integrity", "Data integrity", "critical", "direct", null],
+      [
+        "privacy_compliance",
+        "Privacy & compliance",
+        "critical",
+        "direct",
+        null,
+      ],
+      [
+        "operational_continuity",
+        "Operational continuity",
+        "high",
+        "direct",
+        null,
+      ],
+      [
+        "trust_decision_quality",
+        "Trust & decision quality",
+        "high",
+        "direct",
+        null,
+      ],
+      [
+        "financial_exposure",
+        "Financial exposure",
+        "high",
+        "inferred",
+        "Potentially high, not quantified",
+      ],
+      [
+        "organizational_impact",
+        "Organizational impact",
+        "high",
+        "direct",
+        null,
+      ],
+    ] as const).map(([category, label, severity, confidence, qualifier]) => ({
+      category,
+      label,
+      severity,
+      confidence,
+      qualifier,
+      summary: `${label} is supported by DataHub context.`,
+      basis: "Recorded metadata evidence.",
+      evidence_urns: [GOLDEN_TARGET],
+    })),
   },
   publication: null,
   error: null,
@@ -184,10 +233,12 @@ export function createGoldenApi(): ChangeSafeApi {
     llm_available: false,
     github_publication_available: false,
     datahub_writeback_available: false,
+    owner_activity_available: false,
     openai_model: "gpt-5.6-luna",
   };
   return {
     getPublicConfig: vi.fn(async () => publicConfig),
+    getOwnerActivity: vi.fn(async () => []),
     createRun: vi.fn(async () => current),
     getRun: vi.fn(async () => current),
     approve: vi.fn(async () => {

@@ -1,6 +1,7 @@
 import type {
   ChangeRequest,
   ChangeSafeApi,
+  JudgeActivity,
   PublicConfig,
   PublicationReceipt,
   RunEvent,
@@ -8,6 +9,9 @@ import type {
   RunView,
   SubscriptionErrorHandler,
 } from "./types";
+
+export const JUDGE_SESSION_KEY = "changesafe.judge-session.v1";
+const OPAQUE_SESSION_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -42,7 +46,30 @@ async function responseJson<T>(response: Response): Promise<T> {
 }
 
 export class BrowserChangeSafeApi implements ChangeSafeApi {
+  private volatileSessionId: string | null = null;
+
   constructor(private readonly baseUrl = "") {}
+
+  private judgeSessionId(): string {
+    if (this.volatileSessionId) return this.volatileSessionId;
+    try {
+      const existing = window.sessionStorage.getItem(JUDGE_SESSION_KEY);
+      if (existing && OPAQUE_SESSION_PATTERN.test(existing)) {
+        this.volatileSessionId = existing;
+        return existing;
+      }
+    } catch {
+      // Continue with a memory-only opaque identifier.
+    }
+    const created = globalThis.crypto.randomUUID();
+    this.volatileSessionId = created;
+    try {
+      window.sessionStorage.setItem(JUDGE_SESSION_KEY, created);
+    } catch {
+      // The server still receives the memory-only session identifier.
+    }
+    return created;
+  }
 
   async getPublicConfig(): Promise<PublicConfig> {
     return responseJson<PublicConfig>(
@@ -50,11 +77,22 @@ export class BrowserChangeSafeApi implements ChangeSafeApi {
     );
   }
 
+  async getOwnerActivity(adminToken: string): Promise<JudgeActivity[]> {
+    return responseJson<JudgeActivity[]>(
+      await fetch(`${this.baseUrl}/api/owner/activity`, {
+        headers: { "X-ChangeSafe-Admin-Token": adminToken },
+      }),
+    );
+  }
+
   async createRun(change: ChangeRequest): Promise<RunView> {
     return responseJson<RunView>(
       await fetch(`${this.baseUrl}/api/runs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-ChangeSafe-Session-ID": this.judgeSessionId(),
+        },
         body: JSON.stringify(change),
       }),
     );

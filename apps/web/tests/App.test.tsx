@@ -22,6 +22,7 @@ describe("ChangeSafe workspace", () => {
       ...createGoldenApi(),
       getRun: vi.fn(() => pendingRun),
     };
+    const subscribe = vi.spyOn(api, "subscribe");
     window.sessionStorage.setItem(
       RUN_SESSION_KEY,
       JSON.stringify({ runId: RUN_ID, lastSequence: 6 }),
@@ -37,6 +38,12 @@ describe("ChangeSafe workspace", () => {
         name: /customer_email.*primary_email/,
       }),
     ).toBeVisible();
+    expect(subscribe).toHaveBeenCalledWith(
+      RUN_ID,
+      0,
+      expect.any(Function),
+      expect.any(Function),
+    );
   });
 
   it("restores an interrupted publication and resumes from its saved cursor", async () => {
@@ -65,8 +72,10 @@ describe("ChangeSafe workspace", () => {
         llm_available: false,
         github_publication_available: true,
         datahub_writeback_available: true,
+        owner_activity_available: true,
         openai_model: "gpt-5.6-luna",
       })),
+      getOwnerActivity: vi.fn(async () => []),
       createRun: vi.fn(async () => publishing),
       getRun: vi.fn(async () => publishing),
       approve: vi.fn(async () => {
@@ -91,7 +100,7 @@ describe("ChangeSafe workspace", () => {
     await waitFor(() =>
       expect(subscribe).toHaveBeenCalledWith(
         RUN_ID,
-        7,
+        0,
         expect.any(Function),
         expect.any(Function),
       ),
@@ -102,7 +111,7 @@ describe("ChangeSafe workspace", () => {
     expect(screen.getByText("Owner-gated publishing")).toBeVisible();
   });
 
-  it("restores a publication failure after refresh without resubscribing", async () => {
+  it("restores a publication failure and rebuilds its event history", async () => {
     const failed: RunView = {
       ...goldenRun,
       state: "publication_failed",
@@ -120,8 +129,10 @@ describe("ChangeSafe workspace", () => {
         llm_available: false,
         github_publication_available: true,
         datahub_writeback_available: true,
+        owner_activity_available: true,
         openai_model: "gpt-5.6-luna",
       })),
+      getOwnerActivity: vi.fn(async () => []),
       createRun: vi.fn(async () => failed),
       getRun: vi.fn(async () => failed),
       approve: vi.fn(async () => {
@@ -140,7 +151,12 @@ describe("ChangeSafe workspace", () => {
     expect(
       await screen.findByText("The branch no longer matches verified artifacts."),
     ).toBeVisible();
-    expect(subscribe).not.toHaveBeenCalled();
+    expect(subscribe).toHaveBeenCalledWith(
+      RUN_ID,
+      0,
+      expect.any(Function),
+      expect.any(Function),
+    );
     expect(screen.getByText(`Run ID: ${RUN_ID.slice(0, 8)}`)).toBeVisible();
   });
 
@@ -222,8 +238,10 @@ describe("ChangeSafe workspace", () => {
         llm_available: false,
         github_publication_available: false,
         datahub_writeback_available: false,
+        owner_activity_available: false,
         openai_model: "gpt-5.6-luna",
       })),
+      getOwnerActivity: vi.fn(async () => []),
       createRun: vi.fn(async () => fallback),
       getRun: vi.fn(async () => current),
       approve: vi.fn(async () => {
