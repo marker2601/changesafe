@@ -4,8 +4,16 @@ import { artifactExplanation } from "../src/artifactCatalog";
 
 describe("artifactExplanation", () => {
   it.each([
-    ["models/marts/order_details.sql", "dbt model SQL", "existing consumers"],
-    ["models/marts/order_details.yml", "dbt model YAML", "SQL/YAML drift"],
+    [
+      "models/marts/order_details__changesafe.sql",
+      "dbt model SQL",
+      "compatibility layer",
+    ],
+    [
+      "models/marts/order_details__changesafe.yml",
+      "dbt model YAML",
+      "SQL/YAML drift",
+    ],
     [
       "tests/assert_cust_email_retained.sql",
       "Compatibility test",

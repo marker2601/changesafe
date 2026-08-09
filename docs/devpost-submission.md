@@ -16,7 +16,7 @@ Small schema edits cause disproportionate outages because code review rarely inc
 
 ChangeSafe accepts a proposed column rename, removal, or type change. It retrieves normalized context through DataHub's Agent Context Kit, classifies six business and technical impact areas, computes an immutable risk score, generates a conservative seven-file dbt/SQL migration package, and runs twelve blocking validations. A reviewer can follow directional lineage signals, trace each impact finding to its evidence, inspect exact artifact bytes and explanations, review rollback guidance, and see the accountable approval stop.
 
-The golden demonstration uses the organizer-provided `showcase-ecommerce` datapack: `Order Entry Analytics.order_details.cust_email` becomes `primary_email`. The recorded graph contains seven Snowflake, Power BI, and Looker dependents plus ownership, PII/governance metadata, high query usage, and cross-domain evidence.
+The golden demonstration uses the organizer-provided `showcase-ecommerce` datapack: `Order Entry Analytics.order_details.cust_email` becomes `primary_email`. The recorded graph contains 25 Snowflake, Power BI, and Looker dependents plus ownership, high query usage, executive/reporting exposure, and cross-domain evidence.
 
 The credential-free mode replays a SHA-256-verified snapshot through the same API, persistence, event stream, policy, generation, verification, and approval pipeline. The UI calls this **Recorded DataHub evidence**, reports measured server-event timing, labels its output `NOT WRITTEN — SNAPSHOT MODE`, and produces a downloadable patch. Owner-enabled live mode can create a GitHub pull request and write an idempotent decision document, structured properties, and a deprecation tag to an allowlisted DataHub target.
 
@@ -45,7 +45,7 @@ The third challenge was explaining impact without inventing facts. Each impact c
 
 ## Accomplishments
 
-- The official ecommerce rename deterministically finds seven recorded consumers and scores 80/Critical.
+- The official ecommerce rename deterministically finds 25 recorded consumers and scores 85/Critical.
 - Six impact categories translate metadata into language a nontechnical reviewer can understand.
 - Seven generated files pass twelve blocking SQL, YAML, compatibility, path, rollback, relation, collision, context, and manifest checks.
 - Reviewers can complete the workflow without credentials on desktop or mobile while persisted backend events update the page.
@@ -73,7 +73,7 @@ DataHub Agent Context Kit, official `showcase-ecommerce` datapack, OpenAI Respon
 2. Open `http://localhost:8000`.
 3. Confirm **Recorded DataHub evidence**, **Preview only**, and **Official DataHub showcase-ecommerce**.
 4. Click **Analyze change**.
-5. Confirm 80/Critical, six impact categories, seven recorded dependents, seven files, and 12/12 validations.
+5. Confirm 85/Critical, six impact categories, 25 recorded dependents, seven files, and 12/12 validations.
 6. Trace an impact finding, open a dependency to inspect evidence, read an artifact explanation, then click **Approve preview**.
 7. Confirm `NOT WRITTEN — SNAPSHOT MODE` and download the patch.
 

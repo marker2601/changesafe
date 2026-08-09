@@ -8,8 +8,8 @@ const EXPLANATIONS = {
   modelSql: {
     label: "dbt model SQL",
     purpose:
-      "Preserves the current field and adds the compatible alias or cast when required.",
-    prevents: "Breaking existing consumers during phase one.",
+      "Builds the phase-one compatibility layer over the governed model with the compatible alias or cast when required.",
+    prevents: "Breaking consumers while they migrate through the compatibility layer.",
   },
   modelYaml: {
     label: "dbt model YAML",

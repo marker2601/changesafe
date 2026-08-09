@@ -163,6 +163,32 @@ def test_dbt_fixture_keeps_the_governed_model_separate_from_the_shim() -> None:
     assert "primary_email" not in base_yaml
 
 
+def test_operational_artifacts_describe_the_compatibility_layer_transition() -> None:
+    change = golden_change()
+    context = asyncio.run(ReplayDataHubContext.from_default().load(change))
+    bundle = generate_artifacts(change, context, score_change(change, context))
+
+    migration_path = next(
+        path for path in bundle.files if path.startswith("migrations/")
+    )
+    migration = bundle.files[migration_path].content
+    rollback = bundle.files["ROLLBACK.md"].content
+    pr_body = bundle.files["PR_BODY.md"].content
+
+    for artifact in (migration, pr_body):
+        assert "`order_details`" in artifact
+        assert "`order_details__changesafe`" in artifact
+        assert "governed base model remains unchanged in phase one" in artifact
+        assert "switch to `order_details__changesafe`" in artifact
+        assert "migrate to `primary_email`" in artifact
+    assert "exit criteria" in migration.lower()
+    assert "through `order_details__changesafe`" in migration
+    assert rollback.index("Move downstream consumers") < rollback.index(
+        "Revert `models/marts/order_details__changesafe.sql`"
+    )
+    assert "back to `order_details`" in rollback
+
+
 @pytest.mark.parametrize(
     ("change", "expected_test", "expected_projection"),
     [

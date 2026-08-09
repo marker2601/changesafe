@@ -11,15 +11,22 @@ describe("ArtifactExplorer", () => {
     const artifacts = goldenRun.analysis?.artifacts;
     if (!artifacts) throw new Error("fixture artifacts are required");
 
-    render(<ArtifactExplorer artifacts={artifacts} />);
+    render(
+      <ArtifactExplorer
+        artifacts={{
+          ...artifacts,
+          files: Object.fromEntries(Object.entries(artifacts.files).reverse()),
+        }}
+      />,
+    );
 
     expect(screen.getByText("What this file does")).toBeVisible();
     expect(screen.getByText("Failure this prevents")).toBeVisible();
     expect(screen.getByText("dbt model SQL")).toBeVisible();
-    expect(screen.getByText(/breaking existing consumers/i)).toBeVisible();
+    expect(screen.getAllByText(/compatibility layer/i).length).toBeGreaterThan(0);
 
     const modelFile = screen.getByRole("button", {
-      name: /models\/marts\/order_details\.sql/,
+      name: /models\/marts\/order_details__changesafe\.sql/,
     });
     const compatibilityFile = screen.getByRole("button", {
       name: /tests\/assert_cust_email_compatibility\.sql/,
@@ -35,7 +42,7 @@ describe("ArtifactExplorer", () => {
     expect(screen.getByText("Compatibility test")).toBeVisible();
     expect(screen.getByText(/premature removal/i)).toBeVisible();
     expect(
-      screen.getByText(/select \* from order_details where cust_email/i),
+      screen.getByText(/from \{\{ ref\('order_details__changesafe'\) \}\}/i),
     ).toBeVisible();
   });
 });

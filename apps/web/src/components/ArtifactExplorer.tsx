@@ -4,7 +4,7 @@ import { useState } from "react";
 import { artifactExplanation } from "../artifactCatalog";
 import type { ArtifactBundle } from "../types";
 
-const PREFERRED_PATH = "models/marts/order_details.sql";
+const CHANGESAFE_MODEL_PATH = /^models\/marts\/.+__changesafe\.sql$/;
 
 interface ArtifactExplorerProps {
   artifacts: ArtifactBundle;
@@ -15,8 +15,9 @@ function shortPath(path: string): string {
 }
 
 export function ArtifactExplorer({ artifacts }: ArtifactExplorerProps) {
-  const paths = Object.keys(artifacts.files);
-  const initial = paths.includes(PREFERRED_PATH) ? PREFERRED_PATH : paths[0];
+  const paths = Object.keys(artifacts.files).sort();
+  const initial =
+    paths.find((path) => CHANGESAFE_MODEL_PATH.test(path)) ?? paths[0];
   const [selected, setSelected] = useState(initial);
   const [copied, setCopied] = useState(false);
 

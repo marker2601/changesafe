@@ -559,6 +559,14 @@ describe("ChangeSafe workspace", () => {
     expect(screen.getAllByText("Customer Analytics Measures").length).toBeGreaterThan(0);
     expect(screen.getAllByTestId("lineage-flow")).toHaveLength(2);
     expect(screen.getAllByTestId("artifact-file")).toHaveLength(7);
+    expect(
+      screen.getByRole("button", {
+        name: "models/marts/order_details__changesafe.sql",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByText(/builds the phase-one compatibility layer/i),
+    ).toBeVisible();
     expect(screen.getByText("What this file does")).toBeVisible();
     expect(screen.getByText("Failure this prevents")).toBeVisible();
     expect(screen.getByText("12 / 12")).toBeVisible();

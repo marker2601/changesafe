@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -29,6 +30,30 @@ def replace_file(bundle: ArtifactBundle, path: str, content: str) -> ArtifactBun
     files = dict(bundle.files)
     files[path] = ArtifactFile(path=path, content=content)
     return ArtifactBundle(files=files, manifest_hash=bundle.manifest_hash)
+
+
+def replace_file_with_recomputed_manifest(
+    bundle: ArtifactBundle,
+    path: str,
+    content: str,
+) -> ArtifactBundle:
+    files = dict(bundle.files)
+    files[path] = ArtifactFile(path=path, content=content)
+    manifest = json.loads(files["changesafe-manifest.json"].content)
+    manifest["files"] = {
+        artifact_path: artifact.sha256
+        for artifact_path, artifact in files.items()
+        if artifact_path != "changesafe-manifest.json"
+    }
+    manifest_content = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    files["changesafe-manifest.json"] = ArtifactFile(
+        path="changesafe-manifest.json",
+        content=manifest_content,
+    )
+    return ArtifactBundle(
+        files=files,
+        manifest_hash=files["changesafe-manifest.json"].sha256,
+    )
 
 
 def test_golden_artifacts_pass_every_blocking_check() -> None:
@@ -84,6 +109,38 @@ def test_remove_guard_has_operation_specific_validation_language() -> None:
     assert check.label == "Phase-one removal guard references the field"
     assert "when dbt executes it" in check.detail
     assert "missing-column error" in check.detail
+
+
+def test_compatibility_test_rejects_a_hashed_comment_spoof_and_wrong_relation() -> None:
+    change, context, bundle = golden_inputs()
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "tests/assert_cust_email_compatibility.sql",
+        "select cust_email\n"
+        "from {{ ref('order_details') }}\n"
+        "where false\n"
+        "-- primary_email is distinct from cust_email\n",
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("compatibility_test").passed is False
+
+
+def test_compatibility_test_rejects_a_hashed_extra_statement() -> None:
+    change, context, bundle = golden_inputs()
+    original = bundle.files["tests/assert_cust_email_compatibility.sql"].content
+    forged = replace_file_with_recomputed_manifest(
+        bundle,
+        "tests/assert_cust_email_compatibility.sql",
+        f"{original}\nselect 1 as unexpected_statement\n",
+    )
+
+    report = verify_artifacts(forged, change, context)
+
+    assert report.check("manifest_hashes").passed is True
+    assert report.check("compatibility_test").passed is False
 
 
 def test_legacy_invalid_type_parameters_fail_context_alignment() -> None:

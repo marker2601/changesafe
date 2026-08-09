@@ -199,6 +199,58 @@ def _manifest_matches(bundle: ArtifactBundle) -> bool:
     return hashes_match and bundle.manifest_hash == bundle.files[MANIFEST].sha256
 
 
+def _column_is(expression: exp.Expression, name: str) -> bool:
+    return (
+        isinstance(expression, exp.Column)
+        and expression.name.casefold() == name.casefold()
+    )
+
+
+def _compatibility_test_valid(
+    expressions: list[exp.Expression],
+    change: ChangeRequest,
+    shim_model: str,
+) -> bool:
+    if len(expressions) != 1 or not isinstance(expressions[0], exp.Select):
+        return False
+    select = expressions[0]
+    if len(list(select.find_all(exp.Select))) != 1:
+        return False
+    if len(select.expressions) != 1 or not _column_is(
+        select.expressions[0], change.field
+    ):
+        return False
+    tables = list(select.find_all(exp.Table))
+    if len(tables) != 1 or tables[0].name.casefold() != shim_model.casefold():
+        return False
+    where = select.args.get("where")
+    if not isinstance(where, exp.Where):
+        return False
+    if change.operation is ChangeOperation.REMOVE:
+        return isinstance(where.this, exp.Boolean) and where.this.this is False
+
+    preferred = _preferred_field(change)
+    if preferred is None or not isinstance(where.this, exp.NullSafeNEQ):
+        return False
+    if not _column_is(where.this.expression, preferred):
+        return False
+    if change.operation is ChangeOperation.RENAME:
+        return _column_is(where.this.this, change.field)
+    if not isinstance(where.this.this, exp.Cast):
+        return False
+    if not _column_is(where.this.this.this, change.field):
+        return False
+    assert change.new_type is not None
+    try:
+        return canonical_sql_type(
+            where.this.this.to.sql(dialect="snowflake")
+        ) == canonical_sql_type(
+            change.new_type
+        )
+    except ValueError:
+        return False
+
+
 def verify_artifacts(
     bundle: ArtifactBundle,
     change: ChangeRequest,
@@ -431,14 +483,10 @@ def verify_artifacts(
         )
     )
 
-    compatibility = bundle.files.get(compatibility_test)
-    compatibility_text = compatibility.content.lower() if compatibility else ""
-    comparison_valid = change.field.lower() in compatibility_text and (
-        "where false" in compatibility_text
-        if change.operation is ChangeOperation.REMOVE
-        else new_field is not None
-        and new_field.lower() in compatibility_text
-        and "is distinct from" in compatibility_text
+    comparison_valid = _compatibility_test_valid(
+        parsed.get(compatibility_test, []),
+        change,
+        model_name,
     )
     if change.operation is ChangeOperation.REMOVE:
         compatibility_label = "Phase-one removal guard references the field"

@@ -343,6 +343,14 @@ def _migration_notes(
     narrative: GenerationNarrative,
 ) -> str:
     owner = _owner(context)
+    governed_model = _target_model_name(context)
+    shim_model = _model_name(context)
+    preferred = _preferred_field(change)
+    owner_transition = f"switch to `{shim_model}`"
+    if preferred is not None:
+        owner_transition += f" and migrate to `{preferred}`"
+    else:
+        owner_transition += f" while retaining `{change.field}` until phase two"
     ends = context.provenance.retrieved_at.date() + timedelta(days=30)
     downstream = "\n".join(
         f"- `{asset.name}` — {asset.domain or 'Unassigned'} — `{asset.urn}`"
@@ -354,14 +362,19 @@ def _migration_notes(
         f"**Risk:** {risk.score}/100 — {risk.band.value.title()}  \n"
         f"**Deprecation window:** through {ends.isoformat()}\n\n"
         "## Phase one\n\n"
+        f"The governed base model remains unchanged in phase one: `{governed_model}`. "
+        f"ChangeSafe adds compatibility relation `{shim_model}`. "
+        "Downstream owners must "
+        f"{owner_transition}.\n\n"
         f"{narrative.migration_summary}\n\n"
         f"{narrative.deprecation_language}\n\n"
         "## Downstream evidence\n\n"
         f"{downstream}\n\n"
         "## Exit criteria\n\n"
         f"All {len(context.downstream_assets)} recorded consumers must complete "
-        "migration, the operation-specific compatibility test must remain green, "
-        "and the accountable owner must approve phase two.\n"
+        f"migration through `{shim_model}`, the operation-specific compatibility "
+        "test must remain "
+        "green, and the accountable owner must approve phase two.\n"
     )
 
 
@@ -372,14 +385,18 @@ def _rollback(
 ) -> str:
     model_sql, model_yaml = _model_paths(context)
     test_path = _test_path(change)
+    governed_model = _target_model_name(context)
+    shim_model = _model_name(context)
     return (
         "# ChangeSafe rollback\n\n"
         f"{narrative.rollback_summary}\n\n"
-        f"1. Revert `{model_sql}`.\n"
-        f"2. Revert `{model_yaml}`.\n"
-        f"3. Remove `{test_path}`.\n"
-        f"4. Confirm `{change.field}` remains available to every downstream consumer.\n"
-        "5. Run `dbt parse` and the project test suite before republishing.\n"
+        f"1. Move downstream consumers from `{shim_model}` back to `{governed_model}` "
+        "before removing generated artifacts.\n"
+        f"2. Confirm `{change.field}` remains available to every downstream consumer.\n"
+        f"3. Revert `{model_sql}`.\n"
+        f"4. Revert `{model_yaml}`.\n"
+        f"5. Remove `{test_path}`.\n"
+        "6. Run `dbt parse` and the project test suite before republishing.\n"
     )
 
 
@@ -393,9 +410,22 @@ def _pr_body(
         f"- **+{factor.points}** {factor.label}" for factor in risk.factors
     )
     domains = {asset.domain for asset in context.downstream_assets if asset.domain}
+    governed_model = _target_model_name(context)
+    shim_model = _model_name(context)
+    preferred = _preferred_field(change)
+    owner_transition = f"switch to `{shim_model}`"
+    if preferred is not None:
+        owner_transition += f" and migrate to `{preferred}`"
+    else:
+        owner_transition += f" while retaining `{change.field}` until phase two"
     return (
         f"# ChangeSafe: {_change_title(change)}\n\n"
         f"{narrative.pr_prose}\n\n"
+        "## Phase-one compatibility relation\n\n"
+        f"The governed base model remains unchanged in phase one: `{governed_model}`. "
+        f"This package adds compatibility relation `{shim_model}`. "
+        "Downstream owners must "
+        f"{owner_transition}.\n\n"
         f"## Deterministic risk: {risk.score}/100 — {risk.band.value.title()}\n\n"
         f"{factor_lines}\n\n"
         f"## Impact\n\n{len(context.downstream_assets)} downstream assets across "

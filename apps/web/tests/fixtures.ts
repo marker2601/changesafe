@@ -119,16 +119,16 @@ const downstream: AffectedAsset[] = [
 });
 
 const artifactContents: Record<string, string> = {
-  "models/marts/order_details.sql": `select
+  "models/marts/order_details__changesafe.sql": `select
     order_id,
     cust_email,
     cust_email as primary_email
-from {{ ref('stg_order_details') }}
+from {{ ref('order_details') }}
 `,
-  "models/marts/order_details.yml":
-    "version: 2\nmodels:\n  - name: order_details\n",
+  "models/marts/order_details__changesafe.yml":
+    "version: 2\nmodels:\n  - name: order_details__changesafe\n",
   "tests/assert_cust_email_compatibility.sql":
-    "select * from order_details where cust_email is distinct from primary_email\n",
+    "select cust_email from {{ ref('order_details__changesafe') }} where cust_email is distinct from primary_email\n",
   "migrations/2026-08-08-cust-email-rename.md":
     "# cust_email compatibility migration\n",
   "ROLLBACK.md": "# Rollback\nRestore all generated files together.\n",

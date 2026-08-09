@@ -24,17 +24,17 @@ Follow the **Change process** rail as server events arrive: read the contract, f
 
 Follow the moving lineage signal from the upstream inputs through `order_details` to its consumers, then open **Customer Analytics Measures**.
 
-> ChangeSafe records seven Snowflake, Power BI, and Looker dependents. Direct and multi-hop relationships are labeled separately, and the evidence drawer shows the underlying URNs. A DataHub link appears only when the operator supplies a safe catalog origin.
+> ChangeSafe records 25 Snowflake, Power BI, and Looker dependents. Direct and multi-hop relationships are labeled separately, and the evidence drawer shows the underlying URNs. A DataHub link appears only when the operator supplies a safe catalog origin.
 
 Click **Trace supporting evidence** on two or three impact findings and watch unrelated nodes dim.
 
-> The deterministic score is 80/Critical: 25 for the rename, 25 for seven downstream assets, and 10 each for governed PII, high usage, and cross-domain impact. The six impact cards explain data integrity, privacy, operations, decision trust, financial exposure, and organizational impact. Financial harm is deliberately marked “Potentially high, not quantified” because metadata cannot prove a dollar amount.
+> The deterministic score is 85/Critical: 25 for the rename, 25 for the capped downstream impact, 15 for executive/reporting exposure, and 10 each for high usage and cross-domain impact. The six impact cards explain data integrity, privacy, operations, decision trust, financial exposure, and organizational impact. Financial harm is deliberately marked “Potentially high, not quantified” because metadata cannot prove a dollar amount.
 
 ## 1:25–1:55 — Inspect the safe migration
 
 Show the SQL file, YAML, compatibility test, rollback guide, migration note, PR body, and manifest. For each tab, point to **What this file does** and **Failure this prevents**.
 
-> Phase one keeps `cust_email` and introduces `primary_email`, giving consumers a deprecation window. Every one of the seven allowed files has an exact hash.
+> Phase one keeps `cust_email` and introduces `primary_email`, giving 25 consumers a deprecation window. Every one of the seven allowed files has an exact hash.
 
 If demonstrating **Remove**, open the singular SQL guard:
 

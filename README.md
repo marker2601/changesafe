@@ -14,9 +14,9 @@ non-mutating approval receipt.
 
 The golden workflow uses DataHub's official `showcase-ecommerce` datapack. It evaluates a rename of `Order Entry Analytics.order_details.cust_email` to `primary_email` and produces the same auditable result on every clean replay run:
 
-- Seven recorded downstream assets across Snowflake, Power BI, and Looker, with direct and multi-hop relationships labeled separately.
+- Twenty-five recorded downstream assets across Snowflake, Power BI, and Looker, with direct and multi-hop relationships labeled separately.
 - Six plain-language impact classifications covering data integrity, privacy compliance, operational continuity, decision trust, financial exposure, and organizational impact.
-- A deterministic score of 80/100 (Critical), with every point tied to metadata evidence.
+- A deterministic score of 85/100 (Critical), with every point tied to metadata evidence.
 - A directional dependency map with moving lineage signals, evidence tracing, and an accessible list for nonvisual review.
 - A conservative two-phase migration that keeps `cust_email` while introducing `primary_email`.
 - Seven generated artifacts with exact SHA-256 hashes and a plain-language explanation of what each file does and which failure it prevents.
