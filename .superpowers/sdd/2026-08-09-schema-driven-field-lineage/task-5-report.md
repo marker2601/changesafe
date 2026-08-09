@@ -112,3 +112,11 @@ lint, production build, and `git diff --check` all pass.
   summaries are unchanged.
 - Added RED-to-GREEN coverage for incomplete rename and type-change summaries,
   plus form and center-preview assertions after selecting a different field.
+
+### Review fix round 4/5: independently verify the center preview
+
+- Made the ready-state center preview a named `Change preview` region so its
+  status is reachable as a distinct landmark.
+- Scoped both incomplete rename and type-change assertions to that region,
+  while retaining the independent form assertions. The new test was RED until
+  the center preview exposed its own accessible region.

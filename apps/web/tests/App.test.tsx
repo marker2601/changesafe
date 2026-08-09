@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -68,12 +68,22 @@ describe("ChangeSafe workspace", () => {
     expect(
       screen.getAllByText("Choose the new field name for order_total before analysis.").length,
     ).toBeGreaterThan(0);
+    expect(
+      within(screen.getByRole("region", { name: "Change preview" })).getByText(
+        "Choose the new field name for order_total before analysis.",
+      ),
+    ).toBeVisible();
     await user.selectOptions(screen.getByLabelText("Operation"), "type_change");
     expect(screen.getByLabelText("Current type")).toHaveValue("FLOAT");
     expect(screen.getByLabelText("New type")).toHaveValue("");
     expect(
       screen.getAllByText("Choose the new type for order_total before analysis.").length,
     ).toBeGreaterThan(0);
+    expect(
+      within(screen.getByRole("region", { name: "Change preview" })).getByText(
+        "Choose the new type for order_total before analysis.",
+      ),
+    ).toBeVisible();
     expect(screen.getByRole("button", { name: "Analyze change" })).toBeDisabled();
 
     await user.type(screen.getByLabelText("New type"), "NUMBER(18,2)");

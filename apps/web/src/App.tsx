@@ -229,7 +229,7 @@ export function App({ api = browserApi }: AppProps) {
                 </p>
               </div>
             ) : (
-              <div className="scenario-ready">
+              <section aria-label="Change preview" className="scenario-ready">
                 <span>Ready to trace this change</span>
                 <Database aria-hidden="true" />
                 <h2>{officialDataset ? "order_details" : "Context not loaded"}</h2>
@@ -243,7 +243,7 @@ export function App({ api = browserApi }: AppProps) {
                   <ArrowRight aria-hidden="true" />
                   <span>Safe migration proof</span>
                 </div>
-              </div>
+              </section>
             )}
           </section>
 
