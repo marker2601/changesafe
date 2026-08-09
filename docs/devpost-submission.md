@@ -14,9 +14,11 @@ Small schema edits cause disproportionate outages because code review rarely inc
 
 ## What it does
 
-ChangeSafe accepts a proposed column rename, removal, or type change. It retrieves normalized context through DataHub's Agent Context Kit, classifies six business and technical impact areas, computes an immutable risk score, generates a conservative seven-file dbt/SQL migration package, and runs twelve blocking validations. A reviewer can follow directional lineage signals, trace each impact finding to its evidence, inspect exact artifact bytes and explanations, review rollback guidance, and see the accountable approval stop.
+ChangeSafe starts with an allowlisted DataHub schema, so a reviewer selects the field to change rather than typing an email-only demo value. It then retrieves field-scoped context through DataHub's Agent Context Kit, classifies six business and technical impact areas, computes an immutable risk score, generates a conservative seven-file dbt/SQL migration package, and runs twelve blocking validations. A reviewer can follow directional lineage signals, trace each impact finding to its evidence, inspect exact artifact bytes and explanations, review rollback guidance, and see the accountable approval stop.
 
-The golden demonstration uses the organizer-provided `showcase-ecommerce` datapack: `Order Entry Analytics.order_details.cust_email` becomes `primary_email`. The recorded graph contains 25 Snowflake, Power BI, and Looker dependents plus ownership, high query usage, executive/reporting exposure, and cross-domain evidence.
+The golden demonstration uses the organizer-provided `showcase-ecommerce` datapack. Its checksummed replay catalog contains all 55 supported `Order Entry Analytics.order_details` fields. The default `cust_email` to `primary_email` rename has six upstream and 25 downstream captured relationships, plus ownership, high query usage, executive/reporting exposure, and cross-domain evidence. `order_total` (six upstream, 31 downstream) and `order_status` (six upstream, 27 downstream) are separately captured non-email examples.
+
+Routes are truthful about their precision: exact field routes name both returned endpoint columns; endpoint-only multi-hop routes name known endpoints and disclose that an intermediate column mapping was not returned; dataset-level relationships never receive an invented field name. Captured governance is also field-scoped: ChangeSafe does not claim `cust_email` is PII simply because it looks like an email address when the captured field policy is absent.
 
 The credential-free mode replays a SHA-256-verified snapshot through the same API, persistence, event stream, policy, generation, verification, and approval pipeline. The UI calls this **Recorded DataHub evidence**, reports measured server-event timing, labels its output `NOT WRITTEN — SNAPSHOT MODE`, and produces a downloadable patch. Owner-enabled live mode can create a GitHub pull request and write an idempotent decision document, structured properties, and a deprecation tag to an allowlisted DataHub target.
 
@@ -28,7 +30,7 @@ DataHub already helps people discover metadata. ChangeSafe turns that context in
 
 - React 19, TypeScript, Vite, semantic HTML, Lucide icons, and a responsive command-center interface.
 - FastAPI, Pydantic, SQLite, UUIDv7 run IDs, and resumable server-sent events.
-- `datahub-agent-context` for live schema, governance, ownership, query, and lineage context, with a contract-compatible replay adapter.
+- `datahub-agent-context` for live schema discovery plus field-scoped governance, ownership, query, and lineage context, with a checksummed contract-compatible replay catalog.
 - A deterministic risk engine and an evidence-led six-category impact classifier; the LLM cannot change either policy result.
 - OpenAI Responses structured output for optional bounded planning fields, with deterministic fallback and a project cost reservation ledger.
 - `sqlglot`, safe YAML parsing, semantic SQL type validation, path confinement, and SHA-256 manifests.
@@ -39,15 +41,19 @@ DataHub already helps people discover metadata. ChangeSafe turns that context in
 
 The hardest part was preserving truth across live and replay modes. A polished demo is not useful if it implies that recorded evidence or preview writes happened live. We use one strict context contract, prominent evidence provenance and checksums, measured event timing, safe catalog links, and unambiguous receipts.
 
-The second challenge was safe partial publication. A GitHub PR can succeed before a DataHub writeback fails, or a service can restart between checkpoints. ChangeSafe persists immutable intent, destinations, artifact identity, and each side effect, then resumes only the missing step for the original run.
+The second challenge was avoiding made-up column lineage. Real catalogs can return an endpoint or asset path without an intermediate mapping, so the interface and drawer carry explicit precision labels instead of guessing from matching field names.
 
-The third challenge was explaining impact without inventing facts. Each impact category names its evidence confidence and URNs. Financial exposure is marked `Potentially high, not quantified`; no unsupported dollar estimate is shown.
+The third challenge was safe partial publication. A GitHub PR can succeed before a DataHub writeback fails, or a service can restart between checkpoints. ChangeSafe persists immutable intent, destinations, artifact identity, and each side effect, then resumes only the missing step for the original run.
+
+The fourth challenge was explaining impact without inventing facts. Each impact category names its evidence confidence and URNs. Financial exposure is marked `Potentially high, not quantified`; no unsupported dollar estimate is shown.
 
 ## Accomplishments
 
-- The official ecommerce rename deterministically finds 25 recorded consumers and scores 85/Critical.
+- The replay selector exposes 55 supported official schema fields with native type and nullability, and blocks analysis if schema discovery is unavailable.
+- The official `cust_email` rename deterministically evaluates six upstream and 25 downstream relationships and scores 85/Critical; `order_total` and `order_status` replay with their own field-scoped contexts at 75/High.
+- Exact, endpoint-only, and dataset-level lineage are rendered distinctly in the graph, evidence drawer, and accessible dependency list.
 - Six impact categories translate metadata into language a nontechnical reviewer can understand.
-- Seven generated files pass twelve blocking SQL, YAML, compatibility, path, rollback, relation, collision, context, and manifest checks.
+- Seven generated files pass twelve blocking SQL, YAML, compatibility-shim, path, rollback, relation, collision, context, and manifest checks.
 - Reviewers can complete the workflow without credentials on desktop or mobile while persisted backend events update the page.
 - A private, owner-token-protected view shows hashed anonymous review sessions without storing identity or IP data.
 - Replay, live DataHub 1.7 mapping, crash/retry publication, hostile rendering, hard cost accounting, and browser recovery are automated.
@@ -72,10 +78,12 @@ DataHub Agent Context Kit, official `showcase-ecommerce` datapack, OpenAI Respon
 1. Run `docker compose up --build` from a clean clone.
 2. Open `http://localhost:8000`.
 3. Confirm **Recorded DataHub evidence**, **Preview only**, and **Official DataHub showcase-ecommerce**.
-4. Click **Analyze change**.
-5. Confirm 85/Critical, six impact categories, 25 recorded dependents, seven files, and 12/12 validations.
-6. Trace an impact finding, open a dependency to inspect evidence, read an artifact explanation, then click **Approve preview**.
-7. Confirm `NOT WRITTEN — SNAPSHOT MODE` and download the patch.
+4. Open **Current field**, select `cust_email`, and confirm its native type/nullability are shown from recorded schema evidence.
+5. Click **Analyze change**. Confirm 85/Critical, six impact categories, six upstream and 25 downstream relationships, seven files, and 12/12 validations.
+6. Open a direct route, a multi-hop route, and a dataset-level route to confirm the different precision labels; inspect the drawer and its evidence link behavior.
+7. Start a new analysis, select `order_total`, enter `preferred_order_total`, and confirm the changed request, route, generated package, 75/High result, and 12/12 validations.
+8. Read an artifact explanation, then click **Approve preview**.
+9. Confirm `NOT WRITTEN — SNAPSHOT MODE` and download the patch.
 
 No DataHub token is needed for these judging steps. A token is needed only for an operator-controlled live DataHub run.
 

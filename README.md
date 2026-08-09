@@ -1,6 +1,6 @@
 # ChangeSafe
 
-ChangeSafe is a metadata-aware, pre-merge safety agent for analytics schema changes. It turns a proposed column rename, removal, or type change into an evidence-backed impact decision and a verified seven-file migration package before anything can be published.
+ChangeSafe is a metadata-aware, pre-merge safety agent for analytics schema changes. It lets an analyst select a supported field, then turns a proposed rename, removal, or type change into an evidence-backed impact decision and a verified seven-file migration package before anything can be published.
 
 The default recorded-evidence experience is credential-free and deterministic. It replays a checksummed DataHub evidence bundle through the real ChangeSafe pipeline; it is not a simulated UI. The live adapters can read DataHub context, use a bounded OpenAI planning call, create a GitHub pull request, and write an approval record back to DataHub when an owner explicitly enables those operations.
 
@@ -12,18 +12,31 @@ non-mutating approval receipt.
 
 ## What the golden workflow proves
 
-The golden workflow uses DataHub's official `showcase-ecommerce` datapack. It evaluates a rename of `Order Entry Analytics.order_details.cust_email` to `primary_email` and produces the same auditable result on every clean replay run:
+The golden workflow uses DataHub's official `showcase-ecommerce` datapack. Recorded replay exposes the complete 55-field, allowlisted `Order Entry Analytics.order_details` schema. Its default demonstration evaluates a rename of `cust_email` to `primary_email` and produces the same auditable result on every clean replay run:
 
-- Twenty-five recorded downstream assets across Snowflake, Power BI, and Looker, with direct and multi-hop relationships labeled separately.
+- The field picker displays the native type and nullability returned for every supported field. It is evidence-backed; it is not an email-only preset or a free-text escape hatch.
+- For the default `cust_email` rename, six upstream and 25 downstream recorded relationships are evaluated across Snowflake, Power BI, and Looker. Direct field routes, endpoint-only multi-hop routes, and dataset-only relationships are labeled separately.
 - Six plain-language impact classifications covering data integrity, privacy compliance, operational continuity, decision trust, financial exposure, and organizational impact.
 - A deterministic score of 85/100 (Critical), with every point tied to metadata evidence.
-- A directional dependency map with moving lineage signals, evidence tracing, and an accessible list for nonvisual review.
-- A conservative two-phase migration that keeps `cust_email` while introducing `primary_email`.
+- A directional dependency map with moving lineage signals, route limitations, evidence tracing, and an accessible list for nonvisual review.
+- A conservative two-phase migration that keeps `cust_email` while introducing `primary_email` through a generated dbt compatibility shim. The governed base model remains unchanged during phase one.
 - Seven generated artifacts with exact SHA-256 hashes and a plain-language explanation of what each file does and which failure it prevents.
 - Twelve blocking validation checks covering metadata alignment, unique outputs, paths, SQL, dbt YAML, compatibility, rollback, and the manifest.
 - An approval receipt and downloadable unified patch labeled `NOT WRITTEN - SNAPSHOT MODE`.
 
-The visible process is reconstructed from persisted backend events and reports measured elapsed time. It can finish in a fraction of a second on a local recorded bundle because there is no network wait. Repeating the same request against the same evidence intentionally produces the same verified result; changing the operation, target name, or type changes the assessment and artifacts. Replay approval never contacts or mutates GitHub, DataHub, a warehouse, or OpenAI.
+The visible process is reconstructed from persisted backend events and reports measured elapsed time. It can finish in a fraction of a second on a local recorded bundle because there is no network wait. Repeating the same request against the same evidence intentionally produces the same verified result; changing the selected field, operation, target name, or type changes the request-bound assessment and artifacts. Replay approval never contacts or mutates GitHub, DataHub, a warehouse, or OpenAI.
+
+## What multi-field replay proves
+
+Recorded replay carries field-scoped context for every supported field. It does not copy governance, usage, or lineage claims from `cust_email` onto another field. The representative rename results below are deterministic for the captured evidence; equal scores are possible when the metadata supports the same risk factors.
+
+| Selected field | Captured relationship context | Recorded rename result |
+| --- | --- | --- |
+| `cust_email` | 6 upstream, 25 downstream | 85/100, Critical |
+| `order_total` | 6 upstream, 31 downstream | 75/100, High |
+| `order_status` | 6 upstream, 27 downstream | 75/100, High |
+
+Every dependency route has one of three evidence precisions. **Exact field route** means both endpoint columns were returned. **Endpoint-only field route** means DataHub returned a known endpoint and a multi-hop asset path, but not an intermediate column mapping. **Dataset-level relationship** means the relationship was returned without the relevant endpoint field. ChangeSafe states those limitations rather than inferring column mappings from matching names.
 
 ## Fastest start: Docker replay
 
@@ -33,7 +46,7 @@ Prerequisite: Docker Desktop with Compose.
 docker compose up --build
 ```
 
-Open [http://localhost:8000](http://localhost:8000), click **Analyze change**, watch the evidence process update, inspect the result, and click **Approve preview**. No API keys are required.
+Open [http://localhost:8000](http://localhost:8000), select a supported field from **Current field**, click **Analyze change**, inspect the evidence-bound result, and click **Approve preview**. No API keys are required.
 
 Stop the service with `Ctrl+C`; the SQLite run ledger remains in the named `changesafe-data` volume. To remove only that project-owned volume later, run `docker compose down --volumes`.
 
@@ -88,7 +101,7 @@ Never copy the private file into this repository. `.env*`, databases, test artif
 
 ## Do I need a DataHub token?
 
-No token is needed to run or review the complete replay workflow. Replay uses the committed, SHA-256-verified snapshot of the official ecommerce scenario and exercises the real API, event stream, policy engine, generator, verifier, approval gate, patch creation, and durable run ledger.
+No token is needed to run or review the complete replay workflow. Replay uses the committed, SHA-256-verified catalog of the official ecommerce scenario and exercises the real API, event stream, policy engine, generator, verifier, approval gate, patch creation, and durable run ledger.
 
 A DataHub personal access token is required only when `CHANGESAFE_MODE=live` or `auto` should read a real DataHub instance. The hackathon resource page provides the `showcase-ecommerce` datapack, not a shared DataHub login or token. Create the token in the DataHub instance you control. Live writeback needs additional metadata permissions and remains disabled unless you deliberately enable it.
 
@@ -216,6 +229,7 @@ Read [docs/architecture.md](docs/architecture.md) for component boundaries, stat
 
 - `GET /healthz`
 - `GET /api/public-config`
+- `GET /api/schema-fields` (allowlisted schema discovery; no credentials returned)
 - `GET /api/owner/activity` (owner token required; privacy-limited rows only)
 - `POST /api/runs`
 - `GET /api/runs/{run_id}`
@@ -264,7 +278,7 @@ CI repeats those gates, runs the browser golden flow, checks the license and tra
 ```text
 apps/api/                     FastAPI, domain, adapters, verifier, publication
 apps/web/                     React workspace and component tests
-fixtures/datahub/             Canonical replay snapshot and checksum
+fixtures/datahub/             Checksummed replay field catalog and checksum
 examples/                     Unsafe input and verified seven-file output
 scripts/                      Development, seed, capture, and secret checks
 tests/e2e/                    Credential-free browser acceptance
@@ -278,6 +292,7 @@ docs/                         Architecture, demo, submission, and design evidenc
 - Public internet deployment should add distributed reverse-proxy rate limiting and managed TLS. The app itself enforces a per-client, per-process run limit, strict schemas, a 16 KiB request boundary, same-origin CSP, allowlisted generated paths, and owner-gated mutations.
 - `auto` attempts live context when both DataHub settings exist; otherwise it selects replay. A failed live read pauses in `context_fallback_required` and changes evidence source only after the user clicks **Continue with labeled snapshot**. Authorization failures are not retried, and no fallback is permitted after publication begins.
 - The official datapack supplies a rich metadata graph, not warehouse row data. ChangeSafe reads catalog context and generates migration code; it does not query customer records or execute warehouse SQL.
+- A field name that looks similar at two assets is not column-mapping evidence. When DataHub omits an endpoint field or intermediate mapping, ChangeSafe shows that absence as a route limitation instead of inventing a path.
 - An actual live DataHub receipt and real GitHub pull request require the external credentials and targets listed above; they cannot be truthfully produced from replay credentials.
 
 ## Demo and submission material

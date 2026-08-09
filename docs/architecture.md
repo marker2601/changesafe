@@ -34,6 +34,10 @@ sequenceDiagram
     participant V as Verifier
     participant P as Publication
 
+    UI->>API: GET /api/schema-fields
+    API->>C: discover allowlisted schema
+    C-->>API: schema fields + provenance
+    API-->>UI: native type + nullability options
     UI->>API: POST /api/runs
     API-->>UI: 202 + UUIDv7 run_id
     API->>O: analyze(run_id)
@@ -84,14 +88,26 @@ The browser also stores the current opaque run ID in session storage. On refresh
 
 ## Context adapters
 
-Both adapters return the same strict `ContextBundle` contract.
+Both adapters expose the same allowlisted `SchemaCatalog` discovery contract and return the same strict, request-bound `ContextBundle` contract for analysis.
 
-- Replay verifies `fixtures/datahub/golden-context.json` against its committed SHA-256 before parsing it. The snapshot represents the official `showcase-ecommerce` Order Entry Analytics scenario: `order_details.cust_email`, its 55-field contract, governance, ownership, query usage, and seven recorded Snowflake, Power BI, and Looker dependents. The resulting provenance is `snapshot` and contains the hash.
-- Live uses the `datahub-agent-context` tool surface for entities, the full target schema, bounded upstream and downstream lineage, and query context. Tool evidence records sanitized parameters, duration, result count, and referenced URNs. Calls have a bounded timeout and retry transport/timeouts once; authorization errors are never retried.
+- Replay verifies `fixtures/datahub/golden-context.json` against its committed SHA-256 before parsing it. The catalog contains all 55 supported `order_details` fields and a separate captured context for each field. It returns only the context for the selected field; `cust_email` governance, usage, or lineage evidence is never reused for another field. The resulting provenance is `snapshot` and contains the hash.
+- Live uses the `datahub-agent-context` tool surface to discover the complete allowlisted target schema, then reads field-scoped governance, bounded upstream/downstream lineage, ownership, usage, and query context at analysis time. Tool evidence records sanitized parameters, duration, result count, and referenced URNs. Calls have a bounded timeout and retry transport/timeouts once; authorization errors are never retried.
 - In `auto` mode, an eligible live read failure is persisted as `context_fallback_required`. Only an explicit API/UI action resumes the same run with labeled snapshot provenance; fallback is unavailable once publication begins.
 - Live reads and writes reject targets outside `DEMO_URN_ALLOWLIST` before a tool call is made.
 
 No replay code path initializes a network client.
+
+## Schema selection and lineage precision
+
+The browser can select only a field returned by `GET /api/schema-fields` for the configured allowlisted dataset. Options show the native type and nullability. A successful catalog is cached only for that active dataset in the browser session; a late response for a previous dataset is ignored. Analysis remains disabled while discovery is loading, unavailable, or mismatched.
+
+Each rendered dependency is one directional route shared by the graph, accessible list, and evidence drawer. The route includes source and destination assets, only the endpoint fields DataHub returned, hop degree/path when supplied, and provenance. ChangeSafe distinguishes:
+
+- **Exact field route**: DataHub returned both endpoint columns.
+- **Endpoint-only field route**: DataHub returned a known endpoint and multi-hop asset path, but not one or more intermediate column mappings. The UI says `intermediate column mapping not returned by DataHub`.
+- **Dataset-level relationship**: DataHub returned the asset relationship but not the relevant endpoint field. The UI names the missing source or destination field.
+
+Matching names are never treated as a column mapping. Missing field-level detail is a disclosed evidence limitation, not an inferred route.
 
 ## Impact classification
 
@@ -108,7 +124,7 @@ Each result includes severity, direct/inferred/unavailable confidence, a plain-l
 
 ## Generation and verification
 
-Reviewed operation-specific templates derive the seven paths from the target model and define safety invariants for rename, removal, and type-change requests. When an OpenAI key exists, one strict structured-output call may supply bounded narrative and advisory transformation fields; one repair call is allowed only after schema validation failure. Executable SQL remains deterministic. On timeout or planning failure, the template remains available. The planner cannot change the risk score, remove a required file, introduce a relation, or bypass validation.
+Reviewed operation-specific templates derive the seven paths from the selected field and target model and define safety invariants for rename, removal, and type-change requests. Where a phase-one compatibility layer is required, the generated `models/marts/order_details__changesafe.sql` shim reads from the governed base `ref('order_details')`; consumers migrate through that shim while the base model remains unchanged. The migration note, PR body, rollback guide, manifest, YAML, and tests are all bound to the selected field. When an OpenAI key exists, one strict structured-output call may supply bounded narrative and advisory transformation fields; one repair call is allowed only after schema validation failure. Executable SQL remains deterministic. On timeout or planning failure, the template remains available. The planner cannot change the risk score, remove a required file, introduce a relation, or bypass validation.
 
 The verifier operates on in-memory bytes and blocks publication on any failed mandatory check. Generated code is parsed but never executed.
 
