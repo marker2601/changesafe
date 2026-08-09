@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from pathlib import Path
 
-from changesafe.context.replay import ReplayDataHubContext
-from changesafe.domain import ChangeRequest
-from changesafe.generation.templates import generate_artifacts
-from changesafe.risk import score_change
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "apps" / "api" / "src"))
+
+from changesafe.context.replay import ReplayDataHubContext  # noqa: E402
+from changesafe.domain import ChangeRequest  # noqa: E402
+from changesafe.generation.templates import generate_artifacts  # noqa: E402
+from changesafe.risk import score_change  # noqa: E402
+
+
 def _sync_file(path: Path, content: str, *, check: bool) -> bool:
     if check:
         return not path.is_file() or path.read_text(encoding="utf-8") != content
