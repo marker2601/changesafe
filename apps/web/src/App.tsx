@@ -13,6 +13,7 @@ import { ImpactGraph } from "./components/ImpactGraph";
 import { LiveProcess } from "./components/LiveProcess";
 import { OwnerActivity } from "./components/OwnerActivity";
 import { RiskCard } from "./components/RiskCard";
+import { RunProvenance } from "./components/RunProvenance";
 import { ValidationPanel } from "./components/ValidationPanel";
 import { useRun } from "./hooks/useRun";
 import type { ChangeSafeApi, ImpactAssessment } from "./types";
@@ -43,9 +44,6 @@ export function App({ api = browserApi }: AppProps) {
     analysis?.impacts.find(
       (impact) => impact.category === selectedImpact?.category,
     ) ?? null;
-  const liveEnvironment = analysis
-    ? analysis.context.provenance.mode === "live"
-    : Boolean(config?.mode !== "replay" && config?.live_context_available);
   const patchUrl = run
     ? (api.patchUrl?.(run.run_id) ?? `/api/runs/${run.run_id}/publication.patch`)
     : "#";
@@ -59,9 +57,8 @@ export function App({ api = browserApi }: AppProps) {
         Skip to analysis
       </a>
       <Header
-        config={config}
-        onOpenOwnerActivity={() => setOwnerActivityOpen(true)}
-        run={run}
+        reviewActivityAvailable={Boolean(config?.owner_activity_available)}
+        onOpenReviewActivity={() => setOwnerActivityOpen(true)}
       />
       {ownerActivityOpen ? (
         <OwnerActivity
@@ -70,25 +67,21 @@ export function App({ api = browserApi }: AppProps) {
         />
       ) : null}
 
-      <section className={`product-hero${run ? " is-compact" : ""}`}>
-        <div>
+      <section className="product-hero">
+        <div className="product-hero-copy">
           <span className="hero-kicker">Data contract change intelligence</span>
           <h1>Change data safely, with every dependency in view.</h1>
           <p>
-            ChangeSafe uses DataHub context to find affected systems and teams,
-            generate a compatible migration, verify every artifact, and publish only
-            after owner approval.
+            ChangeSafe uses DataHub evidence to find affected systems and teams,
+            prepare a compatible migration, verify every generated file, and pause
+            before anything is published.
           </p>
           <span className="official-badge">
             <ShieldCheck aria-hidden="true" />
             Official DataHub showcase-ecommerce
           </span>
         </div>
-        <aside aria-label="Scenario systems">
-          <strong>{liveEnvironment ? "Live context" : "Replay context"}</strong>
-          <span>DataHub · Snowflake · dbt</span>
-          <span>Looker · Power BI</span>
-        </aside>
+        <RunProvenance busy={busy} config={config} events={events} run={run} />
       </section>
 
       <main id="main-content">
@@ -211,8 +204,17 @@ export function App({ api = browserApi }: AppProps) {
 
       <footer className="app-footer">
         <span>Run ID: {run?.run_id.slice(0, 8) ?? "not started"}</span>
-        <span>Environment: {liveEnvironment ? "LIVE" : "REPLAY"}</span>
-        <span>Evidence: {analysis?.context.provenance.mode ?? "waiting"}</span>
+        <span>
+          Evidence source:{" "}
+          {analysis?.context.provenance.mode === "live"
+            ? "Live DataHub"
+            : analysis
+              ? "Recorded snapshot"
+              : "Waiting"}
+        </span>
+        <span>
+          Request: {displayedChange.operation} · {displayedChange.field}
+        </span>
       </footer>
     </div>
   );

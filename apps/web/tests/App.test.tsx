@@ -29,6 +29,22 @@ describe("ChangeSafe workspace", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps the product hero structurally stable after analysis", async () => {
+    const user = userEvent.setup();
+    render(<App api={createGoldenApi()} />);
+    const before = document.querySelector(".product-hero");
+
+    expect(before).toHaveClass("product-hero");
+    expect(before).not.toHaveClass("is-compact");
+
+    await user.click(screen.getByRole("button", { name: "Analyze change" }));
+    await screen.findByText("12 / 12");
+
+    const after = document.querySelector(".product-hero");
+    expect(after).toHaveClass("product-hero");
+    expect(after).not.toHaveClass("is-compact");
+  });
+
   it("blocks a new analysis while a saved run is being restored", async () => {
     let resolveRun: (run: RunView) => void = () => undefined;
     const pendingRun = new Promise<RunView>((resolve) => {
@@ -201,8 +217,13 @@ describe("ChangeSafe workspace", () => {
     expect(screen.getByText("Potentially high, not quantified")).toBeVisible();
     expect(screen.getAllByText("Customer Analytics Measures").length).toBeGreaterThan(0);
     expect(screen.getByText("12 / 12")).toBeVisible();
-    expect(screen.getByText("Snapshot replay")).toBeVisible();
-    expect(screen.getByText("Preview only / snapshot mode")).toBeVisible();
+    expect(screen.getByText("Recorded DataHub evidence")).toBeVisible();
+    expect(screen.getByText("Preview only")).toBeVisible();
+    expect(
+      screen.getByText(
+        "Same request + same evidence = same verified result.",
+      ),
+    ).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Approve preview" }),
     ).toBeEnabled();
@@ -290,9 +311,9 @@ describe("ChangeSafe workspace", () => {
     const confirm = await screen.findByRole("button", {
       name: "Continue with labeled snapshot",
     });
-    expect(screen.getByText("Live unavailable")).toBeVisible();
+    expect(screen.getByText("Live DataHub unavailable")).toBeVisible();
     expect(
-      screen.getByText("Preview only / publication disabled"),
+      screen.getByText("Preview only"),
     ).toBeVisible();
     expect(
       screen.getByText("Reading the existing data contract").closest("li"),
