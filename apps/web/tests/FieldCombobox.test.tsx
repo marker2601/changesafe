@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +11,21 @@ const fields: SchemaField[] = [
   { name: "order_total", data_type: "FLOAT", nullable: false },
   { name: "optional_note", data_type: "VARCHAR", nullable: true },
 ];
+
+function ClickOnlyHarness({ onChange }: { onChange: (field: SchemaField) => void }) {
+  const [value, setValue] = useState("cust_email");
+  return (
+    <FieldCombobox
+      disabled={false}
+      fields={fields}
+      onChange={(field) => {
+        onChange(field);
+        setValue(field.name);
+      }}
+      value={value}
+    />
+  );
+}
 
 describe("FieldCombobox", () => {
   it("selects only a returned field with its schema type and nullability", async () => {
@@ -30,6 +46,23 @@ describe("FieldCombobox", () => {
 
     await user.keyboard("{ArrowDown}{Enter}");
     expect(onChange).toHaveBeenCalledWith({ name: "order_total", data_type: "FLOAT", nullable: false });
+  });
+
+  it("commits an option through click-only activation", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<ClickOnlyHarness onChange={onChange} />);
+
+    const input = screen.getByRole("combobox", { name: "Current field" });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, "order");
+    const option = screen.getByRole("option", { name: /order_total.*float.*required/i });
+    fireEvent.click(option);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(fields[1]);
+    expect(screen.getByRole("combobox", { name: "Current field" })).toHaveValue("order_total");
   });
 
   it("restores the exact selected field when a typed value is not a returned option", async () => {

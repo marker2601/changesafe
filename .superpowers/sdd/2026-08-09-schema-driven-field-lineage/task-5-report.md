@@ -94,3 +94,13 @@ carry a previous field's type/destination into a different field request.
 
 GREEN after the fix: full web Vitest `104 passed` in `17` files, TypeScript,
 lint, production build, and `git diff --check` all pass.
+
+### Review fix round 2/5: support click-only option activation
+
+- Kept `onMouseDown` solely to prevent the input blur that would close the
+  list during pointer activation. Selection now commits from `onClick`, so
+  assistive technology, voice control, and programmatic click activation work
+  without a preceding mouse event.
+- Added a controlled click-only regression that verifies one callback and the
+  resulting closed combobox value. Keyboard selection remains covered by the
+  existing returned-field test.

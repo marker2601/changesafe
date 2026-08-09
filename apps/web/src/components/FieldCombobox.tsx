@@ -118,8 +118,8 @@ export function FieldCombobox({
               key={field.name}
               onMouseDown={(event) => {
                 event.preventDefault();
-                select(field);
               }}
+              onClick={() => select(field)}
               ref={(element) => {
                 if (element) optionRefs.current.set(field.name, element);
                 else optionRefs.current.delete(field.name);
