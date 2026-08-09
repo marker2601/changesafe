@@ -162,7 +162,10 @@ export function ImpactGraph({
         </p>
       ) : null}
 
-      <div className="dependency-map" id="dependency-evidence-map">
+      <div
+        className="dependency-map dependency-map--top-aligned"
+        id="dependency-evidence-map"
+      >
         <section className="asset-column upstream-column" aria-label="Upstream inputs">
           <h3>Upstream inputs</h3>
           {upstreamRoutes.length > 0 ? (

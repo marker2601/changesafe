@@ -654,14 +654,14 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   min-height: 535px;
   grid-template-columns: minmax(130px, .9fr) 42px minmax(120px, .75fr) 42px minmax(155px, 1fr);
   gap: 7px;
-  align-items: center;
   margin-top: 13px;
   padding: 18px;
   border: 1px solid #16343f;
   border-radius: 7px;
   background: #03101a;
 }
-.asset-column { display: grid; gap: 7px; align-content: center; }
+.dependency-map--top-aligned { align-items: start; }
+.asset-column { display: grid; gap: 7px; align-content: start; }
 .asset-column h3 { margin: 0 0 2px; color: var(--quiet); font-size: 8px; letter-spacing: .09em; text-transform: uppercase; }
 .asset-column button {
   display: flex;
@@ -695,6 +695,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   display: flex;
   height: 24px;
   align-items: center;
+  align-self: start;
+  margin-top: 98px;
   color: var(--cyan);
 }
 .lineage-flow::before {
@@ -920,7 +922,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   .dependency-heading { display: block; }
   .dependency-heading > strong { display: inline-block; margin-top: 8px; }
   .dependency-map { display: flex; min-height: auto; flex-direction: column; align-items: stretch; padding: 16px; }
-  .lineage-flow { width: 58px; align-self: center; transform: rotate(90deg); }
+  .lineage-flow { width: 58px; align-self: center; margin-top: 0; transform: rotate(90deg); }
   .target-node { min-height: 190px; order: 2; }
   .upstream-column { order: 1; }
   .dependency-map > .lineage-flow:nth-of-type(1) { order: 1; }
@@ -950,7 +952,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   .impact-finding { padding: 12px; }
   .analysis-canvas { padding: 12px; }
   .dependency-map { display: flex; min-height: auto; flex-direction: column; align-items: stretch; padding: 13px; }
-  .lineage-flow { width: 58px; align-self: center; transform: rotate(90deg); }
+  .lineage-flow { width: 58px; align-self: center; margin-top: 0; transform: rotate(90deg); }
   .target-node { min-height: 190px; order: 2; }
   .upstream-column { order: 1; }
   .dependency-map > .lineage-flow:nth-of-type(1) { order: 1; }

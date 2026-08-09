@@ -6,6 +6,24 @@ import { ImpactGraph } from "../src/components/ImpactGraph";
 import { goldenRun } from "./fixtures";
 
 describe("ImpactGraph", () => {
+  it("marks the desktop evidence map for top-aligned source-to-dependent composition", () => {
+    const analysis = goldenRun.analysis;
+    if (!analysis) throw new Error("fixture analysis is required");
+    const { container } = render(
+      <ImpactGraph
+        activeImpact={null}
+        context={analysis.context}
+        request={goldenRun.request}
+      />,
+    );
+
+    const map = container.querySelector("#dependency-evidence-map");
+    expect(map).toHaveClass("dependency-map--top-aligned");
+    expect(map?.children[0]).toHaveClass("upstream-column");
+    expect(map?.children[2]).toHaveClass("target-node");
+    expect(map?.children[4]).toHaveClass("downstream-column");
+  });
+
   it("opens real multi-hop evidence from a keyboard-operable node", async () => {
     const user = userEvent.setup();
     const analysis = goldenRun.analysis;
