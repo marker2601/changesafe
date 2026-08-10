@@ -80,6 +80,17 @@ def blocked_warehouse_result() -> WarehouseValidationResult:
     )
 
 
+def not_run_warehouse_result() -> WarehouseValidationResult:
+    change = golden_change()
+    return WarehouseValidationResult(
+        status=WarehouseValidationStatus.NOT_RUN,
+        mode=WarehouseValidationMode.NONE,
+        environment_label="competition-non-production",
+        operation=change.operation,
+        field=change.field,
+    )
+
+
 class FakeWarehousePort:
     def __init__(self, result: WarehouseValidationResult) -> None:
         self.result = result
@@ -266,6 +277,47 @@ async def test_failed_warehouse_result_preserves_analysis_in_failed(
     assert result.analysis.publication_eligible is False
     assert result.error is not None
     assert result.error.code == "WAREHOUSE_VALIDATION_FAILED"
+    assert warehouse.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_optional_called_port_not_run_is_retryable_blocked_evidence(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "optional-not-run.db")
+    warehouse = FakeWarehousePort(not_run_warehouse_result())
+    orchestrator = ChangeSafeOrchestrator(
+        store=store,
+        context_port=ReplayDataHubContext.from_default(),
+        generator=ArtifactGenerationService(),
+        warehouse_port=warehouse,
+        require_warehouse=False,
+        warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+    )
+    run = await store.create(golden_change())
+
+    result = await orchestrator.analyze(run.run_id)
+
+    assert result.state is RunState.FAILED
+    assert result.analysis is not None
+    assert result.analysis.publication_eligible is False
+    assert result.analysis.warehouse_validation.status is (
+        WarehouseValidationStatus.BLOCKED
+    )
+    check = result.analysis.warehouse_validation.checks[0]
+    assert (check.code, check.detail, check.retryable) == (
+        "warehouse_not_run",
+        "Warehouse validation returned no execution evidence.",
+        True,
+    )
+    assert [item.code for item in result.analysis.approval_blockers] == [
+        "WAREHOUSE_VALIDATION_FAILED"
+    ]
+    assert result.error is not None
+    assert (result.error.code, result.error.retryable) == (
+        "WAREHOUSE_VALIDATION_FAILED",
+        True,
+    )
     assert warehouse.calls == 1
 
 

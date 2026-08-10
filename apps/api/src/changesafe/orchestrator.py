@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Mapping
+from contextlib import suppress
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -69,17 +70,37 @@ class ChangeSafeOrchestrator:
         self.llm_reservation_usd = llm_reservation_usd
         self.llm_budget_usd = llm_budget_usd
         self._tasks: set[asyncio.Task[RunView]] = set()
+        self._warehouse_cleanup_tasks: set[
+            asyncio.Task[WarehouseValidationResult]
+        ] = set()
         self._fallback_lock = asyncio.Lock()
 
     def _track(self, task: asyncio.Task[RunView]) -> None:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
+    def _track_warehouse_cleanup(
+        self, task: asyncio.Task[WarehouseValidationResult]
+    ) -> None:
+        self._warehouse_cleanup_tasks.add(task)
+        task.add_done_callback(self._consume_warehouse_cleanup)
+
+    def _consume_warehouse_cleanup(
+        self, task: asyncio.Task[WarehouseValidationResult]
+    ) -> None:
+        self._warehouse_cleanup_tasks.discard(task)
+        with suppress(asyncio.CancelledError):
+            task.exception()
+
     async def wait_for_idle(self) -> None:
         """Wait for every in-flight background analysis to finish safely."""
 
-        while self._tasks:
-            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+        while self._tasks or self._warehouse_cleanup_tasks:
+            await asyncio.gather(
+                *tuple(self._tasks),
+                *tuple(self._warehouse_cleanup_tasks),
+                return_exceptions=True,
+            )
 
     def _expected_relation_fingerprint(self, change: ChangeRequest) -> str | None:
         relation = self.warehouse_target_map.get(change.asset_urn)
@@ -133,12 +154,34 @@ class ChangeSafeOrchestrator:
     ) -> WarehouseValidationResult:
         assert self.warehouse_port is not None
         started_at = datetime.now(UTC)
+        validation_task = asyncio.create_task(
+            self.warehouse_port.validate(change, context)
+        )
         try:
-            result = await asyncio.wait_for(
-                self.warehouse_port.validate(change, context),
-                timeout=self.warehouse_timeout_seconds,
+            done, _ = await asyncio.wait(
+                {validation_task}, timeout=self.warehouse_timeout_seconds
             )
-            return WarehouseValidationResult.model_validate(result)
+            if validation_task not in done:
+                self._track_warehouse_cleanup(validation_task)
+                validation_task.cancel()
+                return self._blocked_result(
+                    change,
+                    started_at=started_at,
+                    code="warehouse_timeout",
+                    message="Warehouse validation timed out.",
+                    retryable=True,
+                )
+            result = validation_task.result()
+            validated = WarehouseValidationResult.model_validate(result)
+            if validated.status is WarehouseValidationStatus.NOT_RUN:
+                return self._blocked_result(
+                    change,
+                    started_at=started_at,
+                    code="warehouse_not_run",
+                    message="Warehouse validation returned no execution evidence.",
+                    retryable=True,
+                )
+            return validated
         except WarehouseValidationError as exc:
             return self._blocked_result(
                 change,
@@ -147,6 +190,10 @@ class ChangeSafeOrchestrator:
                 message=exc.public_message,
                 retryable=exc.retryable,
             )
+        except asyncio.CancelledError:
+            self._track_warehouse_cleanup(validation_task)
+            validation_task.cancel()
+            raise
         except TimeoutError:
             return self._blocked_result(
                 change,

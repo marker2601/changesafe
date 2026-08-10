@@ -109,6 +109,30 @@ class LifecycleWarehousePort:
         self.closed = True
 
 
+class CancellationResistantLifecycleWarehousePort:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+        self.release = asyncio.Event()
+        self.cleanup_completed = False
+        self.closed = False
+
+    async def validate(self, change: ChangeRequest, context):
+        assert context.field == change.field
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            await self.release.wait()
+            self.cleanup_completed = True
+            raise
+
+    async def close(self) -> None:
+        assert self.cleanup_completed is True
+        self.closed = True
+
+
 async def wait_for_state(
     client: httpx.AsyncClient, run_id: str, state: RunState
 ) -> dict:
@@ -596,6 +620,76 @@ async def test_app_lifespan_closes_warehouse_only_after_orchestrator_is_idle(
     assert persisted.state is RunState.AWAITING_APPROVAL
     assert warehouse.validation_completed is True
     assert warehouse.closed is True
+
+
+@pytest.mark.asyncio
+async def test_lifespan_waits_for_cancelled_warehouse_cleanup_before_close(
+    tmp_path: Path,
+) -> None:
+    warehouse = CancellationResistantLifecycleWarehousePort()
+    relation = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=tmp_path / "cancel-resistant-lifecycle.db",
+            snowflake_target_relation_allowlist={DEMO_TARGET_URN: relation},
+        ),
+        context_port=ReplayDataHubContext.from_default(),
+        warehouse_port=warehouse,
+    )
+    app.state.orchestrator.warehouse_timeout_seconds = 0.01
+    lifespan = app.router.lifespan_context(app)
+    await lifespan.__aenter__()
+    analysis_task: asyncio.Task | None = None
+    idle_task: asyncio.Task | None = None
+    exit_task: asyncio.Task | None = None
+    lifespan_exited = False
+    try:
+        run = await app.state.store.create(golden_change())
+        analysis_task = asyncio.create_task(
+            app.state.orchestrator.analyze(run.run_id)
+        )
+        await asyncio.wait_for(warehouse.started.wait(), timeout=0.5)
+
+        done, _ = await asyncio.wait({analysis_task}, timeout=0.25)
+        assert analysis_task in done
+        result = analysis_task.result()
+        assert result.state is RunState.FAILED
+        assert result.analysis is not None
+        assert result.analysis.warehouse_validation.checks[0].code == (
+            "warehouse_timeout"
+        )
+        await asyncio.wait_for(warehouse.cancelled.wait(), timeout=0.5)
+        assert warehouse.cleanup_completed is False
+
+        idle_task = asyncio.create_task(app.state.orchestrator.wait_for_idle())
+        idle_done, _ = await asyncio.wait({idle_task}, timeout=0.05)
+        assert idle_task not in idle_done
+
+        exit_task = asyncio.create_task(lifespan.__aexit__(None, None, None))
+        exit_done, _ = await asyncio.wait({exit_task}, timeout=0.05)
+        assert exit_task not in exit_done
+        assert warehouse.closed is False
+
+        warehouse.release.set()
+        await asyncio.wait_for(idle_task, timeout=0.5)
+        await asyncio.wait_for(exit_task, timeout=0.5)
+        lifespan_exited = True
+
+        assert warehouse.cleanup_completed is True
+        assert warehouse.closed is True
+    finally:
+        warehouse.release.set()
+        if analysis_task is not None and not analysis_task.done():
+            await asyncio.wait_for(analysis_task, timeout=1)
+        if idle_task is not None and not idle_task.done():
+            await asyncio.wait_for(idle_task, timeout=1)
+        if exit_task is not None and not exit_task.done():
+            await asyncio.wait_for(exit_task, timeout=1)
+            lifespan_exited = True
+        if not lifespan_exited:
+            await lifespan.__aexit__(None, None, None)
 
 
 @pytest.mark.asyncio
