@@ -1,10 +1,13 @@
-from dataclasses import FrozenInstanceError
+import gc
+import weakref
+from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 
 import pytest
 from sqlglot import exp, parse_one
 
+import changesafe.warehouse.queries as query_module
 from changesafe.domain import (
     ChangeOperation,
     ChangeRequest,
@@ -525,13 +528,101 @@ def test_guard_rejects_swapped_rename_source_and_destination() -> None:
         )
 
 
+def test_guard_rejects_forged_candidate_owned_attestation() -> None:
+    sql = (
+        "SELECT CURRENT_USER() AS current_user\n"
+        'FROM "SAFE_DB"."SAFE_SCHEMA"."ORDER_DETAILS"'
+    )
+    forged = WarehouseQuery(
+        code="schema_probe",
+        sql=sql,
+        expected_columns=("CURRENT_USER",),
+    )
+    if hasattr(forged, "_generated_sql"):
+        object.__setattr__(forged, "_generated_sql", sql)
+
+    with pytest.raises(UnsafeWarehouseQuery):
+        validate_read_only_query(forged, RELATION, {"cust_email"})
+
+
+def test_guard_rejects_directly_constructed_copy_of_generated_query() -> None:
+    generated = build_validation_plan(
+        request_for(ChangeOperation.REMOVE), golden_context(), RELATION
+    ).queries[0]
+    direct = WarehouseQuery(
+        code=generated.code,
+        sql=generated.sql,
+        expected_columns=generated.expected_columns,
+    )
+
+    with pytest.raises(UnsafeWarehouseQuery):
+        validate_read_only_query(direct, RELATION, {"cust_email"})
+
+
+def test_guard_rejects_object_mutation_of_registered_query() -> None:
+    generated = build_validation_plan(
+        request_for(ChangeOperation.REMOVE), golden_context(), RELATION
+    ).queries[0]
+    sql = (
+        "SELECT CURRENT_USER() AS current_user\n"
+        'FROM "SAFE_DB"."SAFE_SCHEMA"."ORDER_DETAILS"'
+    )
+    object.__setattr__(generated, "sql", sql)
+    object.__setattr__(generated, "expected_columns", ("CURRENT_USER",))
+    if hasattr(generated, "_generated_sql"):
+        object.__setattr__(generated, "_generated_sql", sql)
+
+    with pytest.raises(UnsafeWarehouseQuery):
+        validate_read_only_query(generated, RELATION, {"cust_email"})
+
+
+def test_guard_rejects_dataclass_replacement_of_registered_query() -> None:
+    generated = build_validation_plan(
+        request_for(ChangeOperation.REMOVE), golden_context(), RELATION
+    ).queries[0]
+    replacement = replace(generated)
+
+    with pytest.raises(UnsafeWarehouseQuery):
+        validate_read_only_query(replacement, RELATION, {"cust_email"})
+
+
+def test_guard_rejects_direct_private_helper_output() -> None:
+    generated = build_validation_plan(
+        request_for(ChangeOperation.REMOVE), golden_context(), RELATION
+    ).queries[0]
+    helper_output = query_module._generated_query(
+        code=generated.code,
+        sql=generated.sql,
+        expected_columns=generated.expected_columns,
+    )
+
+    with pytest.raises(UnsafeWarehouseQuery):
+        validate_read_only_query(helper_output, RELATION, {"cust_email"})
+
+
+def test_builder_registry_releases_queries_after_plan_collection() -> None:
+    registry = query_module._QUERY_CONTRACTS
+    baseline = len(registry)
+    plan = build_validation_plan(
+        request_for(ChangeOperation.REMOVE), golden_context(), RELATION
+    )
+    query_refs = tuple(weakref.ref(query) for query in plan.queries)
+
+    assert len(registry) == baseline + len(plan.queries)
+    del plan
+    gc.collect()
+
+    assert all(reference() is None for reference in query_refs)
+    assert len(registry) == baseline
+
+
 def test_guard_binds_query_result_aliases() -> None:
     query = build_validation_plan(
         request_for(ChangeOperation.REMOVE), golden_context(), RELATION
     ).queries[1]
     mutated = query.sql.replace("rows_evaluated", "rows_seen")
 
-    with pytest.raises(UnsafeWarehouseQuery, match="columns"):
+    with pytest.raises(UnsafeWarehouseQuery):
         validate_read_only_query(
             WarehouseQuery(
                 code=query.code,

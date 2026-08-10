@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
+import weakref
 from dataclasses import dataclass
-from dataclasses import field as dataclass_field
 from hashlib import sha256
 
 from sqlglot import exp, parse
@@ -42,17 +42,11 @@ class UnsupportedWarehouseConversion(UnsafeWarehouseQuery):
     """Raised when Snowflake TRY_CAST does not document the conversion family."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class WarehouseQuery:
     code: str
     sql: str
     expected_columns: tuple[str, ...]
-    _generated_sql: str | None = dataclass_field(
-        default=None,
-        init=False,
-        repr=False,
-        compare=False,
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,12 +56,28 @@ class WarehouseValidationPlan:
     queries: tuple[WarehouseQuery, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _QueryContract:
+    reference: weakref.ReferenceType[WarehouseQuery]
+    operation: ChangeOperation
+    code: str
+    sql: str
+    expected_columns: tuple[str, ...]
+    relation: str
+    allowed_fields: frozenset[str]
+    source_field: str
+    destination_field: str | None
+    current_type: str | None
+    target_type: str | None
+
+
+_QUERY_CONTRACTS: dict[int, _QueryContract] = {}
+
+
 def _generated_query(
     *, code: str, sql: str, expected_columns: tuple[str, ...]
 ) -> WarehouseQuery:
-    query = WarehouseQuery(code=code, sql=sql, expected_columns=expected_columns)
-    object.__setattr__(query, "_generated_sql", sql)
-    return query
+    return WarehouseQuery(code=code, sql=sql, expected_columns=expected_columns)
 
 
 def quote_identifier(value: str) -> str:
@@ -162,6 +172,50 @@ def _type_change_sql(
     )
 
 
+def _trusted_contract_sql(contract: _QueryContract) -> str:
+    rendered_relation = _render_relation(contract.relation)
+    if contract.code == "schema_probe":
+        return _schema_probe_sql(contract.source_field, rendered_relation)
+    if (
+        contract.code == "rename_projection"
+        and contract.operation is ChangeOperation.RENAME
+        and contract.destination_field is not None
+    ):
+        return _rename_sql(
+            contract.source_field,
+            contract.destination_field,
+            rendered_relation,
+        )
+    if (
+        contract.code == "remove_impact"
+        and contract.operation is ChangeOperation.REMOVE
+    ):
+        return _remove_sql(contract.source_field, rendered_relation)
+    if (
+        contract.code == "type_conversion"
+        and contract.operation is ChangeOperation.TYPE_CHANGE
+        and contract.current_type is not None
+        and contract.target_type is not None
+    ):
+        return _type_change_sql(
+            contract.source_field,
+            contract.current_type,
+            contract.target_type,
+            rendered_relation,
+        )
+    raise UnsafeWarehouseQuery("Registered query semantics are inconsistent")
+
+
+def _trusted_contract_columns(contract: _QueryContract) -> tuple[str, ...]:
+    if contract.code == "schema_probe":
+        return (contract.source_field,)
+    if contract.code in {"rename_projection", "remove_impact"}:
+        return AGGREGATE_COLUMNS
+    if contract.code == "type_conversion":
+        return TYPE_AGGREGATE_COLUMNS
+    raise UnsafeWarehouseQuery("Registered query code is unsupported")
+
+
 def _validated_context_field(change: ChangeRequest, context: ContextBundle) -> None:
     if change.asset_urn != context.target_urn or (
         change.field.casefold() != context.field.casefold()
@@ -225,8 +279,53 @@ def build_validation_plan(
     _validated_context_field(change, context)
     normalized_relation = _normalize_relation(relation)
     rendered_relation = _render_relation(normalized_relation)
+    destination_field = (
+        change.new_field.upper() if change.new_field is not None else None
+    )
+    current_type: str | None = None
+    target_type: str | None = None
+    if change.operation is ChangeOperation.TYPE_CHANGE:
+        assert change.old_type is not None
+        assert change.new_type is not None
+        current_type = _render_try_cast_type(change.old_type)
+        target_type = _render_try_cast_type(change.new_type)
+    allowed_fields = {change.field.upper()}
+    if destination_field is not None:
+        allowed_fields.add(destination_field)
+
+    def registered_query(
+        *, code: str, sql: str, expected_columns: tuple[str, ...]
+    ) -> WarehouseQuery:
+        query = _generated_query(
+            code=code,
+            sql=sql,
+            expected_columns=expected_columns,
+        )
+        query_id = id(query)
+
+        def release(reference: weakref.ReferenceType[WarehouseQuery]) -> None:
+            registered = _QUERY_CONTRACTS.get(query_id)
+            if registered is not None and registered.reference is reference:
+                _QUERY_CONTRACTS.pop(query_id, None)
+
+        reference = weakref.ref(query, release)
+        _QUERY_CONTRACTS[query_id] = _QueryContract(
+            reference=reference,
+            operation=change.operation,
+            code=code,
+            sql=sql,
+            expected_columns=expected_columns,
+            relation=normalized_relation,
+            allowed_fields=frozenset(allowed_fields),
+            source_field=change.field.upper(),
+            destination_field=destination_field,
+            current_type=current_type,
+            target_type=target_type,
+        )
+        return query
+
     queries = [
-        _generated_query(
+        registered_query(
             code="schema_probe",
             sql=_schema_probe_sql(change.field, rendered_relation),
             expected_columns=(change.field.upper(),),
@@ -236,7 +335,7 @@ def build_validation_plan(
     if change.operation is ChangeOperation.RENAME:
         assert change.new_field is not None
         queries.append(
-            _generated_query(
+            registered_query(
                 code="rename_projection",
                 sql=_rename_sql(change.field, change.new_field, rendered_relation),
                 expected_columns=AGGREGATE_COLUMNS,
@@ -244,22 +343,22 @@ def build_validation_plan(
         )
     elif change.operation is ChangeOperation.REMOVE:
         queries.append(
-            _generated_query(
+            registered_query(
                 code="remove_impact",
                 sql=_remove_sql(change.field, rendered_relation),
                 expected_columns=AGGREGATE_COLUMNS,
             )
         )
     elif change.operation is ChangeOperation.TYPE_CHANGE:
-        assert change.old_type is not None
-        assert change.new_type is not None
+        assert current_type is not None
+        assert target_type is not None
         queries.append(
-            _generated_query(
+            registered_query(
                 code="type_conversion",
                 sql=_type_change_sql(
                     change.field,
-                    _render_try_cast_type(change.old_type),
-                    _render_try_cast_type(change.new_type),
+                    current_type,
+                    target_type,
                     rendered_relation,
                 ),
                 expected_columns=TYPE_AGGREGATE_COLUMNS,
@@ -268,9 +367,6 @@ def build_validation_plan(
     else:  # pragma: no cover - Pydantic constrains the operation enum.
         raise UnsafeWarehouseQuery("Change operation is unsupported")
 
-    allowed_fields = {change.field}
-    if change.new_field is not None:
-        allowed_fields.add(change.new_field)
     for query in queries:
         validate_read_only_query(query, normalized_relation, allowed_fields)
 
@@ -319,12 +415,33 @@ def validate_read_only_query(
 ) -> None:
     """Fail closed unless a query is one exact generated read-only statement."""
 
+    contract = _QUERY_CONTRACTS.get(id(query))
+    if contract is None or contract.reference() is not query:
+        raise UnsafeWarehouseQuery("Query identity was not registered by the builder")
+
     normalized_relation = _normalize_relation(relation)
     normalized_fields = {field.upper() for field in allowed_fields}
     if not normalized_fields:
         raise UnsafeWarehouseQuery("At least one allowlisted field is required")
     for field in allowed_fields:
         quote_identifier(field)
+    if (
+        query.code != contract.code
+        or query.sql != contract.sql
+        or query.expected_columns != contract.expected_columns
+        or normalized_relation != contract.relation
+        or frozenset(normalized_fields) != contract.allowed_fields
+    ):
+        raise UnsafeWarehouseQuery("Query does not match its registered contract")
+    expected_semantic_fields = {contract.source_field}
+    if contract.destination_field is not None:
+        expected_semantic_fields.add(contract.destination_field)
+    if contract.allowed_fields != frozenset(expected_semantic_fields):
+        raise UnsafeWarehouseQuery("Registered field semantics are inconsistent")
+    trusted_sql = _trusted_contract_sql(contract)
+    trusted_columns = _trusted_contract_columns(contract)
+    if contract.sql != trusted_sql or contract.expected_columns != trusted_columns:
+        raise UnsafeWarehouseQuery("Registered query contract is inconsistent")
 
     expression = _parse_single_select(query.sql)
     if (
@@ -353,11 +470,7 @@ def validate_read_only_query(
         SIMPLE_IDENTIFIER.fullmatch(name) is None for name in expected_columns
     ):
         raise UnsafeWarehouseQuery("Query result columns are invalid")
-    contract_sql = query._generated_sql
-    if contract_sql is None or query.sql != contract_sql:
-        raise UnsafeWarehouseQuery("Query was not produced by the validated generator")
-
-    expected = _parse_single_select(contract_sql)
+    expected = _parse_single_select(trusted_sql)
     rendered = expression.sql(dialect="snowflake")
     expected_rendered = expected.sql(dialect="snowflake")
     if rendered != expected_rendered:
