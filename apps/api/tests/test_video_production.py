@@ -309,3 +309,29 @@ def test_media_verification_rejects_wrong_codec_or_runtime() -> None:
     assert verify_media(replace(good, duration_seconds=176.0)) == [
         "duration must not exceed 175 seconds"
     ]
+
+
+def test_video_runner_is_guarded_and_orders_the_pipeline() -> None:
+    runner = Path("scripts/video/run_demo_video.ps1")
+    assert runner.is_file(), "video runner is required"
+    source = runner.read_text(encoding="utf-8")
+    assert "$ErrorActionPreference = 'Stop'" in source
+    assert ".venv\\Scripts\\python.exe" in source
+    assert "codex-primary-runtime\\dependencies\\node\\bin\\node.exe" in source
+    assert "codex-primary-runtime\\dependencies\\bin\\fallback\\pnpm.cmd" in source
+    assert "scripts/video/requirements.txt" in source
+    assert "Join-Path $HOME 'Videos\\ChangeSafe Submission'" in source
+    markers = [
+        "-m scripts.video.narration",
+        "capture_contract.test.mjs",
+        "capture_demo.mjs",
+        "-m scripts.video.compose_demo",
+        "-m pytest -q apps/api/tests/test_video_production.py",
+        "-m ruff check scripts/video",
+        "scripts/check_secrets.py",
+    ]
+    positions = [source.index(marker) for marker in markers]
+    assert positions == sorted(positions)
+    assert "Get-ChildItem Env" not in source
+    assert "Remove-Item -LiteralPath $WorkDir" in source
+    assert "Remove-Item -LiteralPath $OutputDir" not in source

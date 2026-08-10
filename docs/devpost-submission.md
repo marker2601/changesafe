@@ -83,9 +83,8 @@ Metadata becomes more valuable when it is executable decision context rather tha
 
 ## What's next
 
-- Add stable judge hosting under the owner's deployment account or custom tunnel domain; the anonymous QA tunnel is intentionally temporary.
+- Add organization authentication and shared job storage for a production multi-user deployment.
 - Supply owner-controlled read-only Snowflake credentials to produce a real aggregate warehouse pass.
-- Add organization authentication and move jobs/ledger storage to shared infrastructure for multi-replica hosting.
 - Add more catalog-backed policy profiles for contracts, quality assertions, and production ML changes.
 
 ## Technologies
@@ -107,8 +106,8 @@ No DataHub token is needed for replay. A token is needed only for an operator-co
 
 ## Submission links
 
-- Hosted app: stable hosting blocked pending the owner's hosting account or custom tunnel domain
+- Hosted app: `https://changesafe-competition.onrender.com`
 - Source repository: `https://github.com/marker2601/changesafe`
-- Demo video: pending external recording
+- Demo video: generated locally as `changesafe-competition-demo.mp4`; upload publicly before submission
 - Live GitHub pull request: not created; mutation flags remained disabled
 - Live DataHub decision evidence: not written; mutation flags remained disabled

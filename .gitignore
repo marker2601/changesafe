@@ -24,3 +24,5 @@ test-results/
 fixtures/dbt_project/logs/
 fixtures/dbt_project/target/
 fixtures/dbt_project/.user.yml
+.video-work/
+video-output/
