@@ -106,6 +106,14 @@ bind-mounts the configured PKCS#8 key read-only at
 docker compose --env-file "C:\Users\harik\ChangeSafe\private\changesafe.env" --profile warehouse up --build changesafe-warehouse
 ```
 
+For local and Compose operators, `SNOWFLAKE_PRIVATE_KEY_PATH` is the filesystem
+path to the operator-controlled PKCS#8 key mounted read-only by the warehouse
+profile. In GitHub Actions only, store the base64-encoded PKCS#8 key content in
+the encrypted `SNOWFLAKE_PRIVATE_KEY_PATH` secret. The readiness workflow
+decodes it into a mode-600 runner-temporary file, passes that file path to the
+runtime under the same variable name, and always deletes the file after the
+smoke.
+
 Never copy the private file into this repository. `.env*`, databases, test artifacts, and private work directories are ignored.
 
 ## Do I need a DataHub token?

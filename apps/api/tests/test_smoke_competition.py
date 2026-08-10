@@ -32,6 +32,7 @@ from changesafe.domain import (
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "smoke_competition.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+README = ROOT / "README.md"
 SAFE_TOP_LEVEL_KEYS = {"status", "results"}
 SAFE_OPERATION_KEYS = {
     "field",
@@ -402,8 +403,8 @@ def test_ci_materializes_ephemeral_key_before_smoke_and_always_cleans_it() -> No
     cleanup_run = cleanup["run"]
 
     assert materialize["env"] == {
-        "SNOWFLAKE_PRIVATE_KEY_BASE64": (
-            "${{ secrets.SNOWFLAKE_PRIVATE_KEY_BASE64 }}"
+        "SNOWFLAKE_PRIVATE_KEY_PATH": (
+            "${{ secrets.SNOWFLAKE_PRIVATE_KEY_PATH }}"
         )
     }
     assert "umask 077" in materialize_run
@@ -413,7 +414,7 @@ def test_ci_materializes_ephemeral_key_before_smoke_and_always_cleans_it() -> No
     assert '>> "${GITHUB_ENV}"' in materialize_run
     assert "set -x" not in materialize_run
     assert not any(
-        "echo" in line and "SNOWFLAKE_PRIVATE_KEY_BASE64" in line
+        "echo" in line and "SNOWFLAKE_PRIVATE_KEY_PATH" in line
         for line in materialize_run.splitlines()
     )
     assert cleanup["if"] == "always()"
@@ -440,18 +441,33 @@ def test_ci_credential_completeness_and_safe_skip_cover_every_input() -> None:
         "SNOWFLAKE_SCHEMA",
         "SNOWFLAKE_ROLE",
         "SNOWFLAKE_TARGET_RELATION_ALLOWLIST",
-        "SNOWFLAKE_PRIVATE_KEY_BASE64_PRESENT",
+        "CHANGESAFE_CI_SNOWFLAKE_KEY_PRESENT",
     }
+    forbidden_alias = "SNOWFLAKE_PRIVATE_KEY_" + "BASE64"
 
     assert "SNOWFLAKE_PRIVATE_KEY_PATH" not in job_env
-    assert "SNOWFLAKE_PRIVATE_KEY_BASE64" not in job_env
-    assert job_env["SNOWFLAKE_PRIVATE_KEY_BASE64_PRESENT"] == (
-        "${{ secrets.SNOWFLAKE_PRIVATE_KEY_BASE64 != '' }}"
+    assert forbidden_alias not in WORKFLOW.read_text(encoding="utf-8")
+    assert job_env["CHANGESAFE_CI_SNOWFLAKE_KEY_PRESENT"] == (
+        "${{ secrets.SNOWFLAKE_PRIVATE_KEY_PATH != '' }}"
     )
     for name in required:
         assert name in materialize["if"]
         assert name in smoke["if"]
         assert name in skipped["if"]
+
+
+def test_readme_distinguishes_ci_key_content_from_operator_path_semantics() -> None:
+    readme = " ".join(README.read_text(encoding="utf-8").split())
+
+    assert (
+        "For local and Compose operators, `SNOWFLAKE_PRIVATE_KEY_PATH` is the "
+        "filesystem path"
+    ) in readme
+    assert (
+        "In GitHub Actions only, store the base64-encoded PKCS#8 key content "
+        "in the encrypted `SNOWFLAKE_PRIVATE_KEY_PATH` secret."
+    ) in readme
+    assert "decodes it into a mode-600 runner-temporary file" in readme
 
 
 @pytest.mark.asyncio
