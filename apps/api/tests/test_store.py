@@ -339,7 +339,9 @@ async def test_store_restores_legacy_warehouse_result_with_unknown_query_boundar
     run = await store.create(golden_change())
     analysis = analysis_result()
     await advance_to_awaiting_approval(store, run.run_id, analysis)
-    legacy_analysis = analysis.model_dump(mode="json")
+    legacy_analysis = analysis.model_copy(
+        update={"approval_blockers": [], "publication_eligible": True}
+    ).model_dump(mode="json")
     legacy_analysis["warehouse_validation"].pop("aggregate_query_started")
 
     async with aiosqlite.connect(database) as connection:
@@ -354,6 +356,14 @@ async def test_store_restores_legacy_warehouse_result_with_unknown_query_boundar
     assert restored is not None
     assert restored.analysis is not None
     assert restored.analysis.warehouse_validation.aggregate_query_started is None
+    assert restored.analysis.publication_eligible is False
+    assert restored.analysis.approval_blockers == [
+        ApprovalBlocker(
+            code="WAREHOUSE_EVIDENCE_INCOMPLETE",
+            message="Warehouse validation evidence is incomplete.",
+            retryable=False,
+        )
+    ]
 
 
 @pytest.mark.asyncio

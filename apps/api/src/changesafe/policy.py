@@ -12,6 +12,7 @@ from changesafe.domain import (
     ValidationReport,
     WarehouseValidationResult,
     WarehouseValidationStatus,
+    warehouse_evidence_incomplete_blocker,
 )
 
 
@@ -75,6 +76,12 @@ def evaluate_approval_policy(
                 ),
             )
         )
+
+    if (
+        warehouse.status is WarehouseValidationStatus.PASSED
+        and warehouse.aggregate_query_started is not True
+    ):
+        blockers.append(warehouse_evidence_incomplete_blocker())
 
     if warehouse.operation is not change.operation or warehouse.field != change.field:
         blockers.append(

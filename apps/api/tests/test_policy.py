@@ -74,6 +74,7 @@ def warehouse_result(
             environment_label="competition-non-production",
             operation=change.operation,
             field=change.field,
+            aggregate_query_started=False,
         )
     passed = status is WarehouseValidationStatus.PASSED
     return WarehouseValidationResult(
@@ -82,6 +83,7 @@ def warehouse_result(
         environment_label="competition-non-production",
         operation=change.operation,
         field=change.field,
+        aggregate_query_started=True if passed else None,
         relation_fingerprint=relation_fingerprint,
         started_at=(completed_at - timedelta(seconds=1) if completed_at else None),
         completed_at=completed_at,
@@ -184,6 +186,24 @@ def test_relation_fingerprint_drift_blocks_approval() -> None:
     blockers = evaluate(expected_relation_fingerprint="c" * 64)
 
     assert [item.code for item in blockers] == ["WAREHOUSE_RELATION_CHANGED"]
+
+
+def test_passed_evidence_with_unknown_query_boundary_is_incomplete() -> None:
+    legacy_unknown = warehouse_result(
+        WarehouseValidationStatus.PASSED
+    ).model_copy(update={"aggregate_query_started": None})
+
+    blockers = evaluate(warehouse=legacy_unknown)
+
+    assert [
+        (item.code, item.message, item.retryable) for item in blockers
+    ] == [
+        (
+            "WAREHOUSE_EVIDENCE_INCOMPLETE",
+            "Warehouse validation evidence is incomplete.",
+            False,
+        )
+    ]
 
 
 def test_passed_evidence_requires_a_current_operator_relation() -> None:

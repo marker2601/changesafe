@@ -359,6 +359,14 @@ class ApprovalBlocker(StrictModel):
     retryable: bool = False
 
 
+def warehouse_evidence_incomplete_blocker() -> ApprovalBlocker:
+    return ApprovalBlocker(
+        code="WAREHOUSE_EVIDENCE_INCOMPLETE",
+        message="Warehouse validation evidence is incomplete.",
+        retryable=False,
+    )
+
+
 class LlmUsage(StrictModel):
     provider: Literal["openai"] = "openai"
     model: str = Field(min_length=1)
@@ -427,6 +435,24 @@ class AnalysisResult(StrictModel):
         )
     )
     approval_blockers: list[ApprovalBlocker] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_incomplete_warehouse_evidence(self) -> AnalysisResult:
+        warehouse = self.warehouse_validation
+        if (
+            warehouse.status is WarehouseValidationStatus.PASSED
+            and warehouse.aggregate_query_started is not True
+        ):
+            canonical = warehouse_evidence_incomplete_blocker()
+            normalized = [
+                canonical if blocker.code == canonical.code else blocker
+                for blocker in self.approval_blockers
+            ]
+            if all(blocker.code != canonical.code for blocker in normalized):
+                normalized.append(canonical)
+            self.approval_blockers = normalized
+            self.publication_eligible = False
+        return self
 
 
 class PublicError(StrictModel):

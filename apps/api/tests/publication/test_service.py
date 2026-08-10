@@ -57,6 +57,7 @@ def warehouse_result(
         environment_label="competition-non-production",
         operation=run.request.operation,
         field=run.request.field,
+        aggregate_query_started=True,
         relation_fingerprint=fingerprint_relation(relation),
         started_at=completed_at - timedelta(seconds=1),
         completed_at=completed_at,
@@ -143,6 +144,54 @@ async def test_stale_passed_evidence_blocks_before_ledger_or_external_calls(
     persisted = await store.get(run.run_id)
     assert persisted is not None
     assert persisted.state.value == "awaiting_approval"
+    assert await store.get_publication(key) is None
+    assert publisher.calls == 0
+    assert context.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_legacy_unknown_passed_evidence_blocks_before_external_calls(
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    store, _, run = await analyzed_run(tmp_path, context_port=context)
+    assert run.analysis is not None
+    settings = live_warehouse_settings(tmp_path)
+    unknown = warehouse_result(
+        run, completed_at=datetime.now(UTC)
+    ).model_copy(update={"aggregate_query_started": None})
+    await persist_analysis(
+        store,
+        run.run_id,
+        run.analysis.model_copy(
+            update={
+                "warehouse_validation": unknown,
+                "approval_blockers": [],
+                "publication_eligible": True,
+            }
+        ),
+    )
+    publisher = CountingGitHubPublisher()
+    service = PublicationService(
+        store=RunStore(store.database),
+        settings=settings,
+        context_port=context,
+        github_publisher=publisher,
+    )
+    artifact_hash = run.analysis.artifacts.manifest_hash
+    assert artifact_hash is not None
+    key = publication_key(run.request, run.request.source_commit, artifact_hash)
+
+    with pytest.raises(PublicationStateError, match="current safety policy"):
+        await service.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    restored = await RunStore(store.database).get(run.run_id)
+    assert restored is not None
+    assert restored.analysis is not None
+    assert restored.analysis.publication_eligible is False
+    assert [item.code for item in restored.analysis.approval_blockers] == [
+        "WAREHOUSE_EVIDENCE_INCOMPLETE"
+    ]
     assert await store.get_publication(key) is None
     assert publisher.calls == 0
     assert context.calls == 0
@@ -277,6 +326,66 @@ async def test_completed_receipt_reuse_rechecks_warehouse_freshness(
     persisted = await store.get(run.run_id)
     assert persisted is not None
     assert persisted.publication == first
+
+
+@pytest.mark.asyncio
+async def test_completed_receipt_reuse_rejects_unknown_query_boundary(
+    tmp_path: Path,
+) -> None:
+    store, context, run = await analyzed_run(tmp_path)
+    assert run.analysis is not None
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=store.database,
+        snowflake_target_relation_allowlist={DEMO_TARGET_URN: RELATION},
+    )
+    passed = warehouse_result(run, completed_at=datetime.now(UTC))
+    await persist_analysis(
+        store,
+        run.run_id,
+        run.analysis.model_copy(
+            update={
+                "warehouse_validation": passed,
+                "approval_blockers": [],
+                "publication_eligible": True,
+            }
+        ),
+    )
+    service = PublicationService(
+        store=store,
+        settings=settings,
+        context_port=context,
+    )
+    first = await service.approve(run.run_id, supplied_admin_token=None)
+    unknown = passed.model_copy(update={"aggregate_query_started": None})
+    await persist_analysis(
+        store,
+        run.run_id,
+        run.analysis.model_copy(
+            update={
+                "warehouse_validation": unknown,
+                "approval_blockers": [],
+                "publication_eligible": True,
+            }
+        ),
+    )
+
+    with pytest.raises(PublicationStateError, match="current safety policy"):
+        await PublicationService(
+            store=RunStore(store.database),
+            settings=settings,
+            context_port=context,
+        ).approve(run.run_id, supplied_admin_token=None)
+
+    persisted = await RunStore(store.database).get(run.run_id)
+    assert persisted is not None
+    assert persisted.publication == first
+    assert persisted.analysis is not None
+    assert persisted.analysis.publication_eligible is False
+    assert [item.code for item in persisted.analysis.approval_blockers] == [
+        "WAREHOUSE_EVIDENCE_INCOMPLETE"
+    ]
 
 
 def warehouse_boundary_result(run, boundary: str) -> WarehouseValidationResult:
