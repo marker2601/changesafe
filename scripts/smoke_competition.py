@@ -223,9 +223,6 @@ def _safe_operation_summary(
         "upstream_count": len(upstream),
         "downstream_count": len(downstream),
         "deterministic_score": risk.get("score"),
-        "artifact_count": len(files),
-        "static_checks_passed": passed_checks,
-        "static_checks_total": len(checks),
         "warehouse_status": warehouse.get("status"),
         "warehouse_rows_evaluated": warehouse.get("rows_evaluated"),
         "warehouse_populated_row_count": warehouse.get("populated_row_count"),
@@ -309,8 +306,7 @@ async def run_competition_smoke(
 
         return {
             "status": "passed",
-            "schema_field_count": len(catalog.schema_fields),
-            "operations": operation_summaries,
+            "results": operation_summaries,
         }
 
 

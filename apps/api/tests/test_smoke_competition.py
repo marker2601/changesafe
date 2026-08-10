@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 import pytest
+import yaml
 
 from changesafe.config import Mode, Settings
 from changesafe.context.base import DecisionWriteback
@@ -30,7 +31,8 @@ from changesafe.domain import (
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "smoke_competition.py"
-SAFE_TOP_LEVEL_KEYS = {"status", "schema_field_count", "operations"}
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+SAFE_TOP_LEVEL_KEYS = {"status", "results"}
 SAFE_OPERATION_KEYS = {
     "field",
     "operation",
@@ -38,15 +40,22 @@ SAFE_OPERATION_KEYS = {
     "upstream_count",
     "downstream_count",
     "deterministic_score",
-    "artifact_count",
-    "static_checks_passed",
-    "static_checks_total",
     "warehouse_status",
     "warehouse_rows_evaluated",
     "warehouse_populated_row_count",
     "warehouse_unsafe_row_count",
     "receipt_mode",
 }
+
+
+def load_ci_workflow() -> dict[str, Any]:
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
+def workflow_step(job: dict[str, Any], name: str) -> dict[str, Any]:
+    steps = {step.get("name"): step for step in job["steps"]}
+    assert name in steps
+    return steps[name]
 
 
 def load_smoke_module() -> ModuleType:
@@ -263,7 +272,7 @@ async def test_default_smoke_forces_external_mutations_off_and_approves_preview(
     assert http_port.settings is not None
     assert http_port.settings.public_pr_enabled is False
     assert http_port.settings.public_writeback_enabled is False
-    assert {item["receipt_mode"] for item in summary["operations"]} == {
+    assert {item["receipt_mode"] for item in summary["results"]} == {
         "preview"
     }
 
@@ -367,6 +376,84 @@ print(json.dumps({"status": "passed"}))
     assert output == {"status": "passed"}
 
 
+def test_ci_sets_live_mode_only_on_the_credentialed_smoke_step() -> None:
+    workflow = load_ci_workflow()
+    readiness = workflow["jobs"]["optional-live-readiness"]
+    smoke = workflow_step(readiness, "Competition live and warehouse smoke")
+
+    assert "CHANGESAFE_MODE" not in readiness.get("env", {})
+    assert "CHANGESAFE_MODE" not in workflow["jobs"]["quality"].get("env", {})
+    assert smoke["env"]["CHANGESAFE_MODE"] == "live"
+
+
+def test_ci_materializes_ephemeral_key_before_smoke_and_always_cleans_it() -> None:
+    workflow = load_ci_workflow()
+    readiness = workflow["jobs"]["optional-live-readiness"]
+    names = [step.get("name") for step in readiness["steps"]]
+    materialize_name = "Materialize ephemeral Snowflake private key"
+    smoke_name = "Competition live and warehouse smoke"
+    cleanup_name = "Remove ephemeral Snowflake private key"
+
+    assert names.index(materialize_name) < names.index(smoke_name)
+    assert names.index(smoke_name) < names.index(cleanup_name)
+    materialize = workflow_step(readiness, materialize_name)
+    cleanup = workflow_step(readiness, cleanup_name)
+    materialize_run = materialize["run"]
+    cleanup_run = cleanup["run"]
+
+    assert materialize["env"] == {
+        "SNOWFLAKE_PRIVATE_KEY_BASE64": (
+            "${{ secrets.SNOWFLAKE_PRIVATE_KEY_BASE64 }}"
+        )
+    }
+    assert "umask 077" in materialize_run
+    assert "base64 --decode" in materialize_run
+    assert 'chmod 600 "${key_path}"' in materialize_run
+    assert 'SNOWFLAKE_PRIVATE_KEY_PATH=%s\\n' in materialize_run
+    assert '>> "${GITHUB_ENV}"' in materialize_run
+    assert "set -x" not in materialize_run
+    assert not any(
+        "echo" in line and "SNOWFLAKE_PRIVATE_KEY_BASE64" in line
+        for line in materialize_run.splitlines()
+    )
+    assert cleanup["if"] == "always()"
+    assert 'rm -f -- "${key_path}"' in cleanup_run
+
+
+def test_ci_credential_completeness_and_safe_skip_cover_every_input() -> None:
+    workflow = load_ci_workflow()
+    readiness = workflow["jobs"]["optional-live-readiness"]
+    job_env = readiness["env"]
+    materialize = workflow_step(
+        readiness, "Materialize ephemeral Snowflake private key"
+    )
+    smoke = workflow_step(readiness, "Competition live and warehouse smoke")
+    skipped = workflow_step(readiness, "Explain skipped warehouse smoke")
+    required = {
+        "DATAHUB_GMS_URL",
+        "DATAHUB_GMS_TOKEN",
+        "SNOWFLAKE_ACCOUNT",
+        "SNOWFLAKE_USER",
+        "SNOWFLAKE_AUTHENTICATOR",
+        "SNOWFLAKE_WAREHOUSE",
+        "SNOWFLAKE_DATABASE",
+        "SNOWFLAKE_SCHEMA",
+        "SNOWFLAKE_ROLE",
+        "SNOWFLAKE_TARGET_RELATION_ALLOWLIST",
+        "SNOWFLAKE_PRIVATE_KEY_BASE64_PRESENT",
+    }
+
+    assert "SNOWFLAKE_PRIVATE_KEY_PATH" not in job_env
+    assert "SNOWFLAKE_PRIVATE_KEY_BASE64" not in job_env
+    assert job_env["SNOWFLAKE_PRIVATE_KEY_BASE64_PRESENT"] == (
+        "${{ secrets.SNOWFLAKE_PRIVATE_KEY_BASE64 != '' }}"
+    )
+    for name in required:
+        assert name in materialize["if"]
+        assert name in smoke["if"]
+        assert name in skipped["if"]
+
+
 @pytest.mark.asyncio
 async def test_json_summary_is_restricted_to_safe_counts_and_identifiers(
     tmp_path: Path,
@@ -386,13 +473,9 @@ async def test_json_summary_is_restricted_to_safe_counts_and_identifiers(
     serialized = json.dumps(summary, sort_keys=True)
 
     assert set(summary) == SAFE_TOP_LEVEL_KEYS
-    assert summary["schema_field_count"] == 55
-    assert len(summary["operations"]) == 3
-    assert all(set(item) == SAFE_OPERATION_KEYS for item in summary["operations"])
-    assert all(item["context_mode"] == "live" for item in summary["operations"])
-    assert all(item["artifact_count"] == 7 for item in summary["operations"])
-    assert all(item["static_checks_passed"] == 12 for item in summary["operations"])
-    assert all(item["static_checks_total"] == 12 for item in summary["operations"])
+    assert len(summary["results"]) == 3
+    assert all(set(item) == SAFE_OPERATION_KEYS for item in summary["results"])
+    assert all(item["context_mode"] == "live" for item in summary["results"])
     for forbidden in (
         "private-datahub-token",
         "private-github-token",

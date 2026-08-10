@@ -135,7 +135,7 @@ jobs:
       SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_AUTHENTICATOR: ${{ secrets.SNOWFLAKE_AUTHENTICATOR }}
-      SNOWFLAKE_PRIVATE_KEY_PATH: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PATH }}
+      SNOWFLAKE_PRIVATE_KEY_BASE64_PRESENT: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_BASE64 != '' }}
       SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
       SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
       SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
@@ -161,6 +161,32 @@ jobs:
         if: env.DATAHUB_GMS_URL != '' && env.DATAHUB_GMS_TOKEN != ''
         run: python scripts/seed_datahub.py --verify-only
 
+      - name: Materialize ephemeral Snowflake private key
+        if: >-
+          env.DATAHUB_GMS_URL != '' &&
+          env.DATAHUB_GMS_TOKEN != '' &&
+          env.SNOWFLAKE_ACCOUNT != '' &&
+          env.SNOWFLAKE_USER != '' &&
+          env.SNOWFLAKE_AUTHENTICATOR != '' &&
+          env.SNOWFLAKE_WAREHOUSE != '' &&
+          env.SNOWFLAKE_DATABASE != '' &&
+          env.SNOWFLAKE_SCHEMA != '' &&
+          env.SNOWFLAKE_ROLE != '' &&
+          env.SNOWFLAKE_TARGET_RELATION_ALLOWLIST != '' &&
+          env.SNOWFLAKE_PRIVATE_KEY_BASE64_PRESENT == 'true'
+        shell: bash
+        env:
+          SNOWFLAKE_PRIVATE_KEY_BASE64: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key_path="${RUNNER_TEMP}/changesafe-snowflake-private-key.p8"
+          printf '%s' "${SNOWFLAKE_PRIVATE_KEY_BASE64}" \
+            | base64 --decode > "${key_path}"
+          chmod 600 "${key_path}"
+          printf 'SNOWFLAKE_PRIVATE_KEY_PATH=%s\n' "${key_path}" \
+            >> "${GITHUB_ENV}"
+
       - name: Competition live and warehouse smoke
         if: >-
           env.DATAHUB_GMS_URL != '' &&
@@ -168,13 +194,26 @@ jobs:
           env.SNOWFLAKE_ACCOUNT != '' &&
           env.SNOWFLAKE_USER != '' &&
           env.SNOWFLAKE_AUTHENTICATOR != '' &&
-          env.SNOWFLAKE_PRIVATE_KEY_PATH != '' &&
           env.SNOWFLAKE_WAREHOUSE != '' &&
           env.SNOWFLAKE_DATABASE != '' &&
           env.SNOWFLAKE_SCHEMA != '' &&
           env.SNOWFLAKE_ROLE != '' &&
-          env.SNOWFLAKE_TARGET_RELATION_ALLOWLIST != ''
+          env.SNOWFLAKE_TARGET_RELATION_ALLOWLIST != '' &&
+          env.SNOWFLAKE_PRIVATE_KEY_BASE64_PRESENT == 'true'
+        env:
+          CHANGESAFE_MODE: live
         run: python scripts/smoke_competition.py --require-live-datahub --require-warehouse
+
+      - name: Remove ephemeral Snowflake private key
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_path="${RUNNER_TEMP}/changesafe-snowflake-private-key.p8"
+          if [[ -e "${key_path}" ]]; then
+            chmod u+w "${key_path}"
+            rm -f -- "${key_path}"
+          fi
 
       - name: GitHub repository access smoke
         if: env.GITHUB_TOKEN != '' && env.CHANGESAFE_GITHUB_REPOSITORY != ''
@@ -195,10 +234,10 @@ jobs:
           env.SNOWFLAKE_ACCOUNT == '' ||
           env.SNOWFLAKE_USER == '' ||
           env.SNOWFLAKE_AUTHENTICATOR == '' ||
-          env.SNOWFLAKE_PRIVATE_KEY_PATH == '' ||
           env.SNOWFLAKE_WAREHOUSE == '' ||
           env.SNOWFLAKE_DATABASE == '' ||
           env.SNOWFLAKE_SCHEMA == '' ||
           env.SNOWFLAKE_ROLE == '' ||
-          env.SNOWFLAKE_TARGET_RELATION_ALLOWLIST == ''
+          env.SNOWFLAKE_TARGET_RELATION_ALLOWLIST == '' ||
+          env.SNOWFLAKE_PRIVATE_KEY_BASE64_PRESENT != 'true'
         run: echo "Competition warehouse smoke skipped safely because required credentials are incomplete."
