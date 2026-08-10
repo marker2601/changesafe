@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,61 @@ class Settings(BaseSettings):
     public_writeback_enabled: bool = False
     public_pr_enabled: bool = False
     changesafe_admin_token: SecretStr | None = None
+    live_evidence_required: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "CHANGESAFE_LIVE_EVIDENCE_REQUIRED", "live_evidence_required"
+        ),
+    )
+    warehouse_validation_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "CHANGESAFE_WAREHOUSE_VALIDATION_ENABLED",
+            "warehouse_validation_enabled",
+        ),
+    )
+    warehouse_validation_required: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "CHANGESAFE_WAREHOUSE_VALIDATION_REQUIRED",
+            "warehouse_validation_required",
+        ),
+    )
+    warehouse_timeout_seconds: int = Field(
+        default=20,
+        ge=1,
+        le=60,
+        validation_alias=AliasChoices(
+            "CHANGESAFE_WAREHOUSE_TIMEOUT_SECONDS", "warehouse_timeout_seconds"
+        ),
+    )
+    warehouse_evidence_max_age_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=3600,
+        validation_alias=AliasChoices(
+            "CHANGESAFE_WAREHOUSE_EVIDENCE_MAX_AGE_SECONDS",
+            "warehouse_evidence_max_age_seconds",
+        ),
+    )
+    warehouse_environment_label: str = Field(
+        default="competition-non-production",
+        min_length=1,
+        max_length=80,
+        validation_alias=AliasChoices(
+            "CHANGESAFE_WAREHOUSE_ENVIRONMENT_LABEL",
+            "warehouse_environment_label",
+        ),
+    )
+    snowflake_account: str | None = None
+    snowflake_user: str | None = None
+    snowflake_authenticator: str | None = None
+    snowflake_private_key_path: Path | None = None
+    snowflake_warehouse: str | None = None
+    snowflake_database: str | None = None
+    snowflake_schema: str | None = None
+    snowflake_role: str | None = None
+    snowflake_target_relation_allowlist: dict[str, str] = Field(default_factory=dict)
 
     @field_validator(
         "datahub_gms_url",
@@ -81,6 +137,14 @@ class Settings(BaseSettings):
         "github_token",
         "changesafe_github_repository",
         "changesafe_admin_token",
+        "snowflake_account",
+        "snowflake_user",
+        "snowflake_authenticator",
+        "snowflake_private_key_path",
+        "snowflake_warehouse",
+        "snowflake_database",
+        "snowflake_schema",
+        "snowflake_role",
         mode="before",
     )
     @classmethod
@@ -111,6 +175,55 @@ class Settings(BaseSettings):
                 "SAVE_DOCUMENT_RESTRICT_UPDATES=false is required for "
                 "deterministic DataHub decision document upserts"
             )
+        if (
+            self.warehouse_validation_required
+            and not self.warehouse_validation_enabled
+        ):
+            raise ValueError("warehouse validation required=true requires enabled=true")
+
+        configuration_values = (
+            self.snowflake_account,
+            self.snowflake_user,
+            self.snowflake_authenticator,
+            self.snowflake_private_key_path,
+            self.snowflake_warehouse,
+            self.snowflake_database,
+            self.snowflake_schema,
+            self.snowflake_role,
+        )
+        has_configuration = bool(self.snowflake_target_relation_allowlist) or any(
+            value is not None for value in configuration_values
+        )
+        if self.warehouse_validation_enabled and (
+            not all(value is not None for value in configuration_values)
+            or not self.snowflake_target_relation_allowlist
+        ):
+            raise ValueError("enabled warehouse validation must be fully configured")
+        if self.warehouse_validation_enabled and (
+            self.snowflake_authenticator != "SNOWFLAKE_JWT"
+        ):
+            raise ValueError("SNOWFLAKE_AUTHENTICATOR must be SNOWFLAKE_JWT")
+        if has_configuration and not self.warehouse_validation_enabled:
+            raise ValueError(
+                "Snowflake configuration requires warehouse validation enabled"
+            )
+
+        approved_urns = {
+            value for value in self.demo_urn_allowlist.split(";") if value
+        }
+        for urn, relation in self.snowflake_target_relation_allowlist.items():
+            if urn not in approved_urns:
+                raise ValueError(
+                    "Snowflake target relation URN must be in DEMO_URN_ALLOWLIST"
+                )
+            parts = relation.split(".")
+            if len(parts) != 3 or any(
+                re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part) is None
+                for part in parts
+            ):
+                raise ValueError(
+                    "Snowflake target relation must contain three simple identifiers"
+                )
         return self
 
     @property
@@ -146,6 +259,25 @@ class Settings(BaseSettings):
         port = f":{parsed.port}" if parsed.port and parsed.port != default_port else ""
         return f"{parsed.scheme}://{host}{port}"
 
+    @property
+    def warehouse_configured(self) -> bool:
+        return bool(
+            self.warehouse_validation_enabled
+            and self.snowflake_account
+            and self.snowflake_user
+            and self.snowflake_authenticator == "SNOWFLAKE_JWT"
+            and self.snowflake_private_key_path
+            and self.snowflake_warehouse
+            and self.snowflake_database
+            and self.snowflake_schema
+            and self.snowflake_role
+            and self.snowflake_target_relation_allowlist
+        )
+
+    @property
+    def warehouse_target_map(self) -> dict[str, str]:
+        return dict(self.snowflake_target_relation_allowlist)
+
     def public_config(self) -> dict[str, Any]:
         return {
             "mode": self.mode.value,
@@ -155,4 +287,8 @@ class Settings(BaseSettings):
             "github_publication_available": self.github_publication_enabled,
             "datahub_writeback_available": self.datahub_writeback_enabled,
             "owner_activity_available": self.changesafe_admin_token is not None,
+            "live_evidence_required": self.live_evidence_required,
+            "warehouse_validation_available": self.warehouse_configured,
+            "warehouse_validation_required": self.warehouse_validation_required,
+            "warehouse_environment_label": self.warehouse_environment_label,
         }

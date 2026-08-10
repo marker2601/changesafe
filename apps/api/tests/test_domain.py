@@ -16,6 +16,9 @@ from changesafe.domain import (
     LineagePrecision,
     SchemaCatalog,
     SchemaField,
+    WarehouseValidationMode,
+    WarehouseValidationResult,
+    WarehouseValidationStatus,
 )
 
 TARGET = DEMO_TARGET_URN
@@ -271,3 +274,48 @@ def test_documented_golden_change_is_a_valid_request() -> None:
     assert change.asset_urn == TARGET
     assert change.operation is ChangeOperation.RENAME
     assert change.new_field == "primary_email"
+
+
+def test_warehouse_result_forbids_raw_rows_and_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        WarehouseValidationResult.model_validate(
+            {
+                "status": "passed",
+                "mode": "aggregate",
+                "environment_label": "competition-non-production",
+                "operation": "remove",
+                "field": "order_status",
+                "relation_fingerprint": "a" * 64,
+                "started_at": "2026-08-09T12:00:00Z",
+                "completed_at": "2026-08-09T12:00:01Z",
+                "rows_evaluated": 20,
+                "unsafe_row_count": 0,
+                "query_ids": ["safe-query-id"],
+                "elapsed_ms": 1000,
+                "checks": [],
+                "raw_rows": [{"order_status": "secret"}],
+            }
+        )
+
+
+def test_warehouse_result_requires_passing_aggregate_checks_for_passed_status() -> None:
+    with pytest.raises(ValidationError, match="passed warehouse evidence"):
+        WarehouseValidationResult(
+            status=WarehouseValidationStatus.PASSED,
+            mode=WarehouseValidationMode.AGGREGATE,
+            environment_label="competition-non-production",
+            operation=ChangeOperation.REMOVE,
+            field="order_status",
+        )
+
+
+def test_not_run_warehouse_result_cannot_claim_query_execution() -> None:
+    with pytest.raises(ValidationError, match="not-run evidence"):
+        WarehouseValidationResult(
+            status=WarehouseValidationStatus.NOT_RUN,
+            mode=WarehouseValidationMode.NONE,
+            environment_label="competition-non-production",
+            operation=ChangeOperation.REMOVE,
+            field="order_status",
+            query_ids=["query-id"],
+        )

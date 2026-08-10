@@ -28,6 +28,17 @@ class ChangeOperation(StrEnum):
     TYPE_CHANGE = "type_change"
 
 
+class WarehouseValidationStatus(StrEnum):
+    NOT_RUN = "not_run"
+    PASSED = "passed"
+    BLOCKED = "blocked"
+
+
+class WarehouseValidationMode(StrEnum):
+    NONE = "none"
+    AGGREGATE = "aggregate"
+
+
 class ContextMode(StrEnum):
     LIVE = "live"
     SNAPSHOT = "snapshot"
@@ -76,6 +87,7 @@ class RunState(StrEnum):
     SCORING_RISK = "scoring_risk"
     GENERATING = "generating"
     VALIDATING = "validating"
+    VALIDATING_WAREHOUSE = "validating_warehouse"
     AWAITING_APPROVAL = "awaiting_approval"
     PREPARING_PREVIEW = "preparing_preview"
     PUBLISHING = "publishing"
@@ -284,6 +296,53 @@ class ValidationReport(StrictModel):
         return next(item for item in self.checks if item.code == code)
 
 
+class WarehouseCheck(StrictModel):
+    code: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1, max_length=120)
+    passed: bool
+    retryable: bool = False
+    detail: str = Field(min_length=1, max_length=500)
+    observed_count: int | None = Field(default=None, ge=0)
+
+
+class WarehouseValidationResult(StrictModel):
+    status: WarehouseValidationStatus
+    mode: WarehouseValidationMode
+    environment_label: str = Field(min_length=1, max_length=80)
+    operation: ChangeOperation
+    field: str = Field(min_length=1, max_length=128)
+    relation_fingerprint: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    rows_evaluated: int | None = Field(default=None, ge=0)
+    populated_row_count: int | None = Field(default=None, ge=0)
+    unsafe_row_count: int | None = Field(default=None, ge=0)
+    query_ids: list[str] = Field(default_factory=list, max_length=8)
+    elapsed_ms: int | None = Field(default=None, ge=0)
+    checks: list[WarehouseCheck] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def status_matches_evidence(self) -> WarehouseValidationResult:
+        if self.status is WarehouseValidationStatus.PASSED:
+            if self.mode is not WarehouseValidationMode.AGGREGATE:
+                raise ValueError("passed warehouse evidence must be aggregate")
+            if not self.checks or any(not check.passed for check in self.checks):
+                raise ValueError("passed warehouse evidence requires passed checks")
+        if self.status is WarehouseValidationStatus.NOT_RUN and (
+            self.started_at is not None or self.query_ids
+        ):
+            raise ValueError("not-run evidence cannot claim execution")
+        return self
+
+
+class ApprovalBlocker(StrictModel):
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$")
+    message: str = Field(min_length=1, max_length=500)
+    retryable: bool = False
+
+
 class LlmUsage(StrictModel):
     provider: Literal["openai"] = "openai"
     model: str = Field(min_length=1)
@@ -341,6 +400,17 @@ class AnalysisResult(StrictModel):
     validation: ValidationReport
     publication_eligible: bool
     impacts: list[ImpactAssessment] = Field(default_factory=list)
+    warehouse_validation: WarehouseValidationResult = Field(
+        default_factory=lambda: WarehouseValidationResult(
+            status=WarehouseValidationStatus.NOT_RUN,
+            mode=WarehouseValidationMode.NONE,
+            environment_label="not configured",
+            operation=ChangeOperation.RENAME,
+            field="unavailable",
+            checks=[],
+        )
+    )
+    approval_blockers: list[ApprovalBlocker] = Field(default_factory=list)
 
 
 class PublicError(StrictModel):

@@ -4,7 +4,26 @@ from pathlib import Path
 import pytest
 
 from changesafe.demo import golden_change as official_change
-from changesafe.domain import ChangeOperation, ChangeRequest, LlmUsage, RunState
+from changesafe.domain import (
+    AnalysisResult,
+    ArtifactBundle,
+    ArtifactFile,
+    ChangeOperation,
+    ChangeRequest,
+    ContextBundle,
+    ContextMode,
+    ContextProvenance,
+    LlmUsage,
+    RiskBand,
+    RiskResult,
+    RunState,
+    ValidationCheck,
+    ValidationReport,
+    WarehouseCheck,
+    WarehouseValidationMode,
+    WarehouseValidationResult,
+    WarehouseValidationStatus,
+)
 from changesafe.store import InvalidTransition, LlmBudgetExceeded, RunStore
 
 TARGET = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
@@ -19,6 +38,87 @@ def golden_change() -> ChangeRequest:
         source_commit="demo-unsafe-change",
         requested_by="demo-user",
     )
+
+
+def passed_warehouse_result() -> WarehouseValidationResult:
+    return WarehouseValidationResult(
+        status=WarehouseValidationStatus.PASSED,
+        mode=WarehouseValidationMode.AGGREGATE,
+        environment_label="competition-non-production",
+        operation=ChangeOperation.RENAME,
+        field="customer_email",
+        relation_fingerprint="a" * 64,
+        rows_evaluated=20,
+        populated_row_count=20,
+        unsafe_row_count=0,
+        query_ids=["safe-query-id"],
+        elapsed_ms=1000,
+        checks=[
+            WarehouseCheck(
+                code="no_unsafe_rows",
+                label="No unsafe rows",
+                passed=True,
+                detail="No rows would lose a populated value.",
+            )
+        ],
+    )
+
+
+def analysis_result() -> AnalysisResult:
+    return AnalysisResult(
+        context=ContextBundle(
+            target_urn=TARGET,
+            target_name="dim_customers",
+            field="customer_email",
+            field_type="STRING",
+            provenance=ContextProvenance(
+                mode=ContextMode.LIVE,
+                retrieved_at="2026-08-09T12:00:00Z",
+                adapter_version="test",
+            ),
+        ),
+        risk=RiskResult(
+            score=0,
+            band=RiskBand.LOW,
+            factors=[],
+            recommended_strategy="Proceed",
+        ),
+        artifacts=ArtifactBundle(
+            files={
+                "migration.sql": ArtifactFile(
+                    path="migration.sql", content="SELECT 1"
+                )
+            }
+        ),
+        validation=ValidationReport(
+            passed=True,
+            checks=[
+                ValidationCheck(
+                    code="safe",
+                    label="Safe",
+                    passed=True,
+                    detail="Safe artifact.",
+                )
+            ],
+        ),
+        publication_eligible=True,
+        warehouse_validation=passed_warehouse_result(),
+        approval_blockers=[],
+    )
+
+
+async def advance_to_awaiting_approval(
+    store: RunStore, run_id: object, analysis: AnalysisResult
+) -> None:
+    for state in (
+        RunState.LOADING_CONTEXT,
+        RunState.SCORING_RISK,
+        RunState.GENERATING,
+        RunState.VALIDATING,
+        RunState.VALIDATING_WAREHOUSE,
+    ):
+        await store.transition(run_id, state)
+    await store.transition(run_id, RunState.AWAITING_APPROVAL, analysis=analysis)
 
 
 @pytest.mark.asyncio
@@ -164,3 +264,48 @@ async def test_initialize_adds_session_id_to_an_existing_database(
         cursor = await connection.execute("PRAGMA table_info(runs)")
         columns = {str(row[1]) for row in await cursor.fetchall()}
     assert "session_id" in columns
+
+
+@pytest.mark.asyncio
+async def test_store_round_trips_warehouse_result_and_blockers(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "runs.db")
+    run = await store.create(golden_change())
+    analysis = analysis_result()
+
+    await advance_to_awaiting_approval(store, run.run_id, analysis)
+    restored = await store.get(run.run_id)
+
+    assert restored is not None
+    assert restored.analysis == analysis
+
+
+@pytest.mark.asyncio
+async def test_warehouse_transition_requires_validation_and_persists_events(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "runs.db"
+    store = RunStore(database)
+    run = await store.create(golden_change())
+
+    with pytest.raises(
+        InvalidTransition, match=r"loading_context.*validating_warehouse"
+    ):
+        await store.transition(run.run_id, RunState.LOADING_CONTEXT)
+        await store.transition(run.run_id, RunState.VALIDATING_WAREHOUSE)
+
+    await store.transition(run.run_id, RunState.SCORING_RISK)
+    await store.transition(run.run_id, RunState.GENERATING)
+    await store.transition(run.run_id, RunState.VALIDATING)
+    await store.transition(run.run_id, RunState.VALIDATING_WAREHOUSE)
+    reopened = RunStore(database)
+
+    assert [event.state for event in await reopened.events(run.run_id)] == [
+        RunState.CREATED,
+        RunState.LOADING_CONTEXT,
+        RunState.SCORING_RISK,
+        RunState.GENERATING,
+        RunState.VALIDATING,
+        RunState.VALIDATING_WAREHOUSE,
+    ]

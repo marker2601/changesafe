@@ -56,7 +56,16 @@ ALLOWED_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
     RunState.CONTEXT_FALLBACK_REQUIRED: frozenset({RunState.LOADING_CONTEXT}),
     RunState.SCORING_RISK: frozenset({RunState.GENERATING, RunState.FAILED}),
     RunState.GENERATING: frozenset({RunState.VALIDATING, RunState.FAILED}),
-    RunState.VALIDATING: frozenset({RunState.AWAITING_APPROVAL, RunState.FAILED}),
+    RunState.VALIDATING: frozenset(
+        {
+            RunState.VALIDATING_WAREHOUSE,
+            RunState.AWAITING_APPROVAL,
+            RunState.FAILED,
+        }
+    ),
+    RunState.VALIDATING_WAREHOUSE: frozenset(
+        {RunState.AWAITING_APPROVAL, RunState.FAILED}
+    ),
     RunState.AWAITING_APPROVAL: frozenset(
         {RunState.PREPARING_PREVIEW, RunState.PUBLISHING, RunState.FAILED}
     ),

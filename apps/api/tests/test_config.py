@@ -111,6 +111,10 @@ def test_public_config_never_contains_credentials(tmp_path: Path) -> None:
         "github_publication_available": False,
         "datahub_writeback_available": False,
         "owner_activity_available": True,
+        "live_evidence_required": False,
+        "warehouse_validation_available": False,
+        "warehouse_validation_required": False,
+        "warehouse_environment_label": "competition-non-production",
     }
     assert "secret" not in str(public).lower()
 
@@ -203,3 +207,145 @@ def test_replay_factory_uses_configured_snapshot_paths(tmp_path: Path) -> None:
     assert port.snapshot_path == snapshot
     assert port.checksum_path == checksum
     assert settings.public_config()["llm_available"] is False
+
+
+def test_warehouse_settings_accept_exact_changesafe_environment_aliases(
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "warehouse.env"
+    environment.write_text(
+        "\n".join(
+            [
+                "CHANGESAFE_LIVE_EVIDENCE_REQUIRED=true",
+                "CHANGESAFE_WAREHOUSE_VALIDATION_ENABLED=false",
+                "CHANGESAFE_WAREHOUSE_VALIDATION_REQUIRED=false",
+                "CHANGESAFE_WAREHOUSE_TIMEOUT_SECONDS=30",
+                "CHANGESAFE_WAREHOUSE_EVIDENCE_MAX_AGE_SECONDS=120",
+                "CHANGESAFE_WAREHOUSE_ENVIRONMENT_LABEL=competition-staging",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=environment)
+
+    assert settings.live_evidence_required is True
+    assert settings.warehouse_validation_enabled is False
+    assert settings.warehouse_validation_required is False
+    assert settings.warehouse_timeout_seconds == 30
+    assert settings.warehouse_evidence_max_age_seconds == 120
+    assert settings.warehouse_environment_label == "competition-staging"
+
+
+def test_required_warehouse_validation_must_be_enabled(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="required"):
+        Settings(
+            _env_file=None,
+            changesafe_data_path=tmp_path / "changesafe.db",
+            warehouse_validation_required=True,
+        )
+
+
+def test_enabled_warehouse_validation_requires_complete_safe_snowflake_config(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValidationError, match="configured"):
+        Settings(
+            _env_file=None,
+            changesafe_data_path=tmp_path / "changesafe.db",
+            warehouse_validation_enabled=True,
+            snowflake_account="account",
+        )
+
+
+def test_warehouse_settings_reject_unsafe_authenticator_and_target_map(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValidationError, match="SNOWFLAKE_JWT"):
+        Settings(
+            _env_file=None,
+            changesafe_data_path=tmp_path / "changesafe.db",
+            warehouse_validation_enabled=True,
+            snowflake_account="account",
+            snowflake_user="user",
+            snowflake_authenticator="externalbrowser",
+            snowflake_private_key_path=tmp_path / "missing-key.pem",
+            snowflake_warehouse="warehouse",
+            snowflake_database="database",
+            snowflake_schema="schema",
+            snowflake_role="role",
+            snowflake_target_relation_allowlist={
+                "urn:li:dataset:unapproved": "database.schema.relation"
+            },
+        )
+
+
+def test_warehouse_settings_publish_a_safe_target_map_only_when_configured(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        changesafe_data_path=tmp_path / "changesafe.db",
+        warehouse_validation_enabled=True,
+        snowflake_account="account",
+        snowflake_user="user",
+        snowflake_authenticator="SNOWFLAKE_JWT",
+        snowflake_private_key_path=tmp_path / "missing-key.pem",
+        snowflake_warehouse="warehouse",
+        snowflake_database="database",
+        snowflake_schema="schema",
+        snowflake_role="role",
+        snowflake_target_relation_allowlist={
+            "urn:li:dataset:(urn:li:dataPlatform:dbt,"
+            "b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)": (
+                "ORDER_ENTRY_DB.analytics.order_details"
+            )
+        },
+    )
+
+    assert settings.warehouse_configured is True
+    assert settings.warehouse_target_map == {
+        "urn:li:dataset:(urn:li:dataPlatform:dbt,"
+        "b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)": (
+            "ORDER_ENTRY_DB.analytics.order_details"
+        )
+    }
+
+
+@pytest.mark.parametrize(
+    ("target_urn", "relation", "message"),
+    [
+        (
+            "urn:li:dataset:unapproved",
+            "database.schema.relation",
+            "DEMO_URN_ALLOWLIST",
+        ),
+        (
+            "urn:li:dataset:(urn:li:dataPlatform:dbt,"
+            "b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)",
+            "database.schema.bad-name",
+            "three simple identifiers",
+        ),
+    ],
+)
+def test_warehouse_settings_reject_unapproved_or_unsafe_target_relations(
+    target_urn: str,
+    relation: str,
+    message: str,
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        Settings(
+            _env_file=None,
+            changesafe_data_path=tmp_path / "changesafe.db",
+            warehouse_validation_enabled=True,
+            snowflake_account="account",
+            snowflake_user="user",
+            snowflake_authenticator="SNOWFLAKE_JWT",
+            snowflake_private_key_path=tmp_path / "not-read.pem",
+            snowflake_warehouse="warehouse",
+            snowflake_database="database",
+            snowflake_schema="schema",
+            snowflake_role="role",
+            snowflake_target_relation_allowlist={target_urn: relation},
+        )
