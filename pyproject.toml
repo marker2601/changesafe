@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 live = ["datahub-agent-context==1.7.0"]
+warehouse = ["snowflake-connector-python==4.7.1"]
 dbt = [
   "dbt-core==1.10.21",
   "dbt-duckdb==1.10.1",
@@ -64,5 +65,11 @@ mypy_path = "apps/api/src"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["datahub.*", "datahub_agent_context.*", "sqlglot.*", "yaml.*"]
+module = [
+  "datahub.*",
+  "datahub_agent_context.*",
+  "snowflake.*",
+  "sqlglot.*",
+  "yaml.*",
+]
 ignore_missing_imports = true
