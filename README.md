@@ -38,6 +38,25 @@ Recorded replay carries field-scoped context for every supported field. It does 
 
 Every dependency route has one of three evidence precisions. **Exact field route** means both endpoint columns were returned. **Endpoint-only field route** means DataHub returned a known endpoint and a multi-hop asset path, but not an intermediate column mapping. **Dataset-level relationship** means the relationship was returned without the relevant endpoint field. ChangeSafe states those limitations rather than inferring column mappings from matching names.
 
+## Hosted competition pilot
+
+ChangeSafe can be deployed as a credential-free, competition-ready pilot on
+Render. The hosted default executes the real analysis, generation, verification,
+event, preview-approval, and patch paths against checksum-pinned
+Recorded DataHub evidence. It does not query production rows or enable external
+mutations.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/marker2601/changesafe)
+
+The free service can sleep after inactivity and may take extra time on its first
+request. Its ephemeral filesystem may clear earlier run history after a restart;
+start a new analysis if that happens. Upgrade the same service with a persistent
+disk mounted at `/data` before claiming durable hosted history.
+
+Live hosted metadata requires a publicly reachable DataHub GMS URL and a
+server-side token. Keep replay mode enabled until that endpoint exists and the
+live smoke test passes from the hosted environment.
+
 ## Fastest start: Docker replay
 
 Prerequisite: Docker Desktop with Compose.

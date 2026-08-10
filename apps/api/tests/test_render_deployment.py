@@ -5,6 +5,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 BLUEPRINT = ROOT / "render.yaml"
+README = ROOT / "README.md"
+DEPLOY_URL = (
+    "https://render.com/deploy?repo="
+    "https://github.com/marker2601/changesafe"
+)
 
 EXPECTED_ENV = {
     "CHANGESAFE_DATA_PATH": "/data/changesafe.db",
@@ -54,3 +59,13 @@ def test_render_blueprint_contains_only_public_safe_environment() -> None:
         for key in environment
         for fragment in forbidden_fragments
     )
+
+
+def test_readme_exposes_truthful_render_deployment() -> None:
+    readme = README.read_text(encoding="utf-8")
+    assert DEPLOY_URL in readme
+    assert "competition-ready pilot" in readme
+    assert "Recorded DataHub evidence" in readme
+    assert "free service can sleep" in readme
+    assert "may clear earlier run history" in readme
+    assert "publicly reachable DataHub GMS URL" in readme
