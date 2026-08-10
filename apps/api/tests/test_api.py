@@ -3,6 +3,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -11,6 +12,7 @@ import changesafe.api as api_module
 from changesafe.api import create_app
 from changesafe.config import Mode, Settings
 from changesafe.context.base import ContextTransportError, DecisionWriteback
+from changesafe.context.live import LiveDataHubContext
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import DEMO_TARGET_URN, golden_change
 from changesafe.domain import (
@@ -132,6 +134,77 @@ class LiveReplayContext(ClosableReplayContext):
         )
 
 
+class SensitiveQueryRunner:
+    def __init__(self, sentinel: str) -> None:
+        self.sentinel = sentinel
+
+    async def call(self, tool: str, **parameters: Any) -> Any:
+        if tool == "get_entities":
+            return {
+                "entities": [
+                    {
+                        "urn": DEMO_TARGET_URN,
+                        "name": "order_details",
+                        "ownership": {
+                            "owners": [
+                                {
+                                    "owner": {
+                                        "urn": "urn:li:corpuser:data-platform",
+                                        "properties": {
+                                            "displayName": "Data Platform"
+                                        },
+                                    },
+                                    "type": "DATAOWNER",
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        if tool == "list_schema_fields":
+            return {
+                "urn": DEMO_TARGET_URN,
+                "fields": [
+                    {
+                        "fieldPath": "cust_email",
+                        "nativeDataType": "VARCHAR(320)",
+                        "nullable": True,
+                    }
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+                "offset": 0,
+            }
+        if tool == "get_lineage":
+            direction = "upstreams" if parameters["upstream"] else "downstreams"
+            return {
+                direction: {
+                    "searchResults": [],
+                    "total": 0,
+                    "returned": 0,
+                    "hasMore": False,
+                    "offset": 0,
+                }
+            }
+        if tool == "get_dataset_queries":
+            return {
+                "total": 1,
+                "queries": [
+                    {
+                        "urn": "urn:li:query:opaque-query-id",
+                        "properties": {
+                            "statement": {
+                                "value": self.sentinel,
+                                "language": "SQL",
+                            }
+                        },
+                    }
+                ],
+            }
+        raise AssertionError(f"unexpected DataHub tool: {tool}")
+
+
 class LifecycleWarehousePort:
     def __init__(self, binding_fingerprint: str) -> None:
         self.validation_completed = False
@@ -239,6 +312,51 @@ async def test_api_runs_complete_replay_analysis_and_serves_artifact(
     assert len(run["analysis"]["context"]["downstream_assets"]) == 25
     assert artifact.status_code == 200
     assert "cust_email as primary_email" in artifact.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_live_query_text_never_crosses_public_or_persisted_boundaries(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    sentinel = "SENSITIVE_QUERY_TEXT_SENTINEL"
+    database_path = tmp_path / "runs.db"
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=database_path,
+        ),
+        context_port=LiveDataHubContext(
+            SensitiveQueryRunner(sentinel), {DEMO_TARGET_URN}
+        ),
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    with caplog.at_level(logging.DEBUG):
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            created = await client.post("/api/runs", json=GOLDEN_CHANGE)
+            assert created.status_code == 202
+            run = await wait_for_state(
+                client,
+                created.json()["run_id"],
+                RunState.AWAITING_APPROVAL,
+            )
+
+    public_json = json.dumps(run, sort_keys=True)
+    artifact_json = json.dumps(run["analysis"]["artifacts"], sort_keys=True)
+    sqlite_bytes = b"".join(
+        path.read_bytes() for path in tmp_path.glob("runs.db*") if path.is_file()
+    )
+
+    assert run["analysis"]["context"]["query_count"] == 1
+    assert "queries" not in run["analysis"]["context"]
+    assert sentinel not in public_json
+    assert sentinel not in artifact_json
+    assert sentinel not in caplog.text
+    assert sentinel.encode() not in sqlite_bytes
 
 
 @pytest.mark.asyncio

@@ -307,7 +307,7 @@ async def test_executes_only_identity_and_registered_selects_with_bounded_sessio
             "account": "private-account",
             "user": "private-user",
             "authenticator": "SNOWFLAKE_JWT",
-            "private_key_file": "C:\\private\\credential.p8",
+            "private_key_file": str(Path("C:/private/credential.p8")),
             "warehouse": "COMPUTE_WH",
             "database": "SAFE_DB",
             "schema": "SAFE_SCHEMA",

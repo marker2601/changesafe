@@ -292,6 +292,44 @@ async def test_default_smoke_forces_external_mutations_off_and_approves_preview(
     }
 
 
+def test_competition_summary_never_echoes_untrusted_query_or_artifact_text() -> None:
+    smoke = load_smoke_module()
+    sentinel = "SENSITIVE_QUERY_TEXT_SENTINEL"
+    run = {
+        "request": {"field": "cust_email", "operation": "rename"},
+        "analysis": {
+            "context": {
+                "queries": [sentinel],
+                "upstream_assets": [],
+                "downstream_assets": [],
+                "provenance": {"mode": "live"},
+            },
+            "risk": {"score": 85, "private_detail": sentinel},
+            "artifacts": {
+                "files": {f"artifact-{index}": sentinel for index in range(7)}
+            },
+            "validation": {
+                "passed": True,
+                "checks": [
+                    {"passed": True, "private_detail": sentinel}
+                    for _ in range(12)
+                ],
+            },
+            "warehouse_validation": {
+                "status": "not_run",
+                "rows_evaluated": None,
+                "populated_row_count": None,
+                "unsafe_row_count": None,
+            },
+        },
+    }
+
+    summary = smoke._safe_operation_summary(run, {"mode": "preview"})
+
+    assert set(summary) == SAFE_OPERATION_KEYS
+    assert sentinel not in json.dumps(summary, sort_keys=True)
+
+
 @pytest.mark.parametrize(
     "partial_environment",
     [
