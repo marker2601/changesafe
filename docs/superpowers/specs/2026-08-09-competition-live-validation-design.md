@@ -258,6 +258,11 @@ null rows, conversion failures, silent string and decimal narrowing, timeout,
 cancel, connector error redaction, unsafe query rejection, and proof that no raw
 value reaches logs, API models, database state, or the browser.
 
+Zero-row relations and all-null selected fields are `BLOCKED`, retryable,
+inconclusive aggregate evidence for rename, remove, and type change. Preserve the
+aggregate counts and public check, never treat a zero unsafe-conversion count as
+sufficient without populated rows, and never make that analysis approval-eligible.
+
 ### Publication and recovery boundaries
 
 Retain and extend the existing tests for duplicate approval, lost response,
@@ -346,4 +351,3 @@ If only production credentials exist, implementation stops before connection and
 requires explicit owner authorization and a separately reviewed access policy.
 A stable judge URL also requires a durable hosting account or custom tunnel
 domain; anonymous tunnel rotation is not an acceptable final deployment.
-

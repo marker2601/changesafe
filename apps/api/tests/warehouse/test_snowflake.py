@@ -574,26 +574,78 @@ async def test_type_change_rejects_unsafe_count_above_populated_count() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("operation", "counts", "limitation"),
+    ("operation", "counts", "code", "detail"),
     [
-        (ChangeOperation.RENAME, (0, 0), "no rows"),
-        (ChangeOperation.REMOVE, (5, 0), "null"),
-        (ChangeOperation.TYPE_CHANGE, (0, 0, 0), "no rows"),
-        (ChangeOperation.TYPE_CHANGE, (5, 0, 0), "null"),
+        (
+            ChangeOperation.RENAME,
+            (0, 0),
+            "empty_relation",
+            "Warehouse evidence is inconclusive because no rows were available.",
+        ),
+        (
+            ChangeOperation.RENAME,
+            (5, 0),
+            "all_null_field",
+            (
+                "Warehouse evidence is inconclusive because every selected field "
+                "entry was null."
+            ),
+        ),
+        (
+            ChangeOperation.REMOVE,
+            (0, 0),
+            "empty_relation",
+            "Warehouse evidence is inconclusive because no rows were available.",
+        ),
+        (
+            ChangeOperation.REMOVE,
+            (5, 0),
+            "all_null_field",
+            (
+                "Warehouse evidence is inconclusive because every selected field "
+                "entry was null."
+            ),
+        ),
+        (
+            ChangeOperation.TYPE_CHANGE,
+            (0, 0, 0),
+            "empty_relation",
+            "Warehouse evidence is inconclusive because no rows were available.",
+        ),
+        (
+            ChangeOperation.TYPE_CHANGE,
+            (5, 0, 0),
+            "all_null_field",
+            (
+                "Warehouse evidence is inconclusive because every selected field "
+                "entry was null."
+            ),
+        ),
     ],
 )
-async def test_empty_and_all_null_aggregates_are_valid_limited_evidence(
+async def test_empty_and_all_null_aggregates_are_blocked_inconclusive_evidence(
     operation: ChangeOperation,
     counts: tuple[int, ...],
-    limitation: str,
+    code: str,
+    detail: str,
 ) -> None:
     result, _, _ = await validate_with(
         success_responses(operation, aggregate_rows=[counts]),
         operation=operation,
     )
 
-    assert result.status is WarehouseValidationStatus.PASSED
-    assert limitation in result.checks[-1].detail.casefold()
+    assert result.status is WarehouseValidationStatus.BLOCKED
+    assert result.rows_evaluated == counts[0]
+    assert result.populated_row_count == counts[1]
+    assert result.unsafe_row_count == (counts[2] if len(counts) == 3 else None)
+    assert [check.code for check in result.checks] == [
+        "warehouse_identity",
+        "warehouse_schema",
+        code,
+    ]
+    assert result.checks[-1].passed is False
+    assert result.checks[-1].retryable is True
+    assert result.checks[-1].detail == detail
 
 
 class AuthenticationFailure(Exception):

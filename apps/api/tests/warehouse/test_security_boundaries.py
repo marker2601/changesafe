@@ -132,24 +132,52 @@ async def test_each_warehouse_uncertainty_boundary_fails_closed(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("operation", "rows", "limitation"),
+    ("operation", "rows", "expected_code"),
     [
-        (ChangeOperation.RENAME, (0, 0), "no rows"),
-        (ChangeOperation.REMOVE, (8, 0), "null"),
-        (ChangeOperation.TYPE_CHANGE, (0, 0, 0), "no rows"),
-        (ChangeOperation.TYPE_CHANGE, (8, 0, 0), "null"),
+        (ChangeOperation.RENAME, (0, 0), "empty_relation"),
+        (ChangeOperation.RENAME, (8, 0), "all_null_field"),
+        (ChangeOperation.REMOVE, (0, 0), "empty_relation"),
+        (ChangeOperation.REMOVE, (8, 0), "all_null_field"),
+        (ChangeOperation.TYPE_CHANGE, (0, 0, 0), "empty_relation"),
+        (ChangeOperation.TYPE_CHANGE, (8, 0, 0), "all_null_field"),
     ],
 )
-async def test_zero_and_all_null_aggregate_boundaries_are_explicitly_limited(
-    operation: ChangeOperation, rows: tuple[int, ...], limitation: str
+async def test_zero_and_all_null_aggregate_boundaries_are_blocked_inconclusive(
+    operation: ChangeOperation, rows: tuple[int, ...], expected_code: str
 ) -> None:
     responses = success_responses(operation, aggregate_rows=[rows])
     validator, _ = validator_for(responses)
 
     result = await validator.validate(request_for(operation), context())
 
+    assert result.status is WarehouseValidationStatus.BLOCKED
+    assert result.rows_evaluated == rows[0]
+    assert result.populated_row_count == rows[1]
+    assert result.unsafe_row_count == (rows[2] if len(rows) == 3 else None)
+    assert result.checks[-1].code == expected_code
+    assert result.checks[-1].passed is False
+    assert result.checks[-1].retryable is True
+
+
+@pytest.mark.asyncio
+async def test_populated_zero_unsafe_type_conversion_remains_passing() -> None:
+    responses = success_responses(
+        ChangeOperation.TYPE_CHANGE,
+        aggregate_rows=[(12, 10, 0)],
+    )
+    validator, _ = validator_for(responses)
+
+    result = await validator.validate(
+        request_for(ChangeOperation.TYPE_CHANGE), context()
+    )
+
     assert result.status is WarehouseValidationStatus.PASSED
-    assert limitation in result.checks[-1].detail.casefold()
+    assert result.rows_evaluated == 12
+    assert result.populated_row_count == 10
+    assert result.unsafe_row_count == 0
+    assert result.checks[-1].code == "type_conversion"
+    assert result.checks[-1].passed is True
+    assert result.checks[-1].observed_count == 0
 
 
 def narrowing_case(family: str) -> tuple[ChangeRequest, ContextBundle, CursorResponse]:

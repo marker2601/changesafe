@@ -550,7 +550,7 @@ Map cursor descriptions to the expected aliases, require exactly one row for eac
 - Authentication, identity, relation, schema, unsupported contract, malformed response, or unsafe query: non-retryable and blocked.
 - Connector transport, server unavailable, or timeout: retryable and blocked.
 - `unsafe_row_count > 0`: non-retryable and blocked with the count only.
-- Zero rows/all-null rows: valid aggregate evidence for rename/remove; type change passes only when unsafe count is zero, with the empty/all-null limitation stated.
+- Zero rows or an all-null selected field: retryable, blocked, inconclusive aggregate evidence for rename/remove/type change, even when a type change has zero unsafe conversions. Preserve aggregate counts/checks and require a new analysis after populated evidence exists.
 
 All exception logging must be `logger.warning("Warehouse validation failed", extra={"code": code})` without `exc_info`, `str(exc)`, connection kwargs, SQL, or identifiers.
 

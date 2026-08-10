@@ -10,6 +10,7 @@ from changesafe.context.base import ContextLoadError
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import golden_change
 from changesafe.domain import (
+    ChangeOperation,
     ChangeRequest,
     ImpactCategory,
     RunState,
@@ -27,6 +28,60 @@ from changesafe.warehouse.base import WarehouseValidationError
 from changesafe.warehouse.queries import fingerprint_relation
 
 WAREHOUSE_RELATION = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
+
+
+def change_for_operation(operation: ChangeOperation) -> ChangeRequest:
+    change = golden_change()
+    if operation is ChangeOperation.RENAME:
+        return change
+    data = change.model_dump()
+    data.update({"operation": operation, "new_field": None})
+    if operation is ChangeOperation.TYPE_CHANGE:
+        data.update({"old_type": "TEXT", "new_type": "NUMBER(38,0)"})
+    return ChangeRequest.model_validate(data)
+
+
+def inconclusive_warehouse_result(
+    change: ChangeRequest,
+    boundary: str,
+) -> WarehouseValidationResult:
+    now = datetime.now(UTC)
+    rows_evaluated, populated_row_count = (
+        (0, 0) if boundary == "empty_relation" else (8, 0)
+    )
+    detail = (
+        "Warehouse evidence is inconclusive because no rows were available."
+        if boundary == "empty_relation"
+        else (
+            "Warehouse evidence is inconclusive because every selected field entry "
+            "was null."
+        )
+    )
+    return WarehouseValidationResult(
+        status=WarehouseValidationStatus.BLOCKED,
+        mode=WarehouseValidationMode.AGGREGATE,
+        environment_label="competition-non-production",
+        operation=change.operation,
+        field=change.field,
+        relation_fingerprint=fingerprint_relation(WAREHOUSE_RELATION),
+        started_at=now - timedelta(seconds=1),
+        completed_at=now,
+        rows_evaluated=rows_evaluated,
+        populated_row_count=populated_row_count,
+        unsafe_row_count=(
+            0 if change.operation is ChangeOperation.TYPE_CHANGE else None
+        ),
+        elapsed_ms=1_000,
+        checks=[
+            WarehouseCheck(
+                code=boundary,
+                label="Warehouse aggregate evidence",
+                passed=False,
+                retryable=True,
+                detail=detail,
+            )
+        ],
+    )
 
 
 def passed_warehouse_result() -> WarehouseValidationResult:
@@ -222,6 +277,56 @@ async def test_required_warehouse_pass_reaches_awaiting_approval(
         RunState.VALIDATING_WAREHOUSE,
         RunState.AWAITING_APPROVAL,
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", tuple(ChangeOperation))
+@pytest.mark.parametrize("boundary", ["empty_relation", "all_null_field"])
+async def test_required_inconclusive_aggregate_evidence_is_ineligible(
+    operation: ChangeOperation,
+    boundary: str,
+    tmp_path: Path,
+) -> None:
+    change = change_for_operation(operation)
+    warehouse = FakeWarehousePort(inconclusive_warehouse_result(change, boundary))
+    store = RunStore(tmp_path / f"required-{operation.value}-{boundary}.db")
+    orchestrator = ChangeSafeOrchestrator(
+        store=store,
+        context_port=ReplayDataHubContext.from_default(),
+        generator=ArtifactGenerationService(),
+        warehouse_port=warehouse,
+        require_warehouse=True,
+        warehouse_target_map={change.asset_urn: WAREHOUSE_RELATION},
+    )
+    run = await store.create(change)
+
+    result = await orchestrator.analyze(run.run_id)
+
+    assert result.state is RunState.FAILED
+    assert result.analysis is not None
+    assert result.analysis.publication_eligible is False
+    evidence = result.analysis.warehouse_validation
+    assert evidence.status is WarehouseValidationStatus.BLOCKED
+    assert evidence.rows_evaluated == (0 if boundary == "empty_relation" else 8)
+    assert evidence.populated_row_count == 0
+    assert evidence.unsafe_row_count == (
+        0 if operation is ChangeOperation.TYPE_CHANGE else None
+    )
+    check_results = [
+        (check.code, check.passed, check.retryable) for check in evidence.checks
+    ]
+    assert check_results == [
+        (boundary, False, True)
+    ]
+    assert [item.code for item in result.analysis.approval_blockers] == [
+        "WAREHOUSE_VALIDATION_FAILED"
+    ]
+    assert result.error is not None
+    assert (result.error.code, result.error.retryable) == (
+        "WAREHOUSE_VALIDATION_FAILED",
+        True,
+    )
+    assert warehouse.calls == 1
 
 
 @pytest.mark.asyncio

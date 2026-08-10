@@ -610,22 +610,34 @@ class SnowflakeWarehouseValidator:
         operation: ChangeOperation,
         evidence: _ExecutionEvidence,
     ) -> WarehouseCheck:
+        if (
+            operation is ChangeOperation.TYPE_CHANGE
+            and evidence.unsafe_row_count is None
+        ):
+            raise _failure("warehouse_response", retryable=False)
         if evidence.rows_evaluated == 0:
-            detail = (
-                "Aggregate validation passed with the limitation that the "
-                "relation has no rows."
+            return WarehouseCheck(
+                code="empty_relation",
+                label="Warehouse aggregate evidence",
+                passed=False,
+                retryable=True,
+                detail=(
+                    "Warehouse evidence is inconclusive because no rows were available."
+                ),
             )
-        elif evidence.populated_row_count == 0:
-            detail = (
-                "Aggregate validation passed with the limitation that the "
-                "source column is null for all rows."
+        if evidence.populated_row_count == 0:
+            return WarehouseCheck(
+                code="all_null_field",
+                label="Warehouse aggregate evidence",
+                passed=False,
+                retryable=True,
+                detail=(
+                    "Warehouse evidence is inconclusive because every selected field "
+                    "entry was null."
+                ),
             )
-        else:
-            detail = "Aggregate warehouse validation completed without unsafe evidence."
         if operation is ChangeOperation.TYPE_CHANGE:
-            unsafe = evidence.unsafe_row_count
-            if unsafe is None:
-                raise _failure("warehouse_response", retryable=False)
+            unsafe = cast(int, evidence.unsafe_row_count)
             if unsafe > 0:
                 return WarehouseCheck(
                     code="unsafe_conversion",
@@ -638,7 +650,9 @@ class SnowflakeWarehouseValidator:
                 code="type_conversion",
                 label="Warehouse type conversion",
                 passed=True,
-                detail=detail,
+                detail=(
+                    "Aggregate warehouse validation completed without unsafe evidence."
+                ),
                 observed_count=0,
             )
         code = (
@@ -650,7 +664,7 @@ class SnowflakeWarehouseValidator:
             code=code,
             label="Warehouse aggregate evidence",
             passed=True,
-            detail=detail,
+            detail="Aggregate warehouse validation completed without unsafe evidence.",
         )
 
 

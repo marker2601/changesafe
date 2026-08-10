@@ -4,10 +4,12 @@ from pathlib import Path
 import pytest
 
 from changesafe.config import Mode, Settings
-from changesafe.demo import DEMO_TARGET_URN
+from changesafe.demo import DEMO_TARGET_URN, golden_change
 from changesafe.domain import (
     ApprovalBlocker,
     ChangeOperation,
+    ChangeRequest,
+    RunState,
     WarehouseCheck,
     WarehouseValidationMode,
     WarehouseValidationResult,
@@ -30,6 +32,17 @@ from .test_idempotency import (
 )
 
 RELATION = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
+
+
+def change_for_operation(operation: ChangeOperation) -> ChangeRequest:
+    change = golden_change()
+    if operation is ChangeOperation.RENAME:
+        return change
+    data = change.model_dump()
+    data.update({"operation": operation, "new_field": None})
+    if operation is ChangeOperation.TYPE_CHANGE:
+        data.update({"old_type": "TEXT", "new_type": "NUMBER(38,0)"})
+    return ChangeRequest.model_validate(data)
 
 
 def warehouse_result(
@@ -317,6 +330,46 @@ def warehouse_boundary_result(run, boundary: str) -> WarehouseValidationResult:
     raise AssertionError(boundary)
 
 
+def inconclusive_warehouse_result(run, boundary: str) -> WarehouseValidationResult:
+    now = datetime.now(UTC)
+    rows_evaluated, populated_row_count = (
+        (0, 0) if boundary == "empty_relation" else (8, 0)
+    )
+    detail = (
+        "Warehouse evidence is inconclusive because no rows were available."
+        if boundary == "empty_relation"
+        else (
+            "Warehouse evidence is inconclusive because every selected field entry "
+            "was null."
+        )
+    )
+    return WarehouseValidationResult(
+        status=WarehouseValidationStatus.BLOCKED,
+        mode=WarehouseValidationMode.AGGREGATE,
+        environment_label="competition-non-production",
+        operation=run.request.operation,
+        field=run.request.field,
+        relation_fingerprint=fingerprint_relation(RELATION),
+        started_at=now - timedelta(seconds=1),
+        completed_at=now,
+        rows_evaluated=rows_evaluated,
+        populated_row_count=populated_row_count,
+        unsafe_row_count=(
+            0 if run.request.operation is ChangeOperation.TYPE_CHANGE else None
+        ),
+        elapsed_ms=1_000,
+        checks=[
+            WarehouseCheck(
+                code=boundary,
+                label="Warehouse aggregate evidence",
+                passed=False,
+                retryable=True,
+                detail=detail,
+            )
+        ],
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "boundary",
@@ -361,6 +414,54 @@ async def test_required_warehouse_failure_survives_duplicate_approval_and_restar
         with pytest.raises(PublicationStateError, match="current safety policy"):
             await service.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
         assert await reopened.get_publication(key) is None
+
+    assert publisher.calls == 0
+    assert context.calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", tuple(ChangeOperation))
+@pytest.mark.parametrize("boundary", ["empty_relation", "all_null_field"])
+async def test_inconclusive_required_evidence_survives_retry_and_restart(
+    operation: ChangeOperation,
+    boundary: str,
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    change = change_for_operation(operation)
+    store, _, run = await analyzed_run(
+        tmp_path,
+        context_port=context,
+        change=change,
+    )
+    assert run.analysis is not None
+    analysis = run.analysis.model_copy(
+        update={
+            "warehouse_validation": inconclusive_warehouse_result(run, boundary),
+            "approval_blockers": [],
+            "publication_eligible": True,
+        }
+    )
+    await persist_analysis(store, run.run_id, analysis)
+    publisher = CountingGitHubPublisher()
+    artifact_hash = analysis.artifacts.manifest_hash
+    assert artifact_hash is not None
+    key = publication_key(run.request, run.request.source_commit, artifact_hash)
+
+    for _ in range(2):
+        reopened = RunStore(store.database)
+        service = PublicationService(
+            store=reopened,
+            settings=live_warehouse_settings(tmp_path),
+            context_port=context,
+            github_publisher=publisher,
+        )
+        with pytest.raises(PublicationStateError, match="current safety policy"):
+            await service.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+        assert await reopened.get_publication(key) is None
+        persisted = await reopened.get(run.run_id)
+        assert persisted is not None
+        assert persisted.state is RunState.AWAITING_APPROVAL
 
     assert publisher.calls == 0
     assert context.calls == 0
