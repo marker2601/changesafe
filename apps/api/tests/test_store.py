@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import pytest
 from changesafe.demo import golden_change as official_change
 from changesafe.domain import (
     AnalysisResult,
+    ApprovalBlocker,
     ArtifactBundle,
     ArtifactFile,
     ChangeOperation,
@@ -103,7 +105,12 @@ def analysis_result() -> AnalysisResult:
         ),
         publication_eligible=True,
         warehouse_validation=passed_warehouse_result(),
-        approval_blockers=[],
+        approval_blockers=[
+            ApprovalBlocker(
+                code="WAREHOUSE_EVIDENCE_REVIEW",
+                message="A reviewer must inspect the aggregate evidence.",
+            )
+        ],
     )
 
 
@@ -279,6 +286,44 @@ async def test_store_round_trips_warehouse_result_and_blockers(
 
     assert restored is not None
     assert restored.analysis == analysis
+    assert restored.analysis.approval_blockers == [
+        ApprovalBlocker(
+            code="WAREHOUSE_EVIDENCE_REVIEW",
+            message="A reviewer must inspect the aggregate evidence.",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_store_restores_pre_upgrade_analysis_with_warehouse_defaults(
+    tmp_path: Path,
+) -> None:
+    import aiosqlite
+
+    database = tmp_path / "runs.db"
+    store = RunStore(database)
+    run = await store.create(golden_change())
+    analysis = analysis_result()
+    await advance_to_awaiting_approval(store, run.run_id, analysis)
+    legacy_analysis = analysis.model_dump(mode="json")
+    legacy_analysis.pop("warehouse_validation")
+    legacy_analysis.pop("approval_blockers")
+
+    async with aiosqlite.connect(database) as connection:
+        await connection.execute(
+            "UPDATE runs SET analysis_json = ? WHERE run_id = ?",
+            (json.dumps(legacy_analysis), str(run.run_id)),
+        )
+        await connection.commit()
+
+    restored = await RunStore(database).get(run.run_id)
+
+    assert restored is not None
+    assert restored.analysis is not None
+    assert restored.analysis.warehouse_validation.status is (
+        WarehouseValidationStatus.NOT_RUN
+    )
+    assert restored.analysis.approval_blockers == []
 
 
 @pytest.mark.asyncio

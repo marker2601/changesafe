@@ -277,7 +277,7 @@ def test_documented_golden_change_is_a_valid_request() -> None:
 
 
 def test_warehouse_result_forbids_raw_rows_and_unknown_fields() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc_info:
         WarehouseValidationResult.model_validate(
             {
                 "status": "passed",
@@ -292,10 +292,22 @@ def test_warehouse_result_forbids_raw_rows_and_unknown_fields() -> None:
                 "unsafe_row_count": 0,
                 "query_ids": ["safe-query-id"],
                 "elapsed_ms": 1000,
-                "checks": [],
+                "checks": [
+                    {
+                        "code": "no_unsafe_rows",
+                        "label": "No unsafe rows",
+                        "passed": True,
+                        "detail": "No unsafe rows were found.",
+                    }
+                ],
                 "raw_rows": [{"order_status": "secret"}],
             }
         )
+
+    assert any(
+        error["loc"] == ("raw_rows",) and error["type"] == "extra_forbidden"
+        for error in exc_info.value.errors()
+    )
 
 
 def test_warehouse_result_requires_passing_aggregate_checks_for_passed_status() -> None:

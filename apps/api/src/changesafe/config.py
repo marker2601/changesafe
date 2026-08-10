@@ -191,9 +191,6 @@ class Settings(BaseSettings):
             self.snowflake_schema,
             self.snowflake_role,
         )
-        has_configuration = bool(self.snowflake_target_relation_allowlist) or any(
-            value is not None for value in configuration_values
-        )
         if self.warehouse_validation_enabled and (
             not all(value is not None for value in configuration_values)
             or not self.snowflake_target_relation_allowlist
@@ -203,10 +200,6 @@ class Settings(BaseSettings):
             self.snowflake_authenticator != "SNOWFLAKE_JWT"
         ):
             raise ValueError("SNOWFLAKE_AUTHENTICATOR must be SNOWFLAKE_JWT")
-        if has_configuration and not self.warehouse_validation_enabled:
-            raise ValueError(
-                "Snowflake configuration requires warehouse validation enabled"
-            )
 
         approved_urns = {
             value for value in self.demo_urn_allowlist.split(";") if value

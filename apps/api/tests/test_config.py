@@ -258,6 +258,32 @@ def test_enabled_warehouse_validation_requires_complete_safe_snowflake_config(
         )
 
 
+def test_disabled_warehouse_validation_allows_provisioned_snowflake_settings(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        changesafe_data_path=tmp_path / "changesafe.db",
+        snowflake_account="account",
+        snowflake_user="user",
+        snowflake_authenticator="SNOWFLAKE_JWT",
+        snowflake_private_key_path=tmp_path / "not-read.pem",
+        snowflake_warehouse="warehouse",
+        snowflake_database="database",
+        snowflake_schema="schema",
+        snowflake_role="role",
+        snowflake_target_relation_allowlist={
+            "urn:li:dataset:(urn:li:dataPlatform:dbt,"
+            "b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)": (
+                "ORDER_ENTRY_DB.analytics.order_details"
+            )
+        },
+    )
+
+    assert settings.warehouse_validation_enabled is False
+    assert settings.warehouse_configured is False
+
+
 def test_warehouse_settings_reject_unsafe_authenticator_and_target_map(
     tmp_path: Path,
 ) -> None:
@@ -310,6 +336,46 @@ def test_warehouse_settings_publish_a_safe_target_map_only_when_configured(
             "ORDER_ENTRY_DB.analytics.order_details"
         )
     }
+
+
+def test_public_config_omits_configured_warehouse_secrets_and_targets(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        changesafe_data_path=tmp_path / "changesafe.db",
+        warehouse_validation_enabled=True,
+        snowflake_account="account-secret",
+        snowflake_user="user-secret",
+        snowflake_authenticator="SNOWFLAKE_JWT",
+        snowflake_private_key_path=tmp_path / "private-key-secret.pem",
+        snowflake_warehouse="warehouse-secret",
+        snowflake_database="database-secret",
+        snowflake_schema="schema-secret",
+        snowflake_role="role-secret",
+        snowflake_target_relation_allowlist={
+            "urn:li:dataset:(urn:li:dataPlatform:dbt,"
+            "b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)": (
+                "ORDER_ENTRY_DB.analytics.order_details"
+            )
+        },
+    )
+
+    public = settings.public_config()
+
+    assert public["warehouse_validation_available"] is True
+    serialized = str(public)
+    for secret in (
+        "account-secret",
+        "user-secret",
+        "private-key-secret",
+        "warehouse-secret",
+        "database-secret",
+        "schema-secret",
+        "role-secret",
+        "ORDER_ENTRY_DB.analytics.order_details",
+    ):
+        assert secret not in serialized
 
 
 @pytest.mark.parametrize(
