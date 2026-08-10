@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -18,7 +19,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from changesafe.demo import DEMO_TARGET_URN
 
@@ -130,7 +131,9 @@ class Settings(BaseSettings):
     snowflake_database: str | None = None
     snowflake_schema: str | None = None
     snowflake_role: str | None = None
-    snowflake_target_relation_allowlist: dict[str, str] = Field(default_factory=dict)
+    snowflake_target_relation_allowlist: Annotated[
+        dict[str, str], NoDecode
+    ] = Field(default_factory=dict)
 
     @field_validator(
         "datahub_gms_url",
@@ -153,6 +156,25 @@ class Settings(BaseSettings):
     def blank_optional_values_are_unconfigured(cls, value: Any) -> Any:
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("snowflake_target_relation_allowlist", mode="before")
+    @classmethod
+    def decode_snowflake_target_map(cls, value: Any) -> Any:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return {}
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError:
+                raise ValueError(
+                    "SNOWFLAKE_TARGET_RELATION_ALLOWLIST must be a JSON object"
+                ) from None
+            if not isinstance(decoded, dict):
+                raise ValueError(
+                    "SNOWFLAKE_TARGET_RELATION_ALLOWLIST must be a JSON object"
+                )
+            return decoded
         return value
 
     @field_validator("datahub_ui_url")

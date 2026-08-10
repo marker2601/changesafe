@@ -285,6 +285,17 @@ def test_disabled_warehouse_validation_allows_provisioned_snowflake_settings(
     assert settings.warehouse_configured is False
 
 
+def test_blank_snowflake_target_map_env_is_safely_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SNOWFLAKE_TARGET_RELATION_ALLOWLIST", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.snowflake_target_relation_allowlist == {}
+    assert settings.warehouse_configured is False
+
+
 def test_warehouse_settings_reject_unsafe_authenticator_and_target_map(
     tmp_path: Path,
 ) -> None:
