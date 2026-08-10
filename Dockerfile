@@ -30,7 +30,7 @@ RUN addgroup --system --gid 10001 changesafe \
 
 COPY pyproject.toml README.md ./
 COPY apps/api/src apps/api/src
-RUN python -m pip install --no-cache-dir ".[live]"
+RUN python -m pip install --no-cache-dir ".[live,warehouse]"
 
 COPY --from=web-builder --chown=changesafe:changesafe /build/apps/web/dist /app/web
 COPY --chown=changesafe:changesafe fixtures/datahub /app/fixtures/datahub

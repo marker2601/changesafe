@@ -27,6 +27,21 @@ services:
       PUBLIC_PR_ENABLED: "${PUBLIC_PR_ENABLED:-false}"
       PUBLIC_WRITEBACK_ENABLED: "${PUBLIC_WRITEBACK_ENABLED:-false}"
       CHANGESAFE_ADMIN_TOKEN: "${CHANGESAFE_ADMIN_TOKEN:-}"
+      CHANGESAFE_LIVE_EVIDENCE_REQUIRED: "${CHANGESAFE_LIVE_EVIDENCE_REQUIRED:-false}"
+      CHANGESAFE_WAREHOUSE_VALIDATION_ENABLED: "${CHANGESAFE_WAREHOUSE_VALIDATION_ENABLED:-false}"
+      CHANGESAFE_WAREHOUSE_VALIDATION_REQUIRED: "${CHANGESAFE_WAREHOUSE_VALIDATION_REQUIRED:-false}"
+      CHANGESAFE_WAREHOUSE_TIMEOUT_SECONDS: "${CHANGESAFE_WAREHOUSE_TIMEOUT_SECONDS:-20}"
+      CHANGESAFE_WAREHOUSE_EVIDENCE_MAX_AGE_SECONDS: "${CHANGESAFE_WAREHOUSE_EVIDENCE_MAX_AGE_SECONDS:-900}"
+      CHANGESAFE_WAREHOUSE_ENVIRONMENT_LABEL: "${CHANGESAFE_WAREHOUSE_ENVIRONMENT_LABEL:-competition-non-production}"
+      SNOWFLAKE_ACCOUNT: "${SNOWFLAKE_ACCOUNT:-}"
+      SNOWFLAKE_USER: "${SNOWFLAKE_USER:-}"
+      SNOWFLAKE_AUTHENTICATOR: "${SNOWFLAKE_AUTHENTICATOR:-SNOWFLAKE_JWT}"
+      SNOWFLAKE_PRIVATE_KEY_PATH: "${SNOWFLAKE_PRIVATE_KEY_PATH:-}"
+      SNOWFLAKE_WAREHOUSE: "${SNOWFLAKE_WAREHOUSE:-}"
+      SNOWFLAKE_DATABASE: "${SNOWFLAKE_DATABASE:-}"
+      SNOWFLAKE_SCHEMA: "${SNOWFLAKE_SCHEMA:-}"
+      SNOWFLAKE_ROLE: "${SNOWFLAKE_ROLE:-}"
+      SNOWFLAKE_TARGET_RELATION_ALLOWLIST: "${SNOWFLAKE_TARGET_RELATION_ALLOWLIST:-{}}"
     volumes:
       - changesafe-data:/data
     tmpfs:
@@ -41,6 +56,21 @@ services:
       timeout: 3s
       start_period: 10s
       retries: 5
+
+  changesafe-warehouse:
+    profiles: ["warehouse"]
+    extends:
+      service: changesafe
+    environment:
+      SNOWFLAKE_PRIVATE_KEY_PATH: /run/secrets/snowflake-private-key.p8
+    volumes:
+      - changesafe-data:/data
+      - type: bind
+        source: "${SNOWFLAKE_PRIVATE_KEY_PATH:-./.changesafe-private/snowflake-private-key-not-configured.p8}"
+        target: /run/secrets/snowflake-private-key.p8
+        read_only: true
+        bind:
+          create_host_path: false
 
 volumes:
   changesafe-data:

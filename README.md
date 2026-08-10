@@ -60,7 +60,7 @@ Prerequisites:
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev,live]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,live,warehouse]"
 corepack enable
 corepack prepare pnpm@11.16.0 --activate
 pnpm install --frozen-lockfile
@@ -97,6 +97,15 @@ Run the container with it:
 docker compose --env-file "C:\Users\harik\ChangeSafe\private\changesafe.env" up --build
 ```
 
+The default service never mounts a warehouse key. After supplying the complete
+read-only warehouse configuration, start the warehouse profile explicitly; it
+bind-mounts the configured PKCS#8 key read-only at
+`/run/secrets/snowflake-private-key.p8` and does not copy it into the image:
+
+```powershell
+docker compose --env-file "C:\Users\harik\ChangeSafe\private\changesafe.env" --profile warehouse up --build changesafe-warehouse
+```
+
 Never copy the private file into this repository. `.env*`, databases, test artifacts, and private work directories are ignored.
 
 ## Do I need a DataHub token?
@@ -123,6 +132,9 @@ A DataHub personal access token is required only when `CHANGESAFE_MODE=live` or 
 | `PUBLIC_PR_ENABLED` | Enables GitHub branch/commit/PR creation | Keep `false` until live testing |
 | `PUBLIC_WRITEBACK_ENABLED` | Enables DataHub decision writeback | Keep `false` until live testing |
 | `DEMO_URN_ALLOWLIST` | Semicolon-separated DataHub targets | Include only seeded demo URNs |
+| `CHANGESAFE_LIVE_EVIDENCE_REQUIRED` | Requires live DataHub provenance before approval | Keep `false` for credential-free replay |
+| `CHANGESAFE_WAREHOUSE_VALIDATION_ENABLED` | Enables bounded, aggregate-only Snowflake validation | Keep `false` until every warehouse value is supplied |
+| `CHANGESAFE_WAREHOUSE_VALIDATION_REQUIRED` | Blocks approval without current passed warehouse evidence | May be `true` only when validation is enabled |
 
 DataHub writeback additionally needs permission for the allowlisted equivalents of `save_document`, `add_structured_properties`, and `add_tags`, plus `SAVE_DOCUMENT_RESTRICT_UPDATES=false` so Agent Context Kit can create ChangeSafe's deterministic, idempotent document URN. ChangeSafe still enforces its owner token and exact target allowlist, and startup fails closed if writeback is enabled without that explicit setting. External mutation flags fail configuration unless `CHANGESAFE_ADMIN_TOKEN` is present. The browser never receives DataHub or GitHub credentials; in live publication mode the owner enters the separate admin approval token.
 
@@ -138,8 +150,24 @@ See [.env.example](.env.example) for every supported setting.
 | `GITHUB_TOKEN` | Optional. Create a fine-grained GitHub token restricted to the one sandbox repository, with Contents and Pull requests read/write. |
 | `CHANGESAFE_GITHUB_REPOSITORY` | The existing target repository in `owner/name` form, for example `marker2601/changesafe-sandbox`. |
 | `CHANGESAFE_ADMIN_TOKEN` | Generate this yourself as a long random secret. It is separate from every service token and gates private review activity plus external publication. |
+| DataHub URL/token | Use a self-hosted GMS endpoint or DataHub Cloud metadata-service URL and an admin/service-account token with metadata read access. These values read live metadata only while publication flags remain off. |
+| Snowflake account/user | Use the Snowflake account identifier and a dedicated service user. |
+| Authenticator/private key | Use `SNOWFLAKE_JWT` and an operator-mounted PKCS#8 private key whose public key is assigned to the dedicated service user. |
+| Warehouse/database/schema/role | Use dedicated non-production compute and the exact read-only role with `USAGE` plus `SELECT` only on the mapped relation. |
+| Relation map | Configure `SNOWFLAKE_TARGET_RELATION_ALLOWLIST` server-side as JSON from the exact DataHub URN to the exact three-part Snowflake relation. |
+| GitHub/admin token | Needed only when the owner deliberately enables publication. Neither token is needed for preview judging. |
 
 The browser never receives any service token. Reviewers use the shared UI without credentials; only the operator enters `CHANGESAFE_ADMIN_TOKEN` into the private review-activity drawer or an owner-gated publication action.
+
+The DataHub token is required for live judging but not for credential-free
+replay. Snowflake is required only when
+`CHANGESAFE_WAREHOUSE_VALIDATION_REQUIRED=true`; otherwise the competition
+smoke reports warehouse validation as not run. The smoke always forces GitHub
+and DataHub publication off and approves preview only:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_competition.py --datahub-only
+```
 
 ### Seed and verify a live DataHub instance
 
@@ -279,7 +307,7 @@ docs/                         Architecture, demo, submission, and design evidenc
 
 ## Honest limitations
 
-- No warehouse SQL is executed, no PR is merged automatically, and replay mode never mutates external systems.
+- Warehouse validation is disabled by default. When explicitly enabled, it executes only the reviewed aggregate `SELECT` contract through a dedicated read-only role; it never executes warehouse mutations. No PR is merged automatically, and replay mode never mutates external systems.
 - SQLite plus in-process analysis tasks target a single service instance. Multi-replica production deployment needs a shared database and durable job queue.
 - Public internet deployment should add distributed reverse-proxy rate limiting and managed TLS. The app itself enforces a per-client, per-process run limit, strict schemas, a 16 KiB request boundary, same-origin CSP, allowlisted generated paths, and owner-gated mutations.
 - `auto` attempts live context when both DataHub settings exist; otherwise it selects replay. A failed live read pauses in `context_fallback_required` and changes evidence source only after the user clicks **Continue with labeled snapshot**. Authorization failures are not retried, and no fallback is permitted after publication begins.
