@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: changesafe-competition
+    runtime: docker
+    plan: free
+    region: ohio
+    branch: master
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    renderSubdomainPolicy: enabled
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: CHANGESAFE_MODE
+        value: replay
+      - key: CHANGESAFE_DATA_PATH
+        value: /data/changesafe.db
+      - key: CHANGESAFE_WEB_DIST
+        value: /app/web
+      - key: CHANGESAFE_RUNS_PER_MINUTE
+        value: "30"
+      - key: CHANGESAFE_LIVE_EVIDENCE_REQUIRED
+        value: "false"
+      - key: CHANGESAFE_WAREHOUSE_VALIDATION_ENABLED
+        value: "false"
+      - key: CHANGESAFE_WAREHOUSE_VALIDATION_REQUIRED
+        value: "false"
+      - key: PUBLIC_PR_ENABLED
+        value: "false"
+      - key: PUBLIC_WRITEBACK_ENABLED
+        value: "false"
