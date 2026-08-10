@@ -9,6 +9,12 @@ import {
 } from "./fixtures";
 
 describe("WarehouseValidationPanel", () => {
+  it("keeps the server-side warehouse binding out of the browser contract", () => {
+    // @ts-expect-error The public browser DTO must not expose approval bindings.
+    expect(passedWarehouseValidation.relation_fingerprint).toBeUndefined();
+    expect(passedWarehouseValidation).not.toHaveProperty("binding_fingerprint");
+  });
+
   it("claims warehouse values were checked only for passed aggregate evidence", () => {
     const { container } = render(
       <WarehouseValidationPanel

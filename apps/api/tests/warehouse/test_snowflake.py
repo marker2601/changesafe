@@ -35,7 +35,8 @@ from changesafe.warehouse.snowflake import SnowflakeWarehouseValidator
 
 RELATION = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
 IDENTITY_SQL = (
-    "SELECT CURRENT_ROLE(), CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()"
+    "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), "
+    "CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()"
 )
 Metadata = namedtuple(
     "Metadata",
@@ -217,7 +218,14 @@ def success_responses(
     aggregate_rows: Sequence[Sequence[object]] | None = None,
 ) -> list[CursorResponse]:
     identity_rows = identity or [
-        ("CHANGESAFE_READONLY", "COMPUTE_WH", "SAFE_DB", "SAFE_SCHEMA")
+        (
+            "PRIVATE-ACCOUNT",
+            "PRIVATE-USER",
+            "CHANGESAFE_READONLY",
+            "COMPUTE_WH",
+            "SAFE_DB",
+            "SAFE_SCHEMA",
+        )
     ]
     schema_columns = (
         [metadata("CUST_EMAIL")] if schema_description is None else schema_description
@@ -328,16 +336,27 @@ async def test_executes_only_identity_and_registered_selects_with_bounded_sessio
 @pytest.mark.parametrize(
     ("position", "actual"),
     [
-        (0, "ANOTHER_ROLE"),
-        (1, "ANOTHER_WAREHOUSE"),
-        (2, "ANOTHER_DATABASE"),
-        (3, "ANOTHER_SCHEMA"),
+        (0, "ANOTHER_ACCOUNT"),
+        (1, "ANOTHER_USER"),
+        (2, "ANOTHER_ROLE"),
+        (3, "ANOTHER_WAREHOUSE"),
+        (4, "ANOTHER_DATABASE"),
+        (5, "ANOTHER_SCHEMA"),
     ],
 )
 async def test_identity_mismatch_blocks_before_relation_query(
     position: int, actual: str
 ) -> None:
-    identity = [["CHANGESAFE_READONLY", "COMPUTE_WH", "SAFE_DB", "SAFE_SCHEMA"]]
+    identity = [
+        [
+            "PRIVATE-ACCOUNT",
+            "PRIVATE-USER",
+            "CHANGESAFE_READONLY",
+            "COMPUTE_WH",
+            "SAFE_DB",
+            "SAFE_SCHEMA",
+        ]
+    ]
     identity[0][position] = actual
 
     result, connection, _ = await validate_with(success_responses(identity=identity))
@@ -356,10 +375,33 @@ async def test_identity_mismatch_blocks_before_relation_query(
     [
         [],
         [
-            ("CHANGESAFE_READONLY", "COMPUTE_WH", "SAFE_DB", "SAFE_SCHEMA"),
-            ("CHANGESAFE_READONLY", "COMPUTE_WH", "SAFE_DB", "SAFE_SCHEMA"),
+            (
+                "PRIVATE-ACCOUNT",
+                "PRIVATE-USER",
+                "CHANGESAFE_READONLY",
+                "COMPUTE_WH",
+                "SAFE_DB",
+                "SAFE_SCHEMA",
+            ),
+            (
+                "PRIVATE-ACCOUNT",
+                "PRIVATE-USER",
+                "CHANGESAFE_READONLY",
+                "COMPUTE_WH",
+                "SAFE_DB",
+                "SAFE_SCHEMA",
+            ),
         ],
-        [("CHANGESAFE_READONLY", "COMPUTE_WH", "SAFE_DB", None)],
+        [
+            (
+                "PRIVATE-ACCOUNT",
+                "PRIVATE-USER",
+                "CHANGESAFE_READONLY",
+                "COMPUTE_WH",
+                "SAFE_DB",
+                None,
+            )
+        ],
     ],
 )
 async def test_malformed_identity_blocks_before_relation_query(

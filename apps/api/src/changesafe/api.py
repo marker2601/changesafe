@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from changesafe.config import Mode, Settings
+from changesafe.config import Mode, Settings, load_settings_safely
 from changesafe.context.base import (
     ContextAuthorizationError,
     ContextLoadError,
@@ -179,7 +179,7 @@ def create_app(
     warehouse_port: WarehouseValidationPort | None = None,
     web_dist: Path | None = None,
 ) -> FastAPI:
-    active_settings = settings or Settings()
+    active_settings = settings or load_settings_safely()
     store = RunStore(active_settings.changesafe_data_path)
     active_context = context_port or build_context_port(active_settings)
     snapshot_context = (
@@ -213,6 +213,16 @@ def create_app(
         warehouse_timeout_seconds=active_settings.warehouse_timeout_seconds,
         warehouse_environment_label=active_settings.warehouse_environment_label,
         warehouse_target_map=active_settings.warehouse_target_map,
+        warehouse_binding_map={
+            urn: fingerprint
+            for urn in active_settings.warehouse_target_map
+            if (
+                fingerprint := active_settings.warehouse_binding_fingerprint(
+                    urn
+                )
+            )
+            is not None
+        },
         llm_reservation_usd=Decimal(0),
         llm_budget_usd=None,
     )
@@ -336,8 +346,10 @@ def create_app(
                 headers={"Retry-After": "60"},
             )
         try:
-            return await orchestrator.start(
-                change, session_id=x_changesafe_session_id
+            return RunView.from_internal(
+                await orchestrator.start(
+                    change, session_id=x_changesafe_session_id
+                )
             )
         except LlmBudgetExceeded as exc:
             raise HTTPException(
@@ -350,7 +362,7 @@ def create_app(
         run = await store.get(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Run not found")
-        return run
+        return RunView.from_internal(run)
 
     @app.get("/api/owner/activity", response_model=list[ReviewActivity])
     async def owner_activity(
@@ -372,7 +384,9 @@ def create_app(
     )
     async def continue_with_snapshot(run_id: UUID) -> RunView:
         try:
-            return await orchestrator.continue_with_snapshot(run_id)
+            return RunView.from_internal(
+                await orchestrator.continue_with_snapshot(run_id)
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Run not found") from exc
         except ValueError as exc:

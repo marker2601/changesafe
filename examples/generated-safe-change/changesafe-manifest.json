@@ -13,7 +13,7 @@
     "field": "cust_email",
     "field_type": "TEXT",
     "mode": "snapshot",
-    "snapshot_hash": "02ef4be4a1a31759c841996456b533126633c35aefe7d69c1a65abafa5816834",
+    "snapshot_hash": "60a19213fdb8f9146fac20db0787fbe4d6ee17635862dd55d7a9252389d11b83",
     "target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
   },
   "deprecation_status": "phase_one",

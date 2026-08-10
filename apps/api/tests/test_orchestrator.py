@@ -29,6 +29,7 @@ from changesafe.warehouse.base import WarehouseValidationError
 from changesafe.warehouse.queries import fingerprint_relation
 
 WAREHOUSE_RELATION = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
+WAREHOUSE_BINDING = fingerprint_relation(WAREHOUSE_RELATION)
 
 
 def change_for_operation(operation: ChangeOperation) -> ChangeRequest:
@@ -65,7 +66,7 @@ def inconclusive_warehouse_result(
         operation=change.operation,
         field=change.field,
         aggregate_query_started=True,
-        relation_fingerprint=fingerprint_relation(WAREHOUSE_RELATION),
+        binding_fingerprint=WAREHOUSE_BINDING,
         started_at=now - timedelta(seconds=1),
         completed_at=now,
         rows_evaluated=rows_evaluated,
@@ -96,7 +97,7 @@ def passed_warehouse_result() -> WarehouseValidationResult:
         operation=change.operation,
         field=change.field,
         aggregate_query_started=True,
-        relation_fingerprint=fingerprint_relation(WAREHOUSE_RELATION),
+        binding_fingerprint=WAREHOUSE_BINDING,
         started_at=now - timedelta(seconds=1),
         completed_at=now,
         rows_evaluated=20,
@@ -105,10 +106,15 @@ def passed_warehouse_result() -> WarehouseValidationResult:
         elapsed_ms=1_000,
         checks=[
             WarehouseCheck(
-                code="aggregate_validation",
+                code=code,
                 label="Aggregate validation",
                 passed=True,
                 detail="Aggregate checks passed.",
+            )
+            for code in (
+                "warehouse_identity",
+                "warehouse_schema",
+                "rename_projection",
             )
         ],
     )
@@ -124,7 +130,7 @@ def blocked_warehouse_result() -> WarehouseValidationResult:
         operation=change.operation,
         field=change.field,
         aggregate_query_started=True,
-        relation_fingerprint=fingerprint_relation(WAREHOUSE_RELATION),
+        binding_fingerprint=WAREHOUSE_BINDING,
         started_at=now - timedelta(seconds=1),
         completed_at=now,
         elapsed_ms=1_000,
@@ -281,6 +287,7 @@ async def test_required_warehouse_pass_reaches_awaiting_approval(
         warehouse_port=warehouse,
         require_warehouse=True,
         warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+        warehouse_binding_map={golden_change().asset_urn: WAREHOUSE_BINDING},
     )
     run = await store.create(golden_change())
 
@@ -314,6 +321,7 @@ async def test_snapshot_context_never_calls_configured_warehouse(
         warehouse_port=warehouse,
         require_warehouse=True,
         warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+        warehouse_binding_map={golden_change().asset_urn: WAREHOUSE_BINDING},
     )
     run = await store.create(golden_change())
 
@@ -353,6 +361,7 @@ async def test_required_inconclusive_aggregate_evidence_is_ineligible(
         warehouse_port=warehouse,
         require_warehouse=True,
         warehouse_target_map={change.asset_urn: WAREHOUSE_RELATION},
+        warehouse_binding_map={change.asset_urn: WAREHOUSE_BINDING},
     )
     run = await store.create(change)
 
@@ -425,6 +434,7 @@ async def test_failed_warehouse_result_preserves_analysis_in_failed(
         generator=ArtifactGenerationService(),
         warehouse_port=warehouse,
         warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+        warehouse_binding_map={golden_change().asset_urn: WAREHOUSE_BINDING},
     )
     run = await store.create(golden_change())
 
@@ -454,6 +464,7 @@ async def test_optional_called_port_not_run_is_retryable_blocked_evidence(
         warehouse_port=warehouse,
         require_warehouse=False,
         warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+        warehouse_binding_map={golden_change().asset_urn: WAREHOUSE_BINDING},
     )
     run = await store.create(golden_change())
 
@@ -495,6 +506,7 @@ async def test_warehouse_exception_becomes_blocked_evidence_instead_of_not_run(
         warehouse_port=warehouse,
         require_warehouse=True,
         warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+        warehouse_binding_map={golden_change().asset_urn: WAREHOUSE_BINDING},
     )
     run = await store.create(golden_change())
 
@@ -526,6 +538,7 @@ async def test_orchestrator_timeout_becomes_retryable_blocked_evidence(
         require_warehouse=True,
         warehouse_timeout_seconds=0.01,
         warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+        warehouse_binding_map={golden_change().asset_urn: WAREHOUSE_BINDING},
     )
     run = await store.create(golden_change())
 
@@ -555,6 +568,7 @@ async def test_static_verification_failure_never_calls_warehouse(
         generator=ArtifactGenerationService(),
         warehouse_port=warehouse,
         warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+        warehouse_binding_map={golden_change().asset_urn: WAREHOUSE_BINDING},
     )
     monkeypatch.setattr(
         orchestrator_module,
@@ -669,7 +683,7 @@ async def test_replay_analysis_binds_each_selected_field_to_its_own_evidence(
         context.target_urn,
         *context.field_tags,
         *context.glossary_terms,
-        *context.queries,
+        str(context.query_count),
         *(item.urn for item in context.evidence),
         *(item.urn for item in context.upstream_assets),
         *(item.urn for item in context.downstream_assets),
@@ -683,7 +697,7 @@ async def test_replay_analysis_binds_each_selected_field_to_its_own_evidence(
     field_scoped = {
         "field_tags": context.field_tags,
         "glossary_terms": context.glossary_terms,
-        "queries": context.queries,
+        "query_count": context.query_count,
         "evidence": [item.model_dump(mode="json") for item in context.evidence],
         "upstream_assets": [
             item.model_dump(mode="json") for item in context.upstream_assets

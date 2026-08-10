@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -24,9 +25,56 @@ from changesafe.domain import (
     WarehouseValidationStatus,
 )
 from changesafe.publication.service import PublicationFailure
-from changesafe.warehouse.queries import fingerprint_relation
 
 GOLDEN_CHANGE = golden_change().model_dump(mode="json")
+WAREHOUSE_RELATION = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
+
+
+def warehouse_settings(tmp_path: Path, database_name: str) -> Settings:
+    return Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / database_name,
+        snowflake_account="account-test",
+        snowflake_user="user-test",
+        snowflake_warehouse="warehouse-test",
+        snowflake_database="safe_db",
+        snowflake_schema="safe_schema",
+        snowflake_role="readonly-test",
+        snowflake_target_relation_allowlist={
+            DEMO_TARGET_URN: WAREHOUSE_RELATION
+        },
+    )
+
+
+def test_default_startup_configuration_failure_is_fixed_and_sensitive_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    sentinels = [
+        "SENSITIVE_ACCOUNT_SENTINEL",
+        "SENSITIVE_USER_SENTINEL",
+        "SENSITIVE_ROLE_SENTINEL",
+        "C:/SENSITIVE_KEY_PATH_SENTINEL/key.p8",
+        "SENSITIVE_RELATION_SENTINEL",
+    ]
+    monkeypatch.setenv("CHANGESAFE_WAREHOUSE_VALIDATION_ENABLED", "true")
+    monkeypatch.setenv("SNOWFLAKE_ACCOUNT", sentinels[0])
+    monkeypatch.setenv("SNOWFLAKE_USER", sentinels[1])
+    monkeypatch.setenv("SNOWFLAKE_AUTHENTICATOR", "SNOWFLAKE_JWT")
+    monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_PATH", sentinels[3])
+    monkeypatch.setenv("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
+    monkeypatch.setenv("SNOWFLAKE_DATABASE", "SAFE_DB")
+    monkeypatch.setenv("SNOWFLAKE_SCHEMA", "SAFE_SCHEMA")
+    monkeypatch.setenv("SNOWFLAKE_ROLE", sentinels[2])
+    monkeypatch.setenv("SNOWFLAKE_TARGET_RELATION_ALLOWLIST", sentinels[4])
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as exc_info:
+        create_app()
+
+    assert str(exc_info.value) == "ChangeSafe startup configuration is invalid."
+    boundaries = [str(exc_info.value), repr(exc_info.value), caplog.text]
+    assert all(sentinel not in value for sentinel in sentinels for value in boundaries)
 
 
 class UnavailableLiveContext:
@@ -85,9 +133,10 @@ class LiveReplayContext(ClosableReplayContext):
 
 
 class LifecycleWarehousePort:
-    def __init__(self) -> None:
+    def __init__(self, binding_fingerprint: str) -> None:
         self.validation_completed = False
         self.closed = False
+        self.binding_fingerprint = binding_fingerprint
 
     async def validate(self, change: ChangeRequest, context):
         assert context.field == change.field
@@ -101,19 +150,23 @@ class LifecycleWarehousePort:
             operation=change.operation,
             field=change.field,
             aggregate_query_started=True,
-            relation_fingerprint=fingerprint_relation(
-                "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
-            ),
+            binding_fingerprint=self.binding_fingerprint,
             started_at=completed_at,
             completed_at=completed_at,
             rows_evaluated=20,
             populated_row_count=20,
+            query_ids=["safe-query-id"],
             checks=[
                 WarehouseCheck(
-                    code="aggregate_validation",
+                    code=code,
                     label="Aggregate validation",
                     passed=True,
                     detail="Aggregate checks passed.",
+                )
+                for code in (
+                    "warehouse_identity",
+                    "warehouse_schema",
+                    "rename_projection",
                 )
             ],
         )
@@ -244,7 +297,7 @@ async def test_replay_api_keeps_two_selected_field_contexts_and_artifacts_distin
     field_scoped = {
         "field_tags": total_context["field_tags"],
         "glossary_terms": total_context["glossary_terms"],
-        "queries": total_context["queries"],
+        "query_count": total_context["query_count"],
         "evidence": total_context["evidence"],
         "upstream_assets": total_context["upstream_assets"],
         "downstream_assets": total_context["downstream_assets"],
@@ -586,7 +639,7 @@ def test_create_app_builds_and_exposes_the_configured_warehouse_port(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    warehouse = LifecycleWarehousePort()
+    warehouse = LifecycleWarehousePort("a" * 64)
     observed: list[Settings] = []
     settings = Settings(
         _env_file=None,
@@ -611,14 +664,10 @@ def test_create_app_builds_and_exposes_the_configured_warehouse_port(
 async def test_app_lifespan_closes_warehouse_only_after_orchestrator_is_idle(
     tmp_path: Path,
 ) -> None:
-    warehouse = LifecycleWarehousePort()
-    relation = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
-    settings = Settings(
-        _env_file=None,
-        mode=Mode.REPLAY,
-        changesafe_data_path=tmp_path / "warehouse-lifecycle.db",
-        snowflake_target_relation_allowlist={DEMO_TARGET_URN: relation},
-    )
+    settings = warehouse_settings(tmp_path, "warehouse-lifecycle.db")
+    binding = settings.warehouse_binding_fingerprint(DEMO_TARGET_URN)
+    assert binding is not None
+    warehouse = LifecycleWarehousePort(binding)
     app = create_app(
         settings=settings,
         context_port=LiveReplayContext(),
@@ -634,6 +683,36 @@ async def test_app_lifespan_closes_warehouse_only_after_orchestrator_is_idle(
     assert persisted.state is RunState.AWAITING_APPROVAL
     assert warehouse.validation_completed is True
     assert warehouse.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_api_uses_public_dto_without_warehouse_binding_fingerprint(
+    tmp_path: Path,
+) -> None:
+    settings = warehouse_settings(tmp_path, "public-run.db")
+    binding = settings.warehouse_binding_fingerprint(DEMO_TARGET_URN)
+    assert binding is not None
+    warehouse = LifecycleWarehousePort(binding)
+    app = create_app(
+        settings=settings,
+        context_port=LiveReplayContext(),
+        warehouse_port=warehouse,
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        created = await client.post("/api/runs", json=GOLDEN_CHANGE)
+        run = await wait_for_state(
+            client, created.json()["run_id"], RunState.AWAITING_APPROVAL
+        )
+
+    public_warehouse = run["analysis"]["warehouse_validation"]
+    assert "relation_fingerprint" not in public_warehouse
+    assert "binding_fingerprint" not in public_warehouse
+    persisted = await app.state.store.get(run["run_id"])
+    assert persisted is not None and persisted.analysis is not None
+    assert persisted.analysis.warehouse_validation.binding_fingerprint
 
 
 @pytest.mark.asyncio

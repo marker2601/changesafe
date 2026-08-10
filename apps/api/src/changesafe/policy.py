@@ -13,6 +13,7 @@ from changesafe.domain import (
     WarehouseValidationResult,
     WarehouseValidationStatus,
     warehouse_evidence_incomplete_blocker,
+    warehouse_passed_evidence_is_complete,
 )
 
 
@@ -25,7 +26,7 @@ def evaluate_approval_policy(
     require_live_evidence: bool,
     require_warehouse: bool,
     warehouse_max_age_seconds: int,
-    expected_relation_fingerprint: str | None,
+    expected_binding_fingerprint: str | None,
     now: datetime | None = None,
 ) -> list[ApprovalBlocker]:
     """Return every current approval blocker in deterministic policy order."""
@@ -77,10 +78,11 @@ def evaluate_approval_policy(
             )
         )
 
-    if (
+    incomplete_passed = (
         warehouse.status is WarehouseValidationStatus.PASSED
-        and warehouse.aggregate_query_started is not True
-    ):
+        and not warehouse_passed_evidence_is_complete(warehouse)
+    )
+    if incomplete_passed:
         blockers.append(warehouse_evidence_incomplete_blocker())
 
     if warehouse.operation is not change.operation or warehouse.field != change.field:
@@ -96,22 +98,27 @@ def evaluate_approval_policy(
 
     if (
         warehouse.status is WarehouseValidationStatus.PASSED
+        and not incomplete_passed
         and (
-            expected_relation_fingerprint is None
-            or warehouse.relation_fingerprint != expected_relation_fingerprint
+            expected_binding_fingerprint is None
+            or warehouse.binding_fingerprint != expected_binding_fingerprint
         )
     ):
         blockers.append(
             ApprovalBlocker(
-                code="WAREHOUSE_RELATION_CHANGED",
+                code="WAREHOUSE_CONFIGURATION_CHANGED",
                 message=(
-                    "The configured warehouse relation changed after validation."
+                    "The configured warehouse identity or relation changed after "
+                    "validation."
                 ),
                 retryable=True,
             )
         )
 
-    if warehouse.status is WarehouseValidationStatus.PASSED:
+    if (
+        warehouse.status is WarehouseValidationStatus.PASSED
+        and not incomplete_passed
+    ):
         current_time = now or datetime.now(UTC)
         completed_at = warehouse.completed_at
         if (

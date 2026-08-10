@@ -114,7 +114,7 @@ def golden_context() -> ContextBundle:
         field_tags=["urn:li:tag:PII"],
         glossary_terms=["urn:li:glossaryTerm:CustomerEmail"],
         usage_tier="high",
-        queries=["select customer_email from analytics.dim_customers"],
+        query_count=1,
         evidence=evidence,
         provenance=ContextProvenance(
             mode=ContextMode.SNAPSHOT,

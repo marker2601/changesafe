@@ -3,7 +3,7 @@ from pathlib import Path
 from changesafe.context.base import DataHubContextPort
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import golden_change
-from changesafe.domain import ChangeRequest, RunView
+from changesafe.domain import ChangeRequest, RunRecord
 from changesafe.generation.service import ArtifactGenerationService
 from changesafe.orchestrator import ChangeSafeOrchestrator
 from changesafe.store import RunStore
@@ -14,7 +14,7 @@ async def analyzed_run(
     *,
     context_port: DataHubContextPort | None = None,
     change: ChangeRequest | None = None,
-) -> tuple[RunStore, DataHubContextPort, RunView]:
+) -> tuple[RunStore, DataHubContextPort, RunRecord]:
     store = RunStore(tmp_path / "runs.db")
     context = context_port or ReplayDataHubContext.from_default()
     orchestrator = ChangeSafeOrchestrator(

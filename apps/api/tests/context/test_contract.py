@@ -33,12 +33,12 @@ def minimal_catalog() -> dict[str, Any]:
         "field_tags": [],
         "glossary_terms": [],
         "usage_tier": "none",
-        "queries": [],
+        "query_count": 0,
         "evidence": [],
         "tool_evidence": [],
     }
     return {
-        "snapshot_version": 2,
+        "snapshot_version": 3,
         "target_urn": TARGET,
         "target_name": "order_details",
         "target_domain": None,
@@ -167,7 +167,7 @@ async def test_replay_builds_a_field_scoped_context(
             {
                 "field_tags": context.field_tags,
                 "glossary_terms": context.glossary_terms,
-                "queries": context.queries,
+                "query_count": context.query_count,
                 "evidence": [
                     item.model_dump(mode="json") for item in context.evidence
                 ],

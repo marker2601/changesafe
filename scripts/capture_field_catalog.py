@@ -50,7 +50,7 @@ async def build_recorded_catalog(
             field_tags=context.field_tags,
             glossary_terms=context.glossary_terms,
             usage_tier=context.usage_tier,
-            queries=context.queries,
+            query_count=context.query_count,
             evidence=context.evidence,
             tool_evidence=context.tool_evidence,
         )
@@ -58,7 +58,7 @@ async def build_recorded_catalog(
     if shared is None:
         raise ContextLoadError("DataHub schema did not contain supported fields")
     return RecordedDataHubCatalog(
-        snapshot_version=2,
+        snapshot_version=3,
         target_urn=shared.target_urn,
         target_name=shared.target_name,
         target_domain=shared.target_domain,

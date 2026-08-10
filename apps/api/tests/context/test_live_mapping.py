@@ -98,6 +98,7 @@ async def test_live_schema_discovery_returns_complete_allowlisted_schema() -> No
         {
             "get_entities": {"entities": [{"urn": TARGET, "name": "order_details"}]},
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {
                         "fieldPath": "order_id",
@@ -175,6 +176,93 @@ async def test_live_discovery_rejects_multiple_entities_for_one_requested_target
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "identity_fields",
+    [
+        {},
+        {"urn": TARGET, "datasetUrn": TARGET},
+    ],
+)
+async def test_schema_page_requires_one_explicit_exact_root_identity(
+    identity_fields: dict[str, str],
+) -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                **identity_fields,
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+                "offset": 0,
+            },
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match=r"schema.*root identity"):
+        await LiveDataHubContext(runner, {TARGET}).discover_schema(TARGET)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bound_entity_response",
+    [
+        [{"name": "identity-missing"}],
+        [{"urn": "urn:li:dataset:wrong", "name": "wrong"}],
+        [
+            {"urn": TARGET, "name": "first"},
+            {"urn": TARGET, "name": "second"},
+        ],
+    ],
+)
+async def test_each_lineage_page_requires_exact_entity_scoped_root_binding(
+    bound_entity_response: list[dict[str, str]],
+) -> None:
+    entity_calls = 0
+
+    def entities(_parameters: dict[str, Any]) -> list[dict[str, str]]:
+        nonlocal entity_calls
+        entity_calls += 1
+        if entity_calls == 1:
+            return [{"urn": TARGET, "name": "dim_customers"}]
+        return bound_entity_response
+
+    runner = FakeRunner(
+        {
+            "get_entities": entities,
+            "list_schema_fields": {
+                "urn": TARGET,
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+                "offset": 0,
+            },
+            "get_lineage": {
+                "upstreams": {
+                    "searchResults": [],
+                    "total": 0,
+                    "returned": 0,
+                    "hasMore": False,
+                    "offset": 0,
+                }
+            },
+            "get_dataset_queries": {"total": 0, "queries": []},
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match=r"lineage.*root identity"):
+        await LiveDataHubContext(runner, {TARGET}).load(golden_change())
+
+    assert all(tool != "get_dataset_queries" for tool, _ in runner.calls)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["discover", "load"])
 async def test_live_adapter_rejects_schema_for_a_different_target(
     operation: str,
@@ -227,6 +315,7 @@ async def test_live_schema_discovery_rejects_duplicate_case_insensitive_fields(
         {
             "get_entities": [{"urn": TARGET, "name": "orders"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "order_id", "nativeDataType": "NUMBER"},
                     {"fieldPath": "ORDER_ID", "nativeDataType": "NUMBER"},
@@ -248,6 +337,7 @@ async def test_live_schema_discovery_rejects_quoted_top_level_field() -> None:
         {
             "get_entities": [{"urn": TARGET, "name": "orders"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": '"order id"', "nativeDataType": "NUMBER"}
                 ],
@@ -268,6 +358,7 @@ async def test_live_schema_discovery_ignores_identified_nested_paths() -> None:
         {
             "get_entities": [{"urn": TARGET, "name": "orders"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "order_id", "nativeDataType": "NUMBER"},
                     {
@@ -294,6 +385,7 @@ async def test_live_schema_discovery_rejects_missing_native_type() -> None:
         {
             "get_entities": [{"urn": TARGET, "name": "orders"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [{"fieldPath": "order_id", "nativeDataType": None}],
                 "totalFields": 1,
                 "returned": 1,
@@ -312,6 +404,7 @@ async def test_live_schema_discovery_fetches_every_schema_page() -> None:
         offset = parameters["offset"]
         if offset == 0:
             return {
+                "urn": TARGET,
                 "fields": [{"fieldPath": "order_id", "nativeDataType": "NUMBER"}],
                 "totalFields": 2,
                 "returned": 1,
@@ -320,6 +413,7 @@ async def test_live_schema_discovery_fetches_every_schema_page() -> None:
             }
         if offset == 1:
             return {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "TEXT"}
                 ],
@@ -356,6 +450,7 @@ async def test_live_schema_discovery_rejects_complete_page_with_missing_fields(
         {
             "get_entities": [{"urn": TARGET, "name": "orders"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [{"fieldPath": "order_id", "nativeDataType": "NUMBER"}],
                 "totalFields": 2,
                 "returned": 2,
@@ -426,6 +521,7 @@ async def test_live_adapter_classifies_lineage_evidence_precision() -> None:
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "STRING"}
                 ],
@@ -483,6 +579,7 @@ async def test_live_adapter_treats_blank_lineage_field_as_dataset_level() -> Non
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "STRING"}
                 ],
@@ -520,6 +617,7 @@ async def test_live_adapter_uses_only_selected_field_governance() -> None:
                 }
             ],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {
                         "fieldPath": "customer_email",
@@ -608,6 +706,7 @@ async def test_live_adapter_maps_agent_context_tool_envelopes() -> None:
                 }
             ],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {
                         "fieldPath": "customer_email",
@@ -646,8 +745,11 @@ async def test_live_adapter_maps_agent_context_tool_envelopes() -> None:
         "get_entities",
         "list_schema_fields",
         "get_lineage",
+        "get_entities",
         "get_lineage",
+        "get_entities",
         "get_lineage",
+        "get_entities",
         "get_dataset_queries",
     ]
 
@@ -907,10 +1009,7 @@ async def test_live_adapter_maps_installed_agent_context_1_7_envelopes() -> None
                         "urn": "urn:li:query:q1",
                         "properties": {
                             "statement": {
-                                "value": (
-                                    "select customer_email from "
-                                    "analytics.dim_customers"
-                                ),
+                                "value": "SENSITIVE_QUERY_TEXT_SENTINEL",
                                 "language": "SQL",
                             },
                             "source": "SYSTEM",
@@ -939,9 +1038,10 @@ async def test_live_adapter_maps_installed_agent_context_1_7_envelopes() -> None
     assert context.downstream_assets[0].lineage_degree == 2
     assert context.downstream_assets[0].lineage_path == []
     assert context.model_dump()["downstream_assets"][0]["lineage_degree"] == 2
-    assert context.queries == [
-        "select customer_email from analytics.dim_customers"
-    ]
+    serialized_context = context.model_dump_json()
+    assert "queries" not in context.model_dump()
+    assert "SENSITIVE_QUERY_TEXT_SENTINEL" not in serialized_context
+    assert context.query_count == 1
     assert context.usage_tier == "high"
     assert context.structured_properties == {
         "urn:li:structuredProperty:changesafe.riskLevel": ["CRITICAL"],
@@ -952,8 +1052,11 @@ async def test_live_adapter_maps_installed_agent_context_1_7_envelopes() -> None
         1,
         2,
         1,
+        1,
         3,
+        1,
         4,
+        1,
         1,
     ]
     assert score_change(golden_change(), context).score == 90
@@ -965,6 +1068,7 @@ async def test_live_adapter_fails_closed_for_unsupported_top_level_identifier() 
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "STRING"},
                     {"fieldPath": "Order Date", "nativeDataType": "DATE"},
@@ -990,6 +1094,7 @@ async def test_live_adapter_fails_closed_when_native_type_is_missing() -> None:
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [{"fieldPath": "customer_email", "nativeDataType": None}],
                 "totalFields": 1,
                 "returned": 1,
@@ -1053,6 +1158,7 @@ async def test_live_adapter_fetches_every_lineage_page_before_analysis() -> None
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {
                         "fieldPath": "customer_email",
@@ -1088,6 +1194,7 @@ async def test_seeded_live_lineage_fails_closed_when_page_is_partial() -> None:
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "STRING"}
                 ],
@@ -1235,6 +1342,7 @@ async def test_live_adapter_allows_distinct_relationships_to_one_endpoint() -> N
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "STRING"}
                 ],
@@ -1280,6 +1388,7 @@ async def test_live_adapter_rejects_lineage_endpoint_without_an_urn() -> None:
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "STRING"}
                 ],
@@ -1303,6 +1412,7 @@ async def test_missing_optional_live_evidence_remains_explicit_and_conservative(
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "STRING"}
                 ],
@@ -1321,7 +1431,7 @@ async def test_missing_optional_live_evidence_remains_explicit_and_conservative(
     assert context.owners == []
     assert context.field_tags == []
     assert context.glossary_terms == []
-    assert context.queries == []
+    assert context.query_count == 0
     assert context.usage_tier == "none"
     assert [factor.code for factor in risk.factors] == [
         "base_rename",
@@ -1348,6 +1458,7 @@ async def test_live_adapter_rejects_unknown_field_before_lineage_or_query_calls(
         {
             "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
             "list_schema_fields": {
+                "urn": TARGET,
                 "fields": [
                     {"fieldPath": "customer_email", "nativeDataType": "STRING"}
                 ],

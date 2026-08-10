@@ -63,7 +63,7 @@ def warehouse_result(
     status: WarehouseValidationStatus,
     *,
     completed_at: datetime | None = NOW,
-    relation_fingerprint: str | None = FINGERPRINT,
+    binding_fingerprint: str | None = FINGERPRINT,
     retryable: bool = False,
 ) -> WarehouseValidationResult:
     change = golden_change()
@@ -84,26 +84,38 @@ def warehouse_result(
         operation=change.operation,
         field=change.field,
         aggregate_query_started=True if passed else None,
-        relation_fingerprint=relation_fingerprint,
+        binding_fingerprint=binding_fingerprint,
         started_at=(completed_at - timedelta(seconds=1) if completed_at else None),
         completed_at=completed_at,
         rows_evaluated=20 if passed else None,
         populated_row_count=20 if passed else None,
-        query_ids=["safe-query-id"] if completed_at else [],
+        query_ids=["safe-query-id"] if passed and completed_at else [],
         elapsed_ms=1_000 if completed_at else None,
-        checks=[
-            WarehouseCheck(
-                code="aggregate_validation" if passed else "warehouse_timeout",
-                label="Aggregate validation",
-                passed=passed,
-                retryable=retryable,
-                detail=(
-                    "Aggregate checks passed."
-                    if passed
-                    else "Warehouse validation timed out."
-                ),
-            )
-        ],
+        checks=(
+            [
+                WarehouseCheck(
+                    code=code,
+                    label="Aggregate validation",
+                    passed=True,
+                    detail="Aggregate checks passed.",
+                )
+                for code in (
+                    "warehouse_identity",
+                    "warehouse_schema",
+                    "rename_projection",
+                )
+            ]
+            if passed
+            else [
+                WarehouseCheck(
+                    code="warehouse_timeout",
+                    label="Aggregate validation",
+                    passed=False,
+                    retryable=retryable,
+                    detail="Warehouse validation timed out.",
+                )
+            ]
+        ),
     )
 
 
@@ -114,7 +126,7 @@ def evaluate(
     warehouse: WarehouseValidationResult | None = None,
     require_live: bool = False,
     require_warehouse: bool = False,
-    expected_relation_fingerprint: str | None = FINGERPRINT,
+    expected_binding_fingerprint: str | None = FINGERPRINT,
     now: datetime = NOW,
 ):
     return evaluate_approval_policy(
@@ -126,7 +138,7 @@ def evaluate(
         require_live_evidence=require_live,
         require_warehouse=require_warehouse,
         warehouse_max_age_seconds=900,
-        expected_relation_fingerprint=expected_relation_fingerprint,
+        expected_binding_fingerprint=expected_binding_fingerprint,
         now=now,
     )
 
@@ -153,7 +165,7 @@ def test_approval_policy_matrix(
         warehouse=warehouse_result(WarehouseValidationStatus(warehouse_status)),
         require_live=require_live,
         require_warehouse=require_warehouse,
-        expected_relation_fingerprint=(
+        expected_binding_fingerprint=(
             None if warehouse_status == "not_run" else FINGERPRINT
         ),
     )
@@ -182,10 +194,10 @@ def test_warehouse_freshness_uses_utc_completion_time_and_inclusive_boundary(
     assert [item.code for item in blockers] == expected_codes
 
 
-def test_relation_fingerprint_drift_blocks_approval() -> None:
-    blockers = evaluate(expected_relation_fingerprint="c" * 64)
+def test_binding_fingerprint_drift_blocks_approval() -> None:
+    blockers = evaluate(expected_binding_fingerprint="c" * 64)
 
-    assert [item.code for item in blockers] == ["WAREHOUSE_RELATION_CHANGED"]
+    assert [item.code for item in blockers] == ["WAREHOUSE_CONFIGURATION_CHANGED"]
 
 
 def test_passed_evidence_with_unknown_query_boundary_is_incomplete() -> None:
@@ -206,18 +218,42 @@ def test_passed_evidence_with_unknown_query_boundary_is_incomplete() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"started_at": None},
+        {"rows_evaluated": 0},
+        {"populated_row_count": 0},
+        {"query_ids": []},
+        {"query_ids": ["unsafe query id"]},
+        {"checks": []},
+    ],
+)
+def test_current_policy_rejects_forged_partial_passed_evidence(
+    update: dict[str, object],
+) -> None:
+    forged = warehouse_result(WarehouseValidationStatus.PASSED).model_copy(
+        update=update
+    )
+
+    blockers = evaluate(warehouse=forged)
+
+    assert [item.code for item in blockers] == [
+        "WAREHOUSE_EVIDENCE_INCOMPLETE"
+    ]
+
+
 def test_passed_evidence_requires_a_current_operator_relation() -> None:
     evidence_without_relation = warehouse_result(
-        WarehouseValidationStatus.PASSED,
-        relation_fingerprint=None,
-    )
+        WarehouseValidationStatus.PASSED
+    ).model_copy(update={"binding_fingerprint": None})
 
     blockers = evaluate(
         warehouse=evidence_without_relation,
-        expected_relation_fingerprint=None,
+        expected_binding_fingerprint=None,
     )
 
-    assert [item.code for item in blockers] == ["WAREHOUSE_RELATION_CHANGED"]
+    assert [item.code for item in blockers] == ["WAREHOUSE_EVIDENCE_INCOMPLETE"]
 
 
 def test_static_validation_failure_is_the_first_policy_blocker() -> None:
@@ -234,7 +270,7 @@ def test_static_validation_failure_is_the_first_policy_blocker() -> None:
         validation=validation_report(passed=False),
         warehouse=mismatched_warehouse,
         require_live=True,
-        expected_relation_fingerprint="c" * 64,
+        expected_binding_fingerprint="c" * 64,
     )
 
     assert [item.code for item in blockers] == [
@@ -242,7 +278,7 @@ def test_static_validation_failure_is_the_first_policy_blocker() -> None:
         "CONTEXT_IDENTITY_MISMATCH",
         "LIVE_EVIDENCE_REQUIRED",
         "WAREHOUSE_EVIDENCE_MISMATCH",
-        "WAREHOUSE_RELATION_CHANGED",
+        "WAREHOUSE_CONFIGURATION_CHANGED",
         "WAREHOUSE_EVIDENCE_STALE",
     ]
 
@@ -297,7 +333,7 @@ def test_pre_upgrade_default_warehouse_result_fails_current_policy() -> None:
 
     blockers = evaluate(
         warehouse=analysis.warehouse_validation,
-        expected_relation_fingerprint=None,
+        expected_binding_fingerprint=None,
     )
 
     assert [item.code for item in blockers] == ["WAREHOUSE_EVIDENCE_MISMATCH"]

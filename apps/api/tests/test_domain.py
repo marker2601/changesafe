@@ -73,6 +73,21 @@ def test_rename_requires_new_field() -> None:
         )
 
 
+def test_rename_rejects_case_insensitive_no_op_before_context_loading() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="new_field must differ from field case-insensitively",
+    ):
+        ChangeRequest(
+            asset_urn="urn:li:dataset:demo",
+            operation=ChangeOperation.RENAME,
+            field="Email",
+            new_field="email",
+            source_commit="safe-commit",
+            requested_by="reviewer",
+        )
+
+
 @pytest.mark.parametrize(
     ("operation", "unexpected"),
     [
@@ -344,3 +359,103 @@ def test_warehouse_counts_require_an_explicit_started_query() -> None:
             aggregate_query_started=False,
             rows_evaluated=0,
         )
+
+
+def complete_passed_warehouse_payload(
+    operation: ChangeOperation = ChangeOperation.RENAME,
+) -> dict[str, object]:
+    operation_code = {
+        ChangeOperation.RENAME: "rename_projection",
+        ChangeOperation.REMOVE: "remove_impact",
+        ChangeOperation.TYPE_CHANGE: "type_conversion",
+    }[operation]
+    return {
+        "status": "passed",
+        "mode": "aggregate",
+        "environment_label": "competition-non-production",
+        "operation": operation.value,
+        "field": "customer_email",
+        "aggregate_query_started": True,
+        "binding_fingerprint": "a" * 64,
+        "started_at": "2026-08-09T12:00:00Z",
+        "completed_at": "2026-08-09T12:00:01Z",
+        "rows_evaluated": 20,
+        "populated_row_count": 10,
+        "unsafe_row_count": 0 if operation is ChangeOperation.TYPE_CHANGE else None,
+        "query_ids": ["identity-query-id", "schema-query-id", "aggregate-query-id"],
+        "elapsed_ms": 1000,
+        "checks": [
+            {
+                "code": "warehouse_identity",
+                "label": "Warehouse identity",
+                "passed": True,
+                "detail": "Identity passed.",
+            },
+            {
+                "code": "warehouse_schema",
+                "label": "Warehouse schema",
+                "passed": True,
+                "detail": "Schema passed.",
+            },
+            {
+                "code": operation_code,
+                "label": "Operation evidence",
+                "passed": True,
+                "detail": "Operation evidence passed.",
+                "observed_count": (
+                    0 if operation is ChangeOperation.TYPE_CHANGE else None
+                ),
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"started_at": None},
+        {"started_at": "2026-08-09T12:00:00"},
+        {"completed_at": None},
+        {"completed_at": "2026-08-09T12:00:01"},
+        {"rows_evaluated": 0},
+        {"populated_row_count": 0},
+        {"query_ids": []},
+        {"query_ids": ["unsafe query id"]},
+        {
+            "checks": [
+                {
+                    "code": "warehouse_identity",
+                    "label": "Warehouse identity",
+                    "passed": True,
+                    "detail": "Identity passed.",
+                },
+                {
+                    "code": "warehouse_schema",
+                    "label": "Warehouse schema",
+                    "passed": True,
+                    "detail": "Schema passed.",
+                },
+            ]
+        },
+    ],
+)
+def test_passed_warehouse_evidence_requires_complete_semantics(
+    update: dict[str, object],
+) -> None:
+    payload = {**complete_passed_warehouse_payload(), **update}
+
+    with pytest.raises(ValidationError, match="complete warehouse evidence"):
+        WarehouseValidationResult.model_validate(payload)
+
+
+def test_passed_type_change_requires_zero_unsafe_conversions() -> None:
+    payload = complete_passed_warehouse_payload(ChangeOperation.TYPE_CHANGE)
+    payload["unsafe_row_count"] = 1
+    checks = payload["checks"]
+    assert isinstance(checks, list)
+    operation_check = checks[-1]
+    assert isinstance(operation_check, dict)
+    operation_check["observed_count"] = 1
+
+    with pytest.raises(ValidationError, match="complete warehouse evidence"):
+        WarehouseValidationResult.model_validate(payload)

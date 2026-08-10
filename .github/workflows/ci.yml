@@ -224,8 +224,8 @@ jobs:
           "https://api.github.com/repos/${CHANGESAFE_GITHUB_REPOSITORY}"
 
       - name: Explain skipped live checks
-        if: env.DATAHUB_GMS_TOKEN == '' && env.GITHUB_TOKEN == ''
-        run: echo "Live readiness checks skipped because no optional credentials were configured."
+        if: env.DATAHUB_GMS_URL == '' || env.DATAHUB_GMS_TOKEN == ''
+        run: echo "DataHub live readiness skipped because the required URL/token pair is incomplete."
 
       - name: Explain skipped warehouse smoke
         if: >-

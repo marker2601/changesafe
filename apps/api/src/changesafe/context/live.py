@@ -365,6 +365,7 @@ class LiveDataHubContext:
             max_results=30,
             offset=0,
         )
+        await self._require_lineage_root(change.asset_urn, calls)
         direction_name = "upstreams" if upstream else "downstreams"
         if not isinstance(lineage, dict):
             return lineage
@@ -428,6 +429,7 @@ class LiveDataHubContext:
                 max_results=total,
                 offset=next_offset,
             )
+            await self._require_lineage_root(change.asset_urn, calls)
             if not isinstance(next_lineage, dict):
                 raise ContextLoadError("DataHub returned an invalid lineage page")
             next_direction = next_lineage.get(direction_name)
@@ -467,6 +469,17 @@ class LiveDataHubContext:
         merged = dict(lineage)
         merged[direction_name] = merged_direction
         return merged
+
+    async def _require_lineage_root(
+        self, asset_urn: str, calls: list[ToolEvidence]
+    ) -> None:
+        root = await self._call("get_entities", calls, urns=[asset_urn])
+        try:
+            _require_requested_entity(root, asset_urn)
+        except ContextLoadError:
+            raise ContextLoadError(
+                "DataHub lineage page is missing its exact root identity"
+            ) from None
 
     async def load(self, change: ChangeRequest) -> ContextBundle:
         if change.asset_urn not in self.allowlist:
@@ -733,14 +746,20 @@ def _require_requested_entity(raw: Any, requested_urn: str) -> dict[str, Any]:
 
 def _require_schema_target(raw: Any, requested_urn: str) -> None:
     if not isinstance(raw, dict):
-        return
-    for key in ("urn", "entityUrn", "datasetUrn"):
-        if key in raw:
-            if raw[key] != requested_urn:
-                raise ContextLoadError(
-                    "DataHub schema does not belong to the requested target"
-                )
-            return
+        raise ContextLoadError("DataHub schema page is missing its root identity")
+    identities = [
+        raw[key]
+        for key in ("urn", "entityUrn", "datasetUrn")
+        if key in raw
+    ]
+    if len(identities) != 1:
+        raise ContextLoadError(
+            "DataHub schema page must return exactly one root identity"
+        )
+    if identities[0] != requested_urn:
+        raise ContextLoadError(
+            "DataHub schema does not belong to the requested target"
+        )
 
 
 def _extract_fields(raw: Any) -> list[dict[str, Any]]:
@@ -870,14 +889,6 @@ def _normalize_lineage_assets(raw: Any, direction_name: str) -> list[AffectedAss
             )
         )
     return normalized
-
-
-def _query_text(item: dict[str, Any]) -> str:
-    direct = _first_present(item, ("query", "sql", "text"))
-    if isinstance(direct, str):
-        return direct
-    statement = _nested(item, "properties", "statement", "value")
-    return statement if isinstance(statement, str) else ""
 
 
 def _structured_properties(raw: Any) -> dict[str, list[str | int | float]]:
@@ -1027,20 +1038,24 @@ def _normalize_context(
     query_items = (
         queries_raw.get("queries", []) if isinstance(queries_raw, dict) else []
     )
-    query_texts = [
-        _query_text(item)
-        for item in query_items
-        if isinstance(item, dict)
-    ]
-    query_texts = [text for text in query_texts if text]
+    reported_query_count = (
+        queries_raw.get("total") if isinstance(queries_raw, dict) else None
+    )
+    query_count = (
+        reported_query_count
+        if isinstance(reported_query_count, int)
+        and not isinstance(reported_query_count, bool)
+        and reported_query_count >= 0
+        else len(query_items)
+    )
     usage_tier = (
         str(queries_raw.get("usageTier", "none")).lower()
         if isinstance(queries_raw, dict)
         else "none"
     )
     if usage_tier not in {"none", "low", "medium", "high"}:
-        usage_tier = "high" if query_texts else "none"
-    elif usage_tier == "none" and query_texts:
+        usage_tier = "high" if query_count else "none"
+    elif usage_tier == "none" and query_count:
         usage_tier = "high"
 
     normalized_field_type = _field_type(field)
@@ -1056,12 +1071,16 @@ def _normalize_context(
         ],
         *[
             EvidenceRef(
-                urn=str(_first_present(item, ("urn", "queryUrn"), change.asset_urn)),
+                urn=query_urn,
                 kind="usage",
                 label="Query usage",
             )
             for item in query_items
             if isinstance(item, dict)
+            and isinstance(
+                query_urn := _first_present(item, ("urn", "queryUrn")), str
+            )
+            and query_urn.startswith("urn:li:query:")
         ],
         *[
             EvidenceRef(
@@ -1089,7 +1108,7 @@ def _normalize_context(
             entity.get("structuredProperties", {})
         ),
         usage_tier=usage_tier,
-        queries=query_texts,
+        query_count=query_count,
         evidence=evidence,
         tool_evidence=calls,
         provenance=ContextProvenance(

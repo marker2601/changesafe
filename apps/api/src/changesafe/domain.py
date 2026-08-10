@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -19,7 +20,7 @@ SQL_TYPE_PATTERN = (
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
 
 class ChangeOperation(StrEnum):
@@ -122,8 +123,10 @@ class ChangeRequest(StrictModel):
         if self.operation is ChangeOperation.RENAME:
             if not self.new_field:
                 raise ValueError("new_field is required for a rename")
-            if self.new_field == self.field:
-                raise ValueError("new_field must differ from field")
+            if self.new_field.casefold() == self.field.casefold():
+                raise ValueError(
+                    "new_field must differ from field case-insensitively"
+                )
             if self.old_type is not None or self.new_type is not None:
                 raise ValueError("type fields are only valid for a type change")
         elif self.operation is ChangeOperation.REMOVE:
@@ -221,7 +224,7 @@ class ContextBundle(StrictModel):
         default_factory=dict
     )
     usage_tier: Literal["none", "low", "medium", "high"] = "none"
-    queries: list[str] = Field(default_factory=list)
+    query_count: int = Field(default=0, ge=0)
     evidence: list[EvidenceRef] = Field(default_factory=list)
     tool_evidence: list[ToolEvidence] = Field(default_factory=list)
     provenance: ContextProvenance
@@ -312,7 +315,7 @@ class WarehouseValidationResult(StrictModel):
     operation: ChangeOperation
     field: str = Field(min_length=1, max_length=128)
     aggregate_query_started: bool | None = None
-    relation_fingerprint: str | None = Field(
+    binding_fingerprint: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$"
     )
     started_at: datetime | None = None
@@ -326,15 +329,13 @@ class WarehouseValidationResult(StrictModel):
 
     @model_validator(mode="after")
     def status_matches_evidence(self) -> WarehouseValidationResult:
-        if self.status is WarehouseValidationStatus.PASSED:
-            if self.mode is not WarehouseValidationMode.AGGREGATE:
-                raise ValueError("passed warehouse evidence must be aggregate")
-            if not self.checks or any(not check.passed for check in self.checks):
-                raise ValueError("passed warehouse evidence requires passed checks")
-            if self.aggregate_query_started is False:
-                raise ValueError(
-                    "passed warehouse evidence requires an aggregate query"
-                )
+        if (
+            self.status is WarehouseValidationStatus.PASSED
+            and not warehouse_passed_evidence_is_complete(self)
+        ):
+            raise ValueError(
+                "passed warehouse evidence requires complete warehouse evidence"
+            )
         if self.aggregate_query_started is False and any(
             count is not None
             for count in (
@@ -351,6 +352,72 @@ class WarehouseValidationResult(StrictModel):
         ):
             raise ValueError("not-run evidence cannot claim execution")
         return self
+
+
+WAREHOUSE_QUERY_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+WAREHOUSE_OPERATION_CHECK = {
+    ChangeOperation.RENAME: "rename_projection",
+    ChangeOperation.REMOVE: "remove_impact",
+    ChangeOperation.TYPE_CHANGE: "type_conversion",
+}
+
+
+def _aware(value: datetime | None) -> TypeGuard[datetime]:
+    return (
+        value is not None
+        and value.tzinfo is not None
+        and value.utcoffset() is not None
+    )
+
+
+def warehouse_passed_evidence_is_complete(
+    evidence: WarehouseValidationResult,
+) -> bool:
+    """Validate the one semantic contract that can authorize publication."""
+
+    if evidence.status is not WarehouseValidationStatus.PASSED:
+        return True
+    required_check = WAREHOUSE_OPERATION_CHECK[evidence.operation]
+    codes = [check.code for check in evidence.checks]
+    if (
+        evidence.mode is not WarehouseValidationMode.AGGREGATE
+        or evidence.aggregate_query_started is not True
+        or evidence.binding_fingerprint is None
+        or not _aware(evidence.started_at)
+        or not _aware(evidence.completed_at)
+        or evidence.started_at > evidence.completed_at
+        or evidence.rows_evaluated is None
+        or evidence.rows_evaluated <= 0
+        or evidence.populated_row_count is None
+        or evidence.populated_row_count <= 0
+        or evidence.populated_row_count > evidence.rows_evaluated
+        or not evidence.query_ids
+        or len(evidence.query_ids) != len(set(evidence.query_ids))
+        or any(
+            WAREHOUSE_QUERY_ID.fullmatch(value) is None
+            for value in evidence.query_ids
+        )
+        or len(codes) != len(set(codes))
+        or any(not check.passed for check in evidence.checks)
+        or not {
+            "warehouse_identity",
+            "warehouse_schema",
+            required_check,
+        }.issubset(codes)
+    ):
+        return False
+    operation_check = next(
+        check for check in evidence.checks if check.code == required_check
+    )
+    if evidence.operation is ChangeOperation.TYPE_CHANGE:
+        return (
+            evidence.unsafe_row_count == 0
+            and operation_check.observed_count == 0
+        )
+    return (
+        evidence.unsafe_row_count is None
+        and operation_check.observed_count is None
+    )
 
 
 class ApprovalBlocker(StrictModel):
@@ -441,7 +508,7 @@ class AnalysisResult(StrictModel):
         warehouse = self.warehouse_validation
         if (
             warehouse.status is WarehouseValidationStatus.PASSED
-            and warehouse.aggregate_query_started is not True
+            and not warehouse_passed_evidence_is_complete(warehouse)
         ):
             canonical = warehouse_evidence_incomplete_blocker()
             normalized = [
@@ -461,7 +528,7 @@ class PublicError(StrictModel):
     retryable: bool = False
 
 
-class RunView(StrictModel):
+class RunRecord(StrictModel):
     run_id: UUID
     state: RunState
     request: ChangeRequest
@@ -470,6 +537,83 @@ class RunView(StrictModel):
     error: PublicError | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class PublicWarehouseValidationResult(StrictModel):
+    status: WarehouseValidationStatus
+    mode: WarehouseValidationMode
+    environment_label: str
+    operation: ChangeOperation
+    field: str
+    aggregate_query_started: bool | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    rows_evaluated: int | None
+    populated_row_count: int | None
+    unsafe_row_count: int | None
+    query_ids: list[str]
+    elapsed_ms: int | None
+    checks: list[WarehouseCheck]
+
+    @classmethod
+    def from_internal(
+        cls, evidence: WarehouseValidationResult
+    ) -> PublicWarehouseValidationResult:
+        return cls.model_validate(
+            evidence.model_dump(exclude={"binding_fingerprint"})
+        )
+
+
+class PublicAnalysisResult(StrictModel):
+    context: ContextBundle
+    risk: RiskResult
+    artifacts: ArtifactBundle
+    validation: ValidationReport
+    publication_eligible: bool
+    impacts: list[ImpactAssessment]
+    warehouse_validation: PublicWarehouseValidationResult
+    approval_blockers: list[ApprovalBlocker]
+
+    @classmethod
+    def from_internal(cls, analysis: AnalysisResult) -> PublicAnalysisResult:
+        return cls.model_validate(
+            {
+                **analysis.model_dump(exclude={"warehouse_validation"}),
+                "warehouse_validation": (
+                    PublicWarehouseValidationResult.from_internal(
+                        analysis.warehouse_validation
+                    )
+                ),
+            }
+        )
+
+
+class RunView(StrictModel):
+    run_id: UUID
+    state: RunState
+    request: ChangeRequest
+    analysis: PublicAnalysisResult | None = None
+    publication: PublicationReceipt | None = None
+    error: PublicError | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_internal(cls, run: RunRecord) -> RunView:
+        return cls(
+            run_id=run.run_id,
+            state=run.state,
+            request=run.request,
+            analysis=(
+                PublicAnalysisResult.from_internal(run.analysis)
+                if run.analysis is not None
+                else None
+            ),
+            publication=run.publication,
+            error=run.error,
+            created_at=run.created_at,
+            updated_at=run.updated_at,
+        )
 
 
 class RunEvent(StrictModel):

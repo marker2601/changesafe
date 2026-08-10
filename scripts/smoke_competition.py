@@ -103,7 +103,15 @@ def _effective_settings(
                 "warehouse_validation_required": True,
             }
         )
-    return Settings(_env_file=None, **values)
+    try:
+        return Settings(_env_file=None, **values)
+    except Exception:
+        status = (
+            "warehouse_configuration_incomplete"
+            if options.require_warehouse
+            else "configuration_invalid"
+        )
+        raise SmokeFailure(status) from None
 
 
 def _select_requests(catalog: SchemaCatalog) -> list[dict[str, object]]:
@@ -348,13 +356,13 @@ def _load_settings(
         values["_env_file"] = env_file
     try:
         settings = Settings(**values)
-    except ValidationError as exc:
+    except Exception:
         status = (
             "warehouse_configuration_incomplete"
             if options.require_warehouse
             else "configuration_invalid"
         )
-        raise SmokeFailure(status) from exc
+        raise SmokeFailure(status) from None
     if options.require_warehouse and (
         settings.snowflake_private_key_path is None
         or not settings.snowflake_private_key_path.is_file()

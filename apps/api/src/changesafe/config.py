@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from enum import StrEnum
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -48,6 +49,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
+        hide_input_in_errors=True,
     )
 
     mode: Mode = Field(
@@ -271,6 +273,22 @@ class Settings(BaseSettings):
     def warehouse_target_map(self) -> dict[str, str]:
         return dict(self.snowflake_target_relation_allowlist)
 
+    def warehouse_binding_fingerprint(self, asset_urn: str) -> str | None:
+        relation = self.warehouse_target_map.get(asset_urn)
+        values = (
+            self.snowflake_account,
+            self.snowflake_user,
+            self.snowflake_role,
+            self.snowflake_warehouse,
+            self.snowflake_database,
+            self.snowflake_schema,
+            relation,
+        )
+        if not all(isinstance(value, str) and value for value in values):
+            return None
+        canonical = "\x1f".join(str(value).upper() for value in values)
+        return sha256(canonical.encode("utf-8")).hexdigest()
+
     def public_config(self) -> dict[str, Any]:
         return {
             "mode": self.mode.value,
@@ -285,3 +303,14 @@ class Settings(BaseSettings):
             "warehouse_validation_required": self.warehouse_validation_required,
             "warehouse_environment_label": self.warehouse_environment_label,
         }
+
+
+def load_settings_safely() -> Settings:
+    """Load startup configuration without retaining sensitive validation input."""
+
+    try:
+        return Settings()
+    except Exception:
+        raise RuntimeError(
+            "ChangeSafe startup configuration is invalid."
+        ) from None

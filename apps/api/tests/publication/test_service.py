@@ -21,7 +21,6 @@ from changesafe.publication.service import (
     PublicationStateError,
 )
 from changesafe.store import RunStore
-from changesafe.warehouse.queries import fingerprint_relation
 
 from .helpers import analyzed_run
 from .test_idempotency import (
@@ -32,6 +31,17 @@ from .test_idempotency import (
 )
 
 RELATION = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
+WAREHOUSE_BINDING = Settings(
+    _env_file=None,
+    snowflake_account="account-test",
+    snowflake_user="user-test",
+    snowflake_warehouse="warehouse-test",
+    snowflake_database="safe_db",
+    snowflake_schema="safe_schema",
+    snowflake_role="readonly-test",
+    snowflake_target_relation_allowlist={DEMO_TARGET_URN: RELATION},
+).warehouse_binding_fingerprint(DEMO_TARGET_URN)
+assert WAREHOUSE_BINDING is not None
 
 
 def change_for_operation(operation: ChangeOperation) -> ChangeRequest:
@@ -49,8 +59,12 @@ def warehouse_result(
     run,
     *,
     completed_at: datetime,
-    relation: str = RELATION,
 ) -> WarehouseValidationResult:
+    operation_code = {
+        ChangeOperation.RENAME: "rename_projection",
+        ChangeOperation.REMOVE: "remove_impact",
+        ChangeOperation.TYPE_CHANGE: "type_conversion",
+    }[run.request.operation]
     return WarehouseValidationResult(
         status=WarehouseValidationStatus.PASSED,
         mode=WarehouseValidationMode.AGGREGATE,
@@ -58,19 +72,30 @@ def warehouse_result(
         operation=run.request.operation,
         field=run.request.field,
         aggregate_query_started=True,
-        relation_fingerprint=fingerprint_relation(relation),
+        binding_fingerprint=WAREHOUSE_BINDING,
         started_at=completed_at - timedelta(seconds=1),
         completed_at=completed_at,
         rows_evaluated=20,
         populated_row_count=20,
+        unsafe_row_count=(
+            0 if run.request.operation is ChangeOperation.TYPE_CHANGE else None
+        ),
         query_ids=["safe-query-id"],
         elapsed_ms=1_000,
         checks=[
             WarehouseCheck(
-                code="aggregate_validation",
+                code=code,
                 label="Aggregate validation",
                 passed=True,
+                observed_count=(
+                    0 if code == "type_conversion" else None
+                ),
                 detail="Aggregate checks passed.",
+            )
+            for code in (
+                "warehouse_identity",
+                "warehouse_schema",
+                operation_code,
             )
         ],
     )
@@ -276,11 +301,13 @@ async def test_completed_receipt_reuse_rechecks_warehouse_freshness(
 ) -> None:
     store, context, run = await analyzed_run(tmp_path)
     assert run.analysis is not None
-    settings = Settings(
-        _env_file=None,
-        mode=Mode.REPLAY,
-        changesafe_data_path=store.database,
-        snowflake_target_relation_allowlist={DEMO_TARGET_URN: RELATION},
+    settings = live_warehouse_settings(tmp_path).model_copy(
+        update={
+            "mode": Mode.REPLAY,
+            "changesafe_data_path": store.database,
+            "public_pr_enabled": False,
+            "public_writeback_enabled": False,
+        }
     )
     fresh = warehouse_result(run, completed_at=datetime.now(UTC))
     await persist_analysis(
@@ -329,16 +356,71 @@ async def test_completed_receipt_reuse_rechecks_warehouse_freshness(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("setting_name", "changed_value"),
+    [
+        ("snowflake_account", "different-account"),
+        ("snowflake_user", "different-user"),
+    ],
+)
+async def test_restart_configuration_drift_blocks_completed_receipt_reuse(
+    tmp_path: Path,
+    setting_name: str,
+    changed_value: str,
+) -> None:
+    store, context, run = await analyzed_run(tmp_path)
+    assert run.analysis is not None
+    settings = live_warehouse_settings(tmp_path).model_copy(
+        update={
+            "mode": Mode.REPLAY,
+            "public_pr_enabled": False,
+            "public_writeback_enabled": False,
+        }
+    )
+    passed = warehouse_result(run, completed_at=datetime.now(UTC))
+    await persist_analysis(
+        store,
+        run.run_id,
+        run.analysis.model_copy(
+            update={
+                "warehouse_validation": passed,
+                "approval_blockers": [],
+                "publication_eligible": True,
+            }
+        ),
+    )
+    first = await PublicationService(
+        store=store,
+        settings=settings,
+        context_port=context,
+    ).approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    restarted = PublicationService(
+        store=RunStore(store.database),
+        settings=settings.model_copy(update={setting_name: changed_value}),
+        context_port=context,
+    )
+    with pytest.raises(PublicationStateError, match="current safety policy"):
+        await restarted.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+
+    persisted = await RunStore(store.database).get(run.run_id)
+    assert persisted is not None
+    assert persisted.publication == first
+
+
+@pytest.mark.asyncio
 async def test_completed_receipt_reuse_rejects_unknown_query_boundary(
     tmp_path: Path,
 ) -> None:
     store, context, run = await analyzed_run(tmp_path)
     assert run.analysis is not None
-    settings = Settings(
-        _env_file=None,
-        mode=Mode.REPLAY,
-        changesafe_data_path=store.database,
-        snowflake_target_relation_allowlist={DEMO_TARGET_URN: RELATION},
+    settings = live_warehouse_settings(tmp_path).model_copy(
+        update={
+            "mode": Mode.REPLAY,
+            "changesafe_data_path": store.database,
+            "public_pr_enabled": False,
+            "public_writeback_enabled": False,
+        }
     )
     passed = warehouse_result(run, completed_at=datetime.now(UTC))
     await persist_analysis(
@@ -406,7 +488,7 @@ def warehouse_boundary_result(run, boundary: str) -> WarehouseValidationResult:
             environment_label="competition-non-production",
             operation=run.request.operation,
             field=run.request.field,
-            relation_fingerprint=fingerprint_relation(RELATION),
+            binding_fingerprint=WAREHOUSE_BINDING,
             started_at=now - timedelta(seconds=1),
             completed_at=now,
             checks=[
@@ -423,7 +505,7 @@ def warehouse_boundary_result(run, boundary: str) -> WarehouseValidationResult:
     passed = warehouse_result(run, completed_at=now)
     if boundary == "wrong_relation":
         return passed.model_copy(
-            update={"relation_fingerprint": fingerprint_relation("OTHER.DB.TABLE")}
+            update={"binding_fingerprint": "b" * 64}
         )
     if boundary == "wrong_field":
         return passed.model_copy(update={"field": "another_field"})
@@ -458,7 +540,7 @@ def inconclusive_warehouse_result(run, boundary: str) -> WarehouseValidationResu
         environment_label="competition-non-production",
         operation=run.request.operation,
         field=run.request.field,
-        relation_fingerprint=fingerprint_relation(RELATION),
+        binding_fingerprint=WAREHOUSE_BINDING,
         started_at=now - timedelta(seconds=1),
         completed_at=now,
         rows_evaluated=rows_evaluated,

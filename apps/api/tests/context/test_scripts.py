@@ -102,7 +102,7 @@ def golden_fixture_context() -> ContextBundle:
     payload = json.loads(
         Path("fixtures/datahub/golden-context.json").read_text(encoding="utf-8")
     )
-    if payload.get("snapshot_version") == 2:
+    if payload.get("snapshot_version") == 3:
         recorded = payload["fields"]["cust_email"]
         payload = {
             key: payload[key]
@@ -170,6 +170,31 @@ def test_catalog_capture_script_supports_direct_execution() -> None:
     assert "--target-urn" in result.stdout
 
 
+def test_seed_cli_settings_failure_is_fixed_and_sensitive_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import seed_datahub
+
+    import changesafe.config as config_module
+
+    sentinel = "SENSITIVE_SEED_SETTINGS_SENTINEL"
+
+    def invalid_settings() -> None:
+        raise ValueError(sentinel)
+
+    monkeypatch.setattr(config_module, "Settings", invalid_settings)
+    monkeypatch.setattr(sys, "argv", ["seed_datahub.py", "--verify-only"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        seed_datahub.main()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "ChangeSafe startup configuration is invalid." in captured.err
+    assert sentinel not in captured.out + captured.err
+
+
 @pytest.mark.asyncio
 async def test_catalog_capture_reads_every_field_sequentially(
     capsys: pytest.CaptureFixture[str],
@@ -179,7 +204,7 @@ async def test_catalog_capture_reads_every_field_sequentially(
     catalog = await build_recorded_catalog(port, DEMO_TARGET_URN)
 
     assert port.loaded_fields == ["cust_email", "order_total"]
-    assert catalog.snapshot_version == 2
+    assert catalog.snapshot_version == 3
     assert list(catalog.fields) == ["cust_email", "order_total"]
     assert catalog.fields["order_total"].field_type == "FLOAT"
     assert catalog.provenance.mode is ContextMode.SNAPSHOT

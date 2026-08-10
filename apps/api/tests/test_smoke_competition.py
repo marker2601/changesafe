@@ -5,7 +5,6 @@ import subprocess
 import sys
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from hashlib import sha256
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -116,8 +115,8 @@ class LiveRecordedDataHub:
 
 
 class PassingWarehousePort:
-    def __init__(self, relation: str) -> None:
-        self.relation = relation
+    def __init__(self, binding_fingerprint: str) -> None:
+        self.binding_fingerprint = binding_fingerprint
         self.calls: list[ChangeRequest] = []
         self.closed = False
 
@@ -131,18 +130,31 @@ class PassingWarehousePort:
             operation=change.operation,
             field=change.field,
             aggregate_query_started=True,
-            relation_fingerprint=sha256(self.relation.encode()).hexdigest(),
+            binding_fingerprint=self.binding_fingerprint,
             started_at=completed_at,
             completed_at=completed_at,
             rows_evaluated=12,
             populated_row_count=10,
             unsafe_row_count=(0 if change.operation.value == "type_change" else None),
+            query_ids=["safe-query-id"],
             checks=[
                 WarehouseCheck(
-                    code="aggregate_validation",
+                    code=code,
                     label="Aggregate validation",
                     passed=True,
+                    observed_count=(
+                        0 if code == "type_conversion" else None
+                    ),
                     detail="Aggregate checks passed.",
+                )
+                for code in (
+                    "warehouse_identity",
+                    "warehouse_schema",
+                    {
+                        "rename": "rename_projection",
+                        "remove": "remove_impact",
+                        "type_change": "type_conversion",
+                    }[change.operation.value],
                 )
             ],
         )
@@ -249,12 +261,14 @@ async def test_default_smoke_forces_external_mutations_off_and_approves_preview(
 ) -> None:
     smoke = load_smoke_module()
     context = LiveRecordedDataHub()
-    relation = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
-    warehouse = PassingWarehousePort(relation)
+    settings = live_settings(tmp_path, warehouse=True)
+    binding = settings.warehouse_binding_fingerprint(DEMO_TARGET_URN)
+    assert binding is not None
+    warehouse = PassingWarehousePort(binding)
     http_port = CapturingHttpPort()
 
     summary = await smoke.run_competition_smoke(
-        live_settings(tmp_path, warehouse=True),
+        settings,
         smoke.SmokeOptions(),
         context_port=context,
         warehouse_port=warehouse,
@@ -456,6 +470,17 @@ def test_ci_credential_completeness_and_safe_skip_cover_every_input() -> None:
         assert name in skipped["if"]
 
 
+def test_ci_datahub_skip_depends_only_on_incomplete_url_token_pair() -> None:
+    readiness = load_ci_workflow()["jobs"]["optional-live-readiness"]
+    skipped = workflow_step(readiness, "Explain skipped live checks")
+    condition = skipped["if"]
+
+    assert "DATAHUB_GMS_URL == ''" in condition
+    assert "DATAHUB_GMS_TOKEN == ''" in condition
+    assert "||" in condition
+    assert "GITHUB_TOKEN" not in condition
+
+
 def test_readme_distinguishes_ci_key_content_from_operator_path_semantics() -> None:
     readme = " ".join(README.read_text(encoding="utf-8").split())
 
@@ -477,10 +502,13 @@ async def test_json_summary_is_restricted_to_safe_counts_and_identifiers(
     smoke = load_smoke_module()
     context = LiveRecordedDataHub()
     relation = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
-    warehouse = PassingWarehousePort(relation)
+    settings = live_settings(tmp_path, warehouse=True)
+    binding = settings.warehouse_binding_fingerprint(DEMO_TARGET_URN)
+    assert binding is not None
+    warehouse = PassingWarehousePort(binding)
 
     summary = await smoke.run_competition_smoke(
-        live_settings(tmp_path, warehouse=True),
+        settings,
         smoke.SmokeOptions(require_live_datahub=True, require_warehouse=True),
         context_port=context,
         warehouse_port=warehouse,

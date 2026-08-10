@@ -43,13 +43,13 @@ class RecordedFieldContext(StrictModel):
     field_tags: list[str]
     glossary_terms: list[str]
     usage_tier: Literal["none", "low", "medium", "high"]
-    queries: list[str]
+    query_count: int = Field(ge=0)
     evidence: list[EvidenceRef]
     tool_evidence: list[ToolEvidence]
 
 
 class RecordedDataHubCatalog(StrictModel):
-    snapshot_version: Literal[2]
+    snapshot_version: Literal[3]
     target_urn: str
     target_name: str
     target_domain: str | None
@@ -144,7 +144,7 @@ class ReplayDataHubContext:
             glossary_terms=recorded.glossary_terms,
             structured_properties=catalog.structured_properties,
             usage_tier=recorded.usage_tier,
-            queries=recorded.queries,
+            query_count=recorded.query_count,
             evidence=recorded.evidence,
             tool_evidence=recorded.tool_evidence,
             provenance=provenance,

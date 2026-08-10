@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -43,6 +44,7 @@ def golden_change() -> ChangeRequest:
 
 
 def passed_warehouse_result() -> WarehouseValidationResult:
+    now = datetime.now(UTC)
     return WarehouseValidationResult(
         status=WarehouseValidationStatus.PASSED,
         mode=WarehouseValidationMode.AGGREGATE,
@@ -50,18 +52,24 @@ def passed_warehouse_result() -> WarehouseValidationResult:
         operation=ChangeOperation.RENAME,
         field="customer_email",
         aggregate_query_started=True,
-        relation_fingerprint="a" * 64,
+        binding_fingerprint="a" * 64,
+        started_at=now - timedelta(seconds=1),
+        completed_at=now,
         rows_evaluated=20,
         populated_row_count=20,
-        unsafe_row_count=0,
         query_ids=["safe-query-id"],
         elapsed_ms=1000,
         checks=[
             WarehouseCheck(
-                code="no_unsafe_rows",
+                code=code,
                 label="No unsafe rows",
                 passed=True,
                 detail="No rows would lose a populated value.",
+            )
+            for code in (
+                "warehouse_identity",
+                "warehouse_schema",
+                "rename_projection",
             )
         ],
     )
@@ -326,6 +334,43 @@ async def test_store_restores_pre_upgrade_analysis_with_warehouse_defaults(
         WarehouseValidationStatus.NOT_RUN
     )
     assert restored.analysis.approval_blockers == []
+
+
+@pytest.mark.asyncio
+async def test_initialize_scrubs_legacy_query_text_from_models_and_sqlite_bytes(
+    tmp_path: Path,
+) -> None:
+    import aiosqlite
+
+    sentinel = "SENSITIVE_QUERY_TEXT_SENTINEL"
+    database = tmp_path / "runs.db"
+    store = RunStore(database)
+    run = await store.create(golden_change())
+    analysis = analysis_result()
+    await advance_to_awaiting_approval(store, run.run_id, analysis)
+    legacy_analysis = analysis.model_dump(mode="json")
+    legacy_analysis["context"]["queries"] = [sentinel]
+
+    async with aiosqlite.connect(database) as connection:
+        await connection.execute(
+            "UPDATE runs SET analysis_json = ? WHERE run_id = ?",
+            (json.dumps(legacy_analysis), str(run.run_id)),
+        )
+        await connection.commit()
+    assert sentinel.encode() in database.read_bytes()
+
+    reopened = RunStore(database)
+    await reopened.initialize()
+    restored = await reopened.get(run.run_id)
+
+    assert restored is not None
+    assert restored.analysis is None
+    sqlite_bytes = b"".join(
+        path.read_bytes()
+        for path in database.parent.glob(f"{database.name}*")
+        if path.is_file()
+    )
+    assert sentinel.encode() not in sqlite_bytes
 
 
 @pytest.mark.asyncio

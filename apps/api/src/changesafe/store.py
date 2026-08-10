@@ -24,8 +24,10 @@ from changesafe.domain import (
     PublicError,
     ReviewActivity,
     RunEvent,
+    RunRecord,
     RunState,
-    RunView,
+    WarehouseValidationResult,
+    WarehouseValidationStatus,
 )
 
 
@@ -85,6 +87,84 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _mark_warehouse_evidence_incomplete(analysis: dict[str, object]) -> None:
+    warehouse = analysis.get("warehouse_validation")
+    if not isinstance(warehouse, dict):
+        return
+    warehouse.pop("relation_fingerprint", None)
+    if warehouse.get("status") != WarehouseValidationStatus.PASSED.value:
+        return
+    try:
+        WarehouseValidationResult.model_validate(warehouse)
+        return
+    except ValueError:
+        pass
+    warehouse["status"] = WarehouseValidationStatus.BLOCKED.value
+    checks = warehouse.get("checks")
+    if not isinstance(checks, list):
+        checks = []
+    checks = [
+        item
+        for item in checks
+        if not (
+            isinstance(item, dict)
+            and item.get("code") == "warehouse_evidence_incomplete"
+        )
+    ]
+    checks.append(
+        {
+            "code": "warehouse_evidence_incomplete",
+            "label": "Warehouse evidence completeness",
+            "passed": False,
+            "retryable": False,
+            "detail": "Warehouse validation evidence is incomplete.",
+            "observed_count": None,
+        }
+    )
+    warehouse["checks"] = checks
+    analysis["publication_eligible"] = False
+    blockers = analysis.get("approval_blockers")
+    if not isinstance(blockers, list):
+        blockers = []
+    blockers = [
+        item
+        for item in blockers
+        if not (
+            isinstance(item, dict)
+            and item.get("code") == "WAREHOUSE_EVIDENCE_INCOMPLETE"
+        )
+    ]
+    blockers.append(
+        {
+            "code": "WAREHOUSE_EVIDENCE_INCOMPLETE",
+            "message": "Warehouse validation evidence is incomplete.",
+            "retryable": False,
+        }
+    )
+    analysis["approval_blockers"] = blockers
+
+
+def _scrub_analysis_json(value: object) -> tuple[dict[str, object] | None, bool]:
+    if not isinstance(value, dict):
+        return None, True
+    analysis = dict(value)
+    changed = False
+    context = analysis.get("context")
+    if isinstance(context, dict) and "queries" in context:
+        legacy_queries = context.pop("queries")
+        changed = True
+        if isinstance(legacy_queries, list) and legacy_queries:
+            return None, True
+        context.setdefault("query_count", 0)
+    warehouse = analysis.get("warehouse_validation")
+    if isinstance(warehouse, dict):
+        before = json.dumps(warehouse, sort_keys=True, default=str)
+        _mark_warehouse_evidence_incomplete(analysis)
+        after = json.dumps(warehouse, sort_keys=True, default=str)
+        changed = changed or before != after
+    return analysis, changed
+
+
 class RunStore:
     def __init__(self, database: Path | str) -> None:
         self.database = Path(database)
@@ -102,6 +182,7 @@ class RunStore:
                 await connection.executescript(
                     """
                     PRAGMA journal_mode = WAL;
+                    PRAGMA secure_delete = ON;
                     PRAGMA foreign_keys = ON;
                     CREATE TABLE IF NOT EXISTS runs (
                         run_id TEXT PRIMARY KEY,
@@ -150,11 +231,50 @@ class RunStore:
                 columns = {
                     str(row[1]) for row in await columns_cursor.fetchall()
                 }
+                await columns_cursor.close()
                 if "session_id" not in columns:
                     await connection.execute(
                         "ALTER TABLE runs ADD COLUMN session_id TEXT"
                     )
+                scrubbed = False
+                legacy_cursor = await connection.execute(
+                    "SELECT run_id, analysis_json FROM runs "
+                    "WHERE analysis_json IS NOT NULL"
+                )
+                legacy_rows = await legacy_cursor.fetchall()
+                await legacy_cursor.close()
+                for run_id, raw_analysis in legacy_rows:
+                    try:
+                        decoded = json.loads(str(raw_analysis))
+                    except (TypeError, ValueError):
+                        decoded = None
+                    safe_analysis, changed = _scrub_analysis_json(decoded)
+                    if not changed:
+                        continue
+                    scrubbed = True
+                    await connection.execute(
+                        "UPDATE runs SET analysis_json = ? WHERE run_id = ?",
+                        (
+                            json.dumps(safe_analysis, separators=(",", ":"))
+                            if safe_analysis is not None
+                            else None,
+                            str(run_id),
+                        ),
+                    )
                 await connection.commit()
+                if scrubbed:
+                    checkpoint_cursor = await connection.execute(
+                        "PRAGMA wal_checkpoint(TRUNCATE)"
+                    )
+                    await checkpoint_cursor.close()
+            if scrubbed:
+                async with aiosqlite.connect(self.database) as vacuum_connection:
+                    secure_cursor = await vacuum_connection.execute(
+                        "PRAGMA secure_delete = ON"
+                    )
+                    await secure_cursor.close()
+                    vacuum_cursor = await vacuum_connection.execute("VACUUM")
+                    await vacuum_cursor.close()
             self._initialized = True
 
     async def create(
@@ -164,11 +284,11 @@ class RunStore:
         session_id: str | None = None,
         llm_reservation_usd: Decimal = Decimal(0),
         llm_budget_usd: Decimal | None = None,
-    ) -> RunView:
+    ) -> RunRecord:
         await self.initialize()
         run_id = uuid7()
         now = _utc_now()
-        run = RunView(
+        run = RunRecord(
             run_id=run_id,
             state=RunState.CREATED,
             request=change,
@@ -349,7 +469,7 @@ class RunStore:
         micros = int(row[0]) if row else 0
         return Decimal(micros) / MICRO_USD
 
-    async def get(self, run_id: UUID | str) -> RunView | None:
+    async def get(self, run_id: UUID | str) -> RunRecord | None:
         await self.initialize()
         async with aiosqlite.connect(self.database) as connection:
             connection.row_factory = aiosqlite.Row
@@ -370,7 +490,7 @@ class RunStore:
         publication: PublicationReceipt | None = None,
         error: PublicError | None = None,
         clear_error: bool = False,
-    ) -> RunView:
+    ) -> RunRecord:
         await self.initialize()
         now = _utc_now()
         async with aiosqlite.connect(self.database) as connection:
@@ -529,17 +649,19 @@ class RunStore:
         return updated
 
     @staticmethod
-    def _run_from_row(row: aiosqlite.Row) -> RunView:
+    def _run_from_row(row: aiosqlite.Row) -> RunRecord:
         def decoded(name: str) -> object | None:
             value = row[name]
             return json.loads(str(value)) if value is not None else None
 
-        return RunView.model_validate(
+        raw_analysis = decoded("analysis_json")
+        safe_analysis, _ = _scrub_analysis_json(raw_analysis)
+        return RunRecord.model_validate(
             {
                 "run_id": row["run_id"],
                 "state": row["state"],
                 "request": decoded("request_json"),
-                "analysis": decoded("analysis_json"),
+                "analysis": safe_analysis,
                 "publication": decoded("publication_json"),
                 "error": decoded("error_json"),
                 "created_at": row["created_at"],

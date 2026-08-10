@@ -37,7 +37,8 @@ from changesafe.warehouse.queries import (
 logger = logging.getLogger(__name__)
 
 IDENTITY_SQL = (
-    "SELECT CURRENT_ROLE(), CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()"
+    "SELECT CURRENT_ACCOUNT(), CURRENT_USER(), CURRENT_ROLE(), "
+    "CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()"
 )
 QUERY_TAG = "changesafe:warehouse-validation"
 QUERY_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -377,6 +378,9 @@ class SnowflakeWarehouseValidator:
         started_at = datetime.now(UTC)
         started_clock = perf_counter()
         plan: WarehouseValidationPlan | None = None
+        binding_fingerprint = self._settings.warehouse_binding_fingerprint(
+            change.asset_urn
+        )
         aggregate_query_started = False
         try:
             relation = self._settings.warehouse_target_map.get(change.asset_urn)
@@ -435,7 +439,7 @@ class SnowflakeWarehouseValidator:
                 operation=change.operation,
                 field=change.field,
                 aggregate_query_started=True,
-                relation_fingerprint=plan.relation_fingerprint,
+                binding_fingerprint=binding_fingerprint,
                 started_at=started_at,
                 completed_at=datetime.now(UTC),
                 rows_evaluated=evidence.rows_evaluated,
@@ -456,9 +460,7 @@ class SnowflakeWarehouseValidator:
                 aggregate_query_started=(
                     failure.aggregate_query_started or aggregate_query_started
                 ),
-                relation_fingerprint=(
-                    plan.relation_fingerprint if plan is not None else None
-                ),
+                binding_fingerprint=binding_fingerprint,
                 started_at=started_at,
                 completed_at=datetime.now(UTC),
                 query_ids=list(failure.query_ids),
@@ -595,6 +597,8 @@ class SnowflakeWarehouseValidator:
 
     def _verify_identity(self, rows: Sequence[Sequence[object]]) -> None:
         expected = (
+            self._settings.snowflake_account,
+            self._settings.snowflake_user,
             self._settings.snowflake_role,
             self._settings.snowflake_warehouse,
             self._settings.snowflake_database,
@@ -602,7 +606,7 @@ class SnowflakeWarehouseValidator:
         )
         if (
             len(rows) != 1
-            or len(rows[0]) != 4
+            or len(rows[0]) != 6
             or any(value is None for value in rows[0])
         ):
             raise _failure("warehouse_identity", retryable=False)

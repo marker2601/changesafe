@@ -7,6 +7,7 @@ from pydantic import SecretStr, ValidationError
 from changesafe.config import Mode, Settings, resolve_env_file
 from changesafe.context.factory import build_context_port
 from changesafe.context.replay import ReplayDataHubContext
+from changesafe.demo import DEMO_TARGET_URN
 
 
 def test_replay_defaults_need_no_credentials(tmp_path: Path) -> None:
@@ -415,3 +416,32 @@ def test_warehouse_settings_reject_unapproved_or_unsafe_target_relations(
             snowflake_role="role",
             snowflake_target_relation_allowlist={target_urn: relation},
         )
+
+
+def test_settings_validation_hides_all_sensitive_warehouse_inputs() -> None:
+    sentinels = {
+        "snowflake_account": "SENSITIVE_ACCOUNT_SENTINEL",
+        "snowflake_user": "SENSITIVE_USER_SENTINEL",
+        "snowflake_role": "SENSITIVE_ROLE_SENTINEL",
+        "snowflake_private_key_path": "C:/SENSITIVE_KEY_PATH_SENTINEL/key.p8",
+        "mapped_relation": "SENSITIVE_RELATION_SENTINEL",
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            _env_file=None,
+            warehouse_validation_enabled=True,
+            snowflake_account=[sentinels["snowflake_account"]],
+            snowflake_user=[sentinels["snowflake_user"]],
+            snowflake_authenticator="SNOWFLAKE_JWT",
+            snowflake_private_key_path=[sentinels["snowflake_private_key_path"]],
+            snowflake_warehouse="COMPUTE_WH",
+            snowflake_database="SAFE_DB",
+            snowflake_schema="SAFE_SCHEMA",
+            snowflake_role=[sentinels["snowflake_role"]],
+            snowflake_target_relation_allowlist={
+                DEMO_TARGET_URN: [sentinels["mapped_relation"]]
+            },
+        )
+
+    rendered = str(exc_info.value)
+    assert all(value not in rendered for value in sentinels.values())

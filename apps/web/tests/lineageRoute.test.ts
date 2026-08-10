@@ -17,7 +17,7 @@ const context: ContextBundle = {
   glossary_terms: [],
   structured_properties: {},
   usage_tier: "none",
-  queries: [],
+  query_count: 0,
   evidence: [],
   tool_evidence: [],
   provenance: {

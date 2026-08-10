@@ -180,7 +180,7 @@ async def verify_seed(gms_url: str, token: str) -> None:
     platforms = {asset.urn.lower() for asset in context.downstream_assets}
     if not any("powerbi" in urn or "looker" in urn for urn in platforms):
         raise RuntimeError("Expected a BI dependency from the official datapack")
-    if not context.upstream_assets or not context.queries:
+    if not context.upstream_assets or context.query_count == 0:
         raise RuntimeError("Lineage or sanitized query evidence is unavailable")
     if PII_TAG not in context.field_tags:
         raise RuntimeError("Official PII governance metadata is unavailable")
@@ -231,9 +231,12 @@ def main() -> None:
             parser.error(f"Environment file does not exist: {args.env_file}")
         os.environ["CHANGESAFE_ENV_FILE"] = str(args.env_file.resolve())
 
-    from changesafe.config import Settings
+    from changesafe.config import load_settings_safely
 
-    settings = Settings()
+    try:
+        settings = load_settings_safely()
+    except RuntimeError:
+        parser.error("ChangeSafe startup configuration is invalid.")
     gms_url = args.gms_url or (
         str(settings.datahub_gms_url) if settings.datahub_gms_url else None
     )

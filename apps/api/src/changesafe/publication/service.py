@@ -21,8 +21,8 @@ from changesafe.domain import (
     PublicationLedgerEntry,
     PublicationReceipt,
     PublicError,
+    RunRecord,
     RunState,
-    RunView,
 )
 from changesafe.impact import classify_impacts
 from changesafe.policy import evaluate_approval_policy
@@ -32,7 +32,6 @@ from changesafe.publication.preview import build_unified_patch
 from changesafe.risk import score_change
 from changesafe.store import RunStore
 from changesafe.verification import verify_artifacts
-from changesafe.warehouse.queries import fingerprint_relation
 
 
 class ApprovalDenied(PermissionError):
@@ -80,7 +79,7 @@ class PublicationService:
             base_branch=self.settings.github_base_branch,
         )
 
-    def _require_current_policy(self, run: RunView) -> None:
+    def _require_current_policy(self, run: RunRecord) -> None:
         assert run.analysis is not None
         try:
             current_risk = score_change(run.request, run.analysis.context)
@@ -92,9 +91,10 @@ class PublicationService:
                 run.request,
                 run.analysis.context,
             )
-            relation = self.settings.warehouse_target_map.get(run.request.asset_urn)
-            expected_relation_fingerprint = (
-                fingerprint_relation(relation) if relation is not None else None
+            expected_binding_fingerprint = (
+                self.settings.warehouse_binding_fingerprint(
+                    run.request.asset_urn
+                )
             )
             current_blockers = evaluate_approval_policy(
                 change=run.request,
@@ -106,7 +106,7 @@ class PublicationService:
                 warehouse_max_age_seconds=(
                     self.settings.warehouse_evidence_max_age_seconds
                 ),
-                expected_relation_fingerprint=expected_relation_fingerprint,
+                expected_binding_fingerprint=expected_binding_fingerprint,
                 now=_now(),
             )
         except Exception as exc:
@@ -133,7 +133,7 @@ class PublicationService:
             or self.settings.datahub_writeback_enabled
         )
 
-    def _configured_intent(self, run: RunView) -> dict[str, object]:
+    def _configured_intent(self, run: RunRecord) -> dict[str, object]:
         live = bool(
             run.analysis is not None
             and run.analysis.context.provenance.mode.value == "live"
@@ -162,7 +162,7 @@ class PublicationService:
         }
 
     def _bind_intent(
-        self, run: RunView, entry: PublicationLedgerEntry
+        self, run: RunRecord, entry: PublicationLedgerEntry
     ) -> PublicationLedgerEntry:
         if entry.publication_mode is not None:
             return entry
@@ -188,7 +188,7 @@ class PublicationService:
         return entry.model_copy(update=self._configured_intent(run))
 
     def _destination_mismatch(
-        self, run: RunView, entry: PublicationLedgerEntry
+        self, run: RunRecord, entry: PublicationLedgerEntry
     ) -> bool:
         if entry.github_required and entry.pull_request_url is None and (
             entry.github_repository != self.settings.changesafe_github_repository
@@ -213,7 +213,7 @@ class PublicationService:
         )
 
     def _intent_matches_current_configuration(
-        self, run: RunView, entry: PublicationLedgerEntry
+        self, run: RunRecord, entry: PublicationLedgerEntry
     ) -> bool:
         configured = self._configured_intent(run)
         return all(
@@ -224,7 +224,7 @@ class PublicationService:
     def _authorize(
         self,
         supplied_admin_token: str | None,
-        run: RunView,
+        run: RunRecord,
         *,
         live_required: bool,
     ) -> None:
@@ -339,7 +339,7 @@ class PublicationService:
 
     async def _reuse_completed_receipt(
         self,
-        run: RunView,
+        run: RunRecord,
         receipt: PublicationReceipt,
     ) -> PublicationReceipt:
         if run.state is RunState.COMPLETED and run.publication is not None:
@@ -372,7 +372,7 @@ class PublicationService:
         return reused
 
     async def _approve_preview(
-        self, run: RunView, entry: PublicationLedgerEntry, patch: str
+        self, run: RunRecord, entry: PublicationLedgerEntry, patch: str
     ) -> PublicationReceipt:
         if run.state is RunState.COMPLETED and run.publication is not None:
             return run.publication
@@ -414,7 +414,7 @@ class PublicationService:
         return receipt
 
     async def _approve_live(
-        self, run: RunView, entry: PublicationLedgerEntry, patch: str
+        self, run: RunRecord, entry: PublicationLedgerEntry, patch: str
     ) -> PublicationReceipt:
         assert run.analysis is not None
         if run.state is not RunState.PUBLISHING:
@@ -599,7 +599,7 @@ class PublicationService:
 
     async def _fail(
         self,
-        run: RunView,
+        run: RunRecord,
         entry: PublicationLedgerEntry,
         patch: str,
         *,

@@ -17,8 +17,8 @@ from changesafe.domain import (
     ContextBundle,
     ContextMode,
     PublicError,
+    RunRecord,
     RunState,
-    RunView,
     WarehouseCheck,
     WarehouseValidationMode,
     WarehouseValidationResult,
@@ -34,7 +34,6 @@ from changesafe.warehouse.base import (
     WarehouseValidationError,
     WarehouseValidationPort,
 )
-from changesafe.warehouse.queries import fingerprint_relation
 
 WAREHOUSE_CHECK_CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -54,6 +53,7 @@ class ChangeSafeOrchestrator:
         warehouse_timeout_seconds: float = 20,
         warehouse_environment_label: str = "not configured",
         warehouse_target_map: Mapping[str, str] | None = None,
+        warehouse_binding_map: Mapping[str, str] | None = None,
         llm_reservation_usd: Decimal = Decimal(0),
         llm_budget_usd: Decimal | None = None,
     ) -> None:
@@ -68,15 +68,16 @@ class ChangeSafeOrchestrator:
         self.warehouse_timeout_seconds = warehouse_timeout_seconds
         self.warehouse_environment_label = warehouse_environment_label
         self.warehouse_target_map = dict(warehouse_target_map or {})
+        self.warehouse_binding_map = dict(warehouse_binding_map or {})
         self.llm_reservation_usd = llm_reservation_usd
         self.llm_budget_usd = llm_budget_usd
-        self._tasks: set[asyncio.Task[RunView]] = set()
+        self._tasks: set[asyncio.Task[RunRecord]] = set()
         self._warehouse_cleanup_tasks: set[
             asyncio.Task[WarehouseValidationResult]
         ] = set()
         self._fallback_lock = asyncio.Lock()
 
-    def _track(self, task: asyncio.Task[RunView]) -> None:
+    def _track(self, task: asyncio.Task[RunRecord]) -> None:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -103,9 +104,8 @@ class ChangeSafeOrchestrator:
                 return_exceptions=True,
             )
 
-    def _expected_relation_fingerprint(self, change: ChangeRequest) -> str | None:
-        relation = self.warehouse_target_map.get(change.asset_urn)
-        return fingerprint_relation(relation) if relation is not None else None
+    def _expected_binding_fingerprint(self, change: ChangeRequest) -> str | None:
+        return self.warehouse_binding_map.get(change.asset_urn)
 
     def _not_run_result(self, change: ChangeRequest) -> WarehouseValidationResult:
         return WarehouseValidationResult(
@@ -135,7 +135,7 @@ class ChangeSafeOrchestrator:
             operation=change.operation,
             field=change.field,
             aggregate_query_started=None,
-            relation_fingerprint=self._expected_relation_fingerprint(change),
+            binding_fingerprint=self._expected_binding_fingerprint(change),
             started_at=started_at,
             completed_at=completed_at,
             elapsed_ms=max(0, int((completed_at - started_at).total_seconds() * 1000)),
@@ -216,7 +216,7 @@ class ChangeSafeOrchestrator:
 
     async def start(
         self, change: ChangeRequest, *, session_id: str | None = None
-    ) -> RunView:
+    ) -> RunRecord:
         run = await self.store.create(
             change,
             session_id=session_id,
@@ -227,7 +227,7 @@ class ChangeSafeOrchestrator:
         self._track(task)
         return run
 
-    async def analyze(self, run_id: UUID | str) -> RunView:
+    async def analyze(self, run_id: UUID | str) -> RunRecord:
         run = await self.store.get(run_id)
         if run is None:
             raise KeyError(str(run_id))
@@ -243,7 +243,7 @@ class ChangeSafeOrchestrator:
             offer_snapshot=self.snapshot_context_port is not None,
         )
 
-    async def continue_with_snapshot(self, run_id: UUID | str) -> RunView:
+    async def continue_with_snapshot(self, run_id: UUID | str) -> RunRecord:
         if self.snapshot_context_port is None:
             raise ValueError("Snapshot fallback is not configured.")
         async with self._fallback_lock:
@@ -272,11 +272,11 @@ class ChangeSafeOrchestrator:
 
     async def _analyze_from_loading(
         self,
-        run: RunView,
+        run: RunRecord,
         context_port: DataHubContextPort,
         *,
         offer_snapshot: bool,
-    ) -> RunView:
+    ) -> RunRecord:
         try:
             context = await context_port.load(run.request)
             await self.store.transition(
@@ -307,7 +307,7 @@ class ChangeSafeOrchestrator:
             )
             validation = verify_artifacts(artifacts, run.request, context)
             warehouse = self._not_run_result(run.request)
-            expected_relation_fingerprint = self._expected_relation_fingerprint(
+            expected_binding_fingerprint = self._expected_binding_fingerprint(
                 run.request
             )
             if (
@@ -329,7 +329,7 @@ class ChangeSafeOrchestrator:
                 require_live_evidence=self.require_live_evidence,
                 require_warehouse=self.require_warehouse,
                 warehouse_max_age_seconds=self.warehouse_max_age_seconds,
-                expected_relation_fingerprint=expected_relation_fingerprint,
+                expected_binding_fingerprint=expected_binding_fingerprint,
             )
             analysis = AnalysisResult(
                 context=context,

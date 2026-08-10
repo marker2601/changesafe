@@ -65,7 +65,7 @@ export interface ContextBundle {
   glossary_terms: string[];
   structured_properties: Record<string, Array<string | number>>;
   usage_tier: "none" | "low" | "medium" | "high";
-  queries: string[];
+  query_count: number;
   evidence: EvidenceRef[];
   tool_evidence: Array<{
     tool: string;
@@ -176,7 +176,6 @@ export interface WarehouseValidationResult {
   operation: ChangeOperation;
   field: string;
   aggregate_query_started: boolean | null;
-  relation_fingerprint: string | null;
   started_at: string | null;
   completed_at: string | null;
   rows_evaluated: number | null;

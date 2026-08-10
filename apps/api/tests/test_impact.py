@@ -92,7 +92,7 @@ async def test_financial_impact_never_becomes_a_fabricated_amount() -> None:
     change = golden_change()
     context = await ReplayDataHubContext.from_default().load(change)
     sparse = context.model_copy(
-        update={"usage_tier": "none", "queries": [], "downstream_assets": []}
+        update={"usage_tier": "none", "query_count": 0, "downstream_assets": []}
     )
 
     financial = next(
@@ -111,7 +111,7 @@ async def test_financial_impact_never_becomes_a_fabricated_amount() -> None:
 async def test_none_usage_is_described_as_no_recorded_usage() -> None:
     context = await ReplayDataHubContext.from_default().load(golden_change())
     sparse = context.model_copy(
-        update={"usage_tier": "none", "queries": [], "downstream_assets": []}
+        update={"usage_tier": "none", "query_count": 0, "downstream_assets": []}
     )
 
     operational = next(

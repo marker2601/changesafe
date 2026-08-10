@@ -24,7 +24,6 @@ export const notRunWarehouseValidation = {
   operation: "rename",
   field: "cust_email",
   aggregate_query_started: false,
-  relation_fingerprint: null,
   started_at: null,
   completed_at: null,
   rows_evaluated: null,
@@ -40,7 +39,6 @@ export const passedWarehouseValidation = {
   status: "passed",
   mode: "aggregate",
   aggregate_query_started: true,
-  relation_fingerprint: "f".repeat(64),
   started_at: "2026-08-08T20:00:00Z",
   completed_at: "2026-08-08T20:00:00.018Z",
   rows_evaluated: 20,
@@ -315,7 +313,7 @@ export const goldenRun: RunView = {
       glossary_terms: ["urn:li:glossaryTerm:b2fd91.personal-data"],
       structured_properties: {},
       usage_tier: "high",
-      queries: ["sanitized query evidence"],
+      query_count: 1,
       evidence: [
         { urn: OFFICIAL_TARGET, kind: "schema", label: "cust_email TEXT", path: [] },
         {
