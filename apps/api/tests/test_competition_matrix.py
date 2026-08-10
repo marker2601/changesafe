@@ -6,7 +6,15 @@ from pydantic import ValidationError
 
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import DEMO_TARGET_URN
-from changesafe.domain import ChangeOperation, ChangeRequest, SchemaField
+from changesafe.domain import (
+    ChangeOperation,
+    ChangeRequest,
+    ContextBundle,
+    ContextMode,
+    ContextProvenance,
+    RiskBand,
+    SchemaField,
+)
 from changesafe.generation.service import ArtifactGenerationService
 from changesafe.risk import score_change
 from changesafe.sql_types import canonical_sql_type
@@ -17,6 +25,16 @@ RECORDED_FIELDS = [
     SchemaField.model_validate(item)
     for item in json.loads(SNAPSHOT.read_text(encoding="utf-8"))["schema_fields"]
 ]
+REQUIRED_OPERATIONS = (
+    ChangeOperation.RENAME,
+    ChangeOperation.REMOVE,
+    ChangeOperation.TYPE_CHANGE,
+)
+MATRIX_CASES = tuple(
+    (field, operation)
+    for operation in REQUIRED_OPERATIONS
+    for field in RECORDED_FIELDS
+)
 
 
 def alternate_type(current: str) -> str:
@@ -48,8 +66,20 @@ def valid_change_for(
     return ChangeRequest(**common)
 
 
-@pytest.mark.parametrize("field", RECORDED_FIELDS, ids=lambda field: field.name)
-@pytest.mark.parametrize("operation", list(ChangeOperation))
+def test_recording_and_operation_matrix_is_exactly_sealed() -> None:
+    recorded_names = [field.name.casefold() for field in RECORDED_FIELDS]
+
+    assert len(RECORDED_FIELDS) == 55
+    assert len(set(recorded_names)) == 55
+    assert tuple(ChangeOperation) == REQUIRED_OPERATIONS
+    assert len(MATRIX_CASES) == 165
+
+
+@pytest.mark.parametrize(
+    ("field", "operation"),
+    MATRIX_CASES,
+    ids=[f"{operation.value}-{field.name}" for field, operation in MATRIX_CASES],
+)
 @pytest.mark.asyncio
 async def test_every_recorded_field_operation_is_deterministic(
     field: SchemaField, operation: ChangeOperation
@@ -68,6 +98,49 @@ async def test_every_recorded_field_operation_is_deterministic(
     assert manifest["change"] == change.model_dump(mode="json")
     assert manifest["context"]["field"] == field.name
     assert manifest["context"]["field_type"] == field.data_type
+
+
+def test_risk_scoring_is_invariant_to_field_name_presets() -> None:
+    first_change = ChangeRequest(
+        asset_urn=DEMO_TARGET_URN,
+        operation=ChangeOperation.RENAME,
+        field="cust_email",
+        new_field="preferred_email",
+        source_commit="field-invariance-cust-email",
+        requested_by="competition-matrix",
+    )
+    second_change = first_change.model_copy(
+        update={
+            "field": "order_date",
+            "new_field": "preferred_order_date",
+            "source_commit": "field-invariance-order-date",
+        }
+    )
+    first_context = ContextBundle(
+        target_urn=DEMO_TARGET_URN,
+        target_name="order_details",
+        field="cust_email",
+        field_type="TEXT",
+        provenance=ContextProvenance(
+            mode=ContextMode.SNAPSHOT,
+            retrieved_at="2026-08-09T12:00:00Z",
+            adapter_version="competition-matrix/1",
+            snapshot_hash="a" * 64,
+        ),
+    )
+    second_context = first_context.model_copy(update={"field": "order_date"})
+
+    first = score_change(first_change, first_context)
+    second = score_change(second_change, second_context)
+
+    assert first == second
+    assert first.score == 35
+    assert first.band is RiskBand.MEDIUM
+    assert [factor.code for factor in first.factors] == [
+        "base_rename",
+        "missing_accountable_owner",
+    ]
+    assert [factor.points for factor in first.factors] == [25, 10]
 
 
 @pytest.mark.parametrize(

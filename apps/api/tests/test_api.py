@@ -1036,12 +1036,25 @@ async def test_sse_query_cursor_resumes_without_replaying_old_events(
 async def test_auto_mode_requires_explicit_persisted_snapshot_fallback(
     tmp_path: Path,
 ) -> None:
+    recorded_snapshot = Path("fixtures/datahub/golden-context.json")
+    recorded_checksum = Path("fixtures/datahub/golden-context.sha256")
+    expected_checksum = recorded_checksum.read_text(encoding="ascii").split()[0]
+    configured_snapshot = tmp_path / "configured-context.json"
+    configured_checksum = tmp_path / "configured-context.sha256"
+    configured_snapshot.write_bytes(recorded_snapshot.read_bytes())
+    configured_checksum.write_text(
+        f"{expected_checksum}  configured-context.json\n",
+        encoding="ascii",
+    )
     settings = Settings(
         _env_file=None,
         mode=Mode.AUTO,
         changesafe_data_path=tmp_path / "runs.db",
+        changesafe_snapshot_path=configured_snapshot,
+        changesafe_snapshot_checksum_path=configured_checksum,
         datahub_gms_url="https://datahub.example.test",
         datahub_gms_token="private-token",
+        live_evidence_required=True,
     )
     app = create_app(settings=settings, context_port=UnavailableLiveContext())
     transport = httpx.ASGITransport(app=app)
@@ -1055,8 +1068,9 @@ async def test_auto_mode_requires_explicit_persisted_snapshot_fallback(
             f"/api/runs/{run_id}/continue-with-snapshot"
         )
         completed = await wait_for_state(
-            client, run_id, RunState.AWAITING_APPROVAL
+            client, run_id, RunState.FAILED
         )
+        approval = await client.post(f"/api/runs/{run_id}/approve")
 
     assert stopped["error"] == {
         "code": "LIVE_CONTEXT_UNAVAILABLE",
@@ -1068,7 +1082,23 @@ async def test_auto_mode_requires_explicit_persisted_snapshot_fallback(
     }
     assert continued.status_code == 202
     assert completed["analysis"]["context"]["provenance"]["mode"] == "snapshot"
-    assert completed["error"] is None
+    assert (
+        completed["analysis"]["context"]["provenance"]["snapshot_hash"]
+        == expected_checksum
+    )
+    assert completed["analysis"]["publication_eligible"] is False
+    assert [
+        blocker["code"] for blocker in completed["analysis"]["approval_blockers"]
+    ] == ["LIVE_EVIDENCE_REQUIRED"]
+    assert completed["error"] == {
+        "code": "LIVE_EVIDENCE_REQUIRED",
+        "message": "Live metadata evidence is required for approval.",
+        "retryable": True,
+    }
+    assert approval.status_code == 409
+    assert approval.json()["detail"] == (
+        "Run does not satisfy the current safety policy; submit a new analysis."
+    )
 
 
 @pytest.mark.asyncio

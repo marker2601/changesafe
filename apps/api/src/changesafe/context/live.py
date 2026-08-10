@@ -800,7 +800,9 @@ def _normalize_lineage_assets(raw: Any, direction_name: str) -> list[AffectedAss
     if partial_lineage:
         raise ContextLoadError("DataHub returned a partial lineage page")
     normalized: list[AffectedAsset] = []
-    seen_urns: set[str] = set()
+    seen_relationships: set[tuple[str, str | None, int | None, tuple[str, ...]]] = (
+        set()
+    )
     for item in relationships:
         nested_entity = item.get("entity")
         asset = cast(
@@ -813,10 +815,6 @@ def _normalize_lineage_assets(raw: Any, direction_name: str) -> list[AffectedAss
         urn = str(_first_present(asset, ("urn", "entityUrn"), ""))
         if not urn:
             raise ContextLoadError("DataHub lineage endpoint is missing its URN")
-        urn_key = urn.casefold()
-        if urn_key in seen_urns:
-            raise ContextLoadError("DataHub lineage contains a duplicate endpoint")
-        seen_urns.add(urn_key)
         lineage_columns = item.get("lineageColumns")
         field_path = _first_present(asset, ("field", "column", "fieldPath"))
         if field_path is None and isinstance(lineage_columns, list):
@@ -836,6 +834,17 @@ def _normalize_lineage_assets(raw: Any, direction_name: str) -> list[AffectedAss
             and raw_degree >= 1
             else None
         )
+        relationship_key = (
+            urn.casefold(),
+            field_path.casefold() if field_path is not None else None,
+            lineage_degree,
+            tuple(lineage_path),
+        )
+        if relationship_key in seen_relationships:
+            raise ContextLoadError(
+                "DataHub lineage contains a duplicate relationship"
+            )
+        seen_relationships.add(relationship_key)
         if field_path is None:
             lineage_precision = LineagePrecision.DATASET_LEVEL
         elif lineage_degree == 1:
