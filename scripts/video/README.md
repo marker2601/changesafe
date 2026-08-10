@@ -20,6 +20,8 @@ The command creates these untracked deliverables in `%USERPROFILE%\Videos\Change
 
 The MP4 contract is 145–175 seconds, H.264/AAC, 1920×1080, 30 fps, and below 250 MB. The current approved render is 173.93 seconds and approximately 19 MB.
 
+The approved public bundle is published at <https://github.com/marker2601/changesafe/releases/tag/changesafe-demo-v1>.
+
 ## Narration provider
 
 Credential-free generation uses the pinned Edge TTS dependency. For the higher-quality ElevenLabs render, create this private file outside the checkout:

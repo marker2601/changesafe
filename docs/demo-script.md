@@ -4,6 +4,8 @@ Permanent app: <https://changesafe-competition.onrender.com>
 
 Public repository: <https://github.com/marker2601/changesafe>
 
+Public video: <https://github.com/marker2601/changesafe/releases/download/changesafe-demo-v1/changesafe-competition-demo.mp4>
+
 The checked video is generated from the permanent hosted app. It uses synchronized ElevenLabs narration, a real keyboard-driven browser journey, and a separately downloadable caption file. It never shows credentials, browser chrome, raw production values, or private service details.
 
 ## 0:00 — The problem

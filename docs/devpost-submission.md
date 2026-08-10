@@ -108,6 +108,6 @@ No DataHub token is needed for replay. A token is needed only for an operator-co
 
 - Hosted app: `https://changesafe-competition.onrender.com`
 - Source repository: `https://github.com/marker2601/changesafe`
-- Demo video: generated locally as `changesafe-competition-demo.mp4`; upload publicly before submission
+- Demo video: `https://github.com/marker2601/changesafe/releases/download/changesafe-demo-v1/changesafe-competition-demo.mp4`
 - Live GitHub pull request: not created; mutation flags remained disabled
 - Live DataHub decision evidence: not written; mutation flags remained disabled
