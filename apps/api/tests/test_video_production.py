@@ -1,8 +1,15 @@
+from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
 from subprocess import CompletedProcess
 
 import pytest
+from scripts.video.compose_demo import (
+    ComposeInputs,
+    MediaProbe,
+    build_compose_command,
+    verify_media,
+)
 from scripts.video.narration import (
     DEFAULT_ELEVENLABS_VOICE_ID,
     CaptionCue,
@@ -249,3 +256,56 @@ def test_timing_manifest_rejects_media_outside_work_dir(
 def test_command_result_type_matches_safe_runner_contract() -> None:
     result = CompletedProcess(["python", "-m", "edge_tts"], 0, "ok", "")
     assert result.returncode == 0
+
+
+def test_compose_command_is_public_safe_and_submission_compatible(
+    tmp_path: Path,
+) -> None:
+    timing = {
+        "total_duration_ms": 162_000,
+        "scenes": [
+            {
+                "scene_id": scene.scene_id,
+                "start_ms": index * 18_000,
+                "duration_ms": 18_000,
+                "audio_path": f"audio/{scene.scene_id}.mp3",
+            }
+            for index, scene in enumerate(SCENES)
+        ],
+    }
+    inputs = ComposeInputs(
+        capture=tmp_path / "capture.webm",
+        work_dir=tmp_path,
+        timing=timing,
+        output=tmp_path / "changesafe-competition-demo.mp4",
+        closing_frame=tmp_path / "closing.png",
+    )
+    command = build_compose_command(Path("ffmpeg"), inputs)
+    joined = " ".join(command)
+    assert "libx264" in command
+    assert "-pix_fmt yuv420p" in joined
+    assert "-r 30" in joined
+    assert "-c:a aac" in joined
+    assert "-b:a 192k" in joined
+    assert "-metadata title=ChangeSafe — Data contract change intelligence" in joined
+    assert "overlay=" in joined
+    assert "token" not in joined.casefold()
+    assert "private" not in joined.casefold()
+
+
+def test_media_verification_rejects_wrong_codec_or_runtime() -> None:
+    good = MediaProbe(
+        duration_seconds=160.0,
+        width=1920,
+        height=1080,
+        frame_rate=30.0,
+        video_codec="h264",
+        audio_codec="aac",
+        file_size=20_000_000,
+    )
+    assert verify_media(replace(good, video_codec="vp8")) == [
+        "video codec must be h264"
+    ]
+    assert verify_media(replace(good, duration_seconds=176.0)) == [
+        "duration must not exceed 175 seconds"
+    ]
