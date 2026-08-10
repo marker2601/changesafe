@@ -45,7 +45,7 @@ def test_render_blueprint_deploys_the_existing_container_safely() -> None:
     assert service["dockerContext"] == "."
     assert service["healthCheckPath"] == "/healthz"
     assert service["renderSubdomainPolicy"] == "enabled"
-    assert service["maxShutdownDelaySeconds"] == 30
+    assert "maxShutdownDelaySeconds" not in service
     assert "disk" not in service
 
 
