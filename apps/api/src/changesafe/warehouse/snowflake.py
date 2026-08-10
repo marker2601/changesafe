@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import import_module
@@ -42,8 +43,11 @@ QUERY_TAG = "changesafe:warehouse-validation"
 QUERY_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 RETRYABLE_CONNECTOR_ERRORS = {
     "badgatewayerror",
+    "badrequest",
+    "forbiddenerror",
     "gatewaytimeouterror",
     "internalservererror",
+    "methodnotallowed",
     "otherhttpretryableerror",
     "requestexceedmaxretryerror",
     "retryrequest",
@@ -233,6 +237,28 @@ def _normalized_description(
     return tuple(description)
 
 
+def _validate_aggregate_metadata(column: object) -> None:
+    if _snowflake_type_name(column) != "FIXED":
+        raise ValueError("aggregate output is not fixed numeric")
+    internal_size = _optional_int(column, "internal_size", 3)
+    precision = _optional_int(column, "precision", 4)
+    scale = _optional_int(column, "scale", 5)
+    if precision is None or not 1 <= precision <= 38:
+        raise ValueError("aggregate precision is invalid")
+    if scale != 0:
+        raise ValueError("aggregate scale is invalid")
+    if internal_size is not None and internal_size <= 0:
+        raise ValueError("aggregate internal size is invalid")
+
+
+def _contain_connector_logs() -> None:
+    connector_logger = logging.getLogger("snowflake.connector")
+    connector_logger.handlers.clear()
+    connector_logger.addHandler(logging.NullHandler())
+    connector_logger.propagate = False
+    connector_logger.setLevel(logging.CRITICAL + 1)
+
+
 def _close_resources(
     cursor: ConnectorCursor | None,
     connection: ConnectorConnection | None,
@@ -255,6 +281,10 @@ def _connector_failure(
     query_ids: Sequence[str],
 ) -> _AdapterFailure:
     class_names = {item.__name__.casefold() for item in type(error).__mro__}
+    if phase == "connect" and "forbiddenerror" in class_names:
+        return _failure(
+            "warehouse_authentication", retryable=False, query_ids=query_ids
+        )
     if isinstance(error, TimeoutError) or any(
         "timeout" in name for name in class_names
     ):
@@ -288,6 +318,7 @@ class SnowflakeWarehouseValidator:
         settings: Settings,
         connect: ConnectorFactory | None = None,
     ) -> None:
+        _contain_connector_logs()
         self._settings = settings
         self._connect = connect
         self._lock = asyncio.Lock()
@@ -329,17 +360,9 @@ class SnowflakeWarehouseValidator:
             try:
                 evidence = await asyncio.shield(worker)
             except asyncio.CancelledError:
-                query_ids: Sequence[str] = ()
-                try:
-                    completed = await worker
-                    query_ids = completed.query_ids
-                except _AdapterFailure as failure:
-                    query_ids = failure.query_ids
-                except BaseException:
-                    pass
-                raise _failure(
-                    "warehouse_cancelled", retryable=True, query_ids=query_ids
-                ) from None
+                with suppress(BaseException):
+                    await worker
+                raise
 
             checks = [
                 WarehouseCheck(
@@ -426,6 +449,7 @@ class SnowflakeWarehouseValidator:
             "database": self._settings.snowflake_database,
             "schema": self._settings.snowflake_schema,
             "role": self._settings.snowflake_role,
+            "secondary_roles": "NONE",
             "login_timeout": timeout,
             "network_timeout": timeout,
             "socket_timeout": timeout,
@@ -551,6 +575,8 @@ class SnowflakeWarehouseValidator:
             expected = tuple(name.upper() for name in query.expected_columns)
             if names != expected or len(names) != len(set(names)):
                 raise ValueError("aggregate columns mismatch")
+            for column in columns:
+                _validate_aggregate_metadata(column)
             rows = cursor.fetchall()
             if len(rows) != 1 or len(rows[0]) != len(expected):
                 raise ValueError("aggregate row shape mismatch")

@@ -1,4 +1,5 @@
-import builtins
+import subprocess
+import sys
 from pathlib import Path
 
 from changesafe.config import Settings
@@ -25,19 +26,34 @@ def configured_settings(*, enabled: bool) -> Settings:
     )
 
 
-def test_disabled_factory_does_not_import_snowflake(
-    monkeypatch: object,
-) -> None:
-    original_import = builtins.__import__
+def test_disabled_factory_is_a_real_cold_import_boundary() -> None:
+    script = """
+import sys
+from changesafe.config import Settings
+from changesafe.warehouse.factory import build_warehouse_port
 
-    def guarded_import(name: str, *args: object, **kwargs: object) -> object:
-        if name.startswith("snowflake"):
-            raise AssertionError("disabled warehouse adapter imported Snowflake")
-        return original_import(name, *args, **kwargs)
+assert not any(
+    name == "snowflake" or name.startswith("snowflake.")
+    for name in sys.modules
+)
+assert build_warehouse_port(
+    Settings(_env_file=None, warehouse_validation_enabled=False)
+) is None
+assert not any(
+    name == "snowflake" or name.startswith("snowflake.")
+    for name in sys.modules
+)
+"""
 
-    monkeypatch.setattr(builtins, "__import__", guarded_import)  # type: ignore[attr-defined]
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[4],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
-    assert build_warehouse_port(configured_settings(enabled=False)) is None
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_enabled_factory_builds_snowflake_validator() -> None:

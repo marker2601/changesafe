@@ -4,14 +4,18 @@ import asyncio
 import logging
 import time
 from collections import namedtuple
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
 from snowflake.connector.errors import (
     BadGatewayError,
+    BadRequest,
+    ForbiddenError,
     InternalServerError,
+    MethodNotAllowed,
     OtherHTTPRetryableError,
     RequestExceedMaxRetryError,
 )
@@ -55,11 +59,13 @@ class CursorResponse:
         description: Sequence[object] | None = (),
         sfqid: str | None = None,
         error: BaseException | None = None,
+        on_execute: Callable[[], None] | None = None,
     ) -> None:
         self.rows = rows
         self.description = description
         self.sfqid = sfqid
         self.error = error
+        self.on_execute = on_execute
 
 
 class FakeCursor:
@@ -84,6 +90,8 @@ class FakeCursor:
         if not self._responses:
             raise AssertionError("unexpected query")
         self._active = self._responses.pop(0)
+        if self._active.on_execute is not None:
+            self._active.on_execute()
         if self._active.error is not None:
             raise self._active.error
         return self
@@ -293,6 +301,7 @@ async def test_executes_only_identity_and_registered_selects_with_bounded_sessio
             "database": "SAFE_DB",
             "schema": "SAFE_SCHEMA",
             "role": "CHANGESAFE_READONLY",
+            "secondary_roles": "NONE",
             "login_timeout": 20,
             "network_timeout": 20,
             "socket_timeout": 20,
@@ -433,6 +442,60 @@ async def test_type_aggregate_requires_one_unsafe_count_column(
         success_responses(
             ChangeOperation.TYPE_CHANGE,
             aggregate_description=aggregate_description,
+        ),
+        operation=ChangeOperation.TYPE_CHANGE,
+    )
+
+    assert result.status is WarehouseValidationStatus.BLOCKED
+    assert result.checks[-1].code == "warehouse_response"
+    assert result.checks[-1].retryable is False
+    assert connection.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("column_index", [0, 1, 2])
+@pytest.mark.parametrize(
+    "invalid_metadata",
+    [
+        metadata("IGNORED", 2),
+        metadata("IGNORED", 13, internal_size=None),
+        metadata("IGNORED", 0, internal_size=None, precision=None, scale=0),
+        metadata("IGNORED", 0, internal_size=None, precision=0, scale=0),
+        metadata("IGNORED", 0, internal_size=None, precision=39, scale=0),
+        metadata("IGNORED", 0, internal_size=None, precision=38, scale=None),
+        metadata("IGNORED", 0, internal_size=None, precision=38, scale=1),
+        metadata("IGNORED", 0, internal_size=0, precision=38, scale=0),
+        Metadata("IGNORED", 0, None, "malformed", 38, 0, False),
+    ],
+)
+async def test_each_type_aggregate_alias_requires_fixed_integer_metadata(
+    column_index: int,
+    invalid_metadata: Metadata,
+) -> None:
+    aliases = ("ROWS_EVALUATED", "POPULATED_ROW_COUNT", "UNSAFE_ROW_COUNT")
+    description = [
+        metadata("ROWS_EVALUATED", 0, internal_size=None, precision=38, scale=0),
+        metadata(
+            "POPULATED_ROW_COUNT",
+            0,
+            internal_size=None,
+            precision=38,
+            scale=0,
+        ),
+        metadata(
+            "UNSAFE_ROW_COUNT",
+            0,
+            internal_size=None,
+            precision=38,
+            scale=0,
+        ),
+    ]
+    description[column_index] = invalid_metadata._replace(name=aliases[column_index])
+
+    result, connection, _ = await validate_with(
+        success_responses(
+            ChangeOperation.TYPE_CHANGE,
+            aggregate_description=description,
         ),
         operation=ChangeOperation.TYPE_CHANGE,
     )
@@ -595,6 +658,124 @@ async def test_pinned_connector_server_failures_are_retryable(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error_type", [BadRequest, MethodNotAllowed])
+@pytest.mark.parametrize("phase", ["connect", "identity", "schema", "query"])
+async def test_pinned_retryable_http_failures_are_transport_errors_in_each_phase(
+    error_type: type[Exception],
+    phase: str,
+) -> None:
+    error = error_type(msg="private-password")
+    responses = success_responses()
+    if phase == "connect":
+        connect = ConnectSpy(error=error)
+    else:
+        response_index = {"identity": 0, "schema": 1, "query": 2}[phase]
+        responses[response_index] = CursorResponse(error=error)
+        connect = ConnectSpy(FakeConnection(responses))
+    validator = SnowflakeWarehouseValidator(settings(), connect=connect)
+
+    result = await validator.validate(request_for(ChangeOperation.RENAME), context())
+
+    assert result.status is WarehouseValidationStatus.BLOCKED
+    assert result.checks[-1].code == "warehouse_transport"
+    assert result.checks[-1].retryable is True
+    assert "private-password" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_login_forbidden_remains_permanent_authentication_failure() -> None:
+    validator = SnowflakeWarehouseValidator(
+        settings(),
+        connect=ConnectSpy(error=ForbiddenError(msg="private-password")),
+    )
+
+    result = await validator.validate(request_for(ChangeOperation.RENAME), context())
+
+    assert result.status is WarehouseValidationStatus.BLOCKED
+    assert result.checks[-1].code == "warehouse_authentication"
+    assert result.checks[-1].retryable is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["identity", "schema", "query"])
+async def test_forbidden_after_login_is_retryable_transport_failure(
+    phase: str,
+) -> None:
+    responses = success_responses()
+    response_index = {"identity": 0, "schema": 1, "query": 2}[phase]
+    responses[response_index] = CursorResponse(
+        error=ForbiddenError(msg="private-password")
+    )
+
+    result, connection, _ = await validate_with(responses)
+
+    assert result.status is WarehouseValidationStatus.BLOCKED
+    assert result.checks[-1].code == "warehouse_transport"
+    assert result.checks[-1].retryable is True
+    assert connection.closed
+
+
+@pytest.mark.asyncio
+async def test_connector_namespace_logs_are_contained_but_changesafe_warning_remains(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "account=private-account login=private-user credential=private-password"
+    connector_logger = logging.getLogger("snowflake.connector")
+    previous = (
+        list(connector_logger.handlers),
+        connector_logger.level,
+        connector_logger.propagate,
+        connector_logger.disabled,
+    )
+    connector_logger.handlers.clear()
+    connector_logger.setLevel(logging.NOTSET)
+    connector_logger.propagate = True
+    connector_logger.disabled = False
+
+    def emit_connector_logs() -> None:
+        for name in (
+            "snowflake.connector.cursor",
+            "snowflake.connector.auth._auth",
+            "snowflake.connector.network",
+        ):
+            logging.getLogger(name).error(secret)
+
+    responses = success_responses()
+    responses[2] = CursorResponse(
+        error=ValueError(secret),
+        on_execute=emit_connector_logs,
+    )
+    try:
+        with caplog.at_level(logging.WARNING):
+            result, connection, _ = await validate_with(responses)
+
+        changesafe_records = [
+            record
+            for record in caplog.records
+            if record.name == "changesafe.warehouse.snowflake"
+        ]
+        assert result.status is WarehouseValidationStatus.BLOCKED
+        assert [record.getMessage() for record in changesafe_records] == [
+            "Warehouse validation failed"
+        ]
+        assert not any(
+            record.name.startswith("snowflake.connector") for record in caplog.records
+        )
+        assert secret not in caplog.text
+        assert connection.closed
+        assert connector_logger.propagate is False
+        assert connector_logger.disabled is False
+        assert connector_logger.level > logging.CRITICAL
+        assert len(connector_logger.handlers) == 1
+        assert isinstance(connector_logger.handlers[0], logging.NullHandler)
+    finally:
+        connector_logger.handlers[:] = previous[0]
+        connector_logger.setLevel(previous[1])
+        connector_logger.propagate = previous[2]
+        connector_logger.disabled = previous[3]
+
+
+@pytest.mark.asyncio
 async def test_relation_exception_closes_and_never_exposes_message_or_rows(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -633,6 +814,40 @@ async def test_cancellation_is_safe_and_waits_for_resource_cleanup(
     assert "private-password" not in caplog.text
     assert connection.closed
     assert connection.cursor_instance.closed
+
+
+@pytest.mark.asyncio
+async def test_task_cancellation_propagates_after_worker_resource_cleanup() -> None:
+    entered = Event()
+    release = Event()
+
+    def block_schema_execute() -> None:
+        entered.set()
+        if not release.wait(timeout=5):
+            raise TimeoutError("test worker was not released")
+
+    responses = success_responses()
+    responses[1] = CursorResponse(on_execute=block_schema_execute)
+    connection = FakeConnection(responses)
+    validator = SnowflakeWarehouseValidator(
+        settings(),
+        connect=ConnectSpy(connection),
+    )
+    task = asyncio.create_task(
+        validator.validate(request_for(ChangeOperation.RENAME), context())
+    )
+    assert await asyncio.to_thread(entered.wait, 2)
+
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
+    assert connection.cursor_instance.closed
+    assert connection.closed
 
 
 @pytest.mark.asyncio
