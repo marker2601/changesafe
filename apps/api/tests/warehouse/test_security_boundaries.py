@@ -15,6 +15,7 @@ from changesafe.domain import (
     ChangeOperation,
     ChangeRequest,
     ContextBundle,
+    ContextMode,
     RunState,
     WarehouseValidationStatus,
 )
@@ -43,6 +44,21 @@ SENSITIVE_VALUES = [
 
 class InvalidCredential(Exception):
     pass
+
+
+class LiveReplayContext:
+    def __init__(self) -> None:
+        self.replay = ReplayDataHubContext.from_default()
+
+    async def load(self, change: ChangeRequest):
+        loaded = await self.replay.load(change)
+        return loaded.model_copy(
+            update={
+                "provenance": loaded.provenance.model_copy(
+                    update={"mode": ContextMode.LIVE, "snapshot_hash": None}
+                )
+            }
+        )
 
 
 def validator_for(
@@ -254,7 +270,7 @@ async def test_warehouse_failure_never_reaches_public_or_persisted_surfaces(
     )
     app = create_app(
         settings=configured,
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayContext(),
         warehouse_port=validator,
     )
     transport = httpx.ASGITransport(app=app)

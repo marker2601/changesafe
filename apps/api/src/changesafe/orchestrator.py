@@ -15,6 +15,7 @@ from changesafe.domain import (
     AnalysisResult,
     ChangeRequest,
     ContextBundle,
+    ContextMode,
     PublicError,
     RunState,
     RunView,
@@ -113,6 +114,7 @@ class ChangeSafeOrchestrator:
             environment_label=self.warehouse_environment_label,
             operation=change.operation,
             field=change.field,
+            aggregate_query_started=False,
         )
 
     def _blocked_result(
@@ -132,6 +134,7 @@ class ChangeSafeOrchestrator:
             environment_label=self.warehouse_environment_label,
             operation=change.operation,
             field=change.field,
+            aggregate_query_started=None,
             relation_fingerprint=self._expected_relation_fingerprint(change),
             started_at=started_at,
             completed_at=completed_at,
@@ -307,7 +310,11 @@ class ChangeSafeOrchestrator:
             expected_relation_fingerprint = self._expected_relation_fingerprint(
                 run.request
             )
-            if validation.passed and self.warehouse_port is not None:
+            if (
+                validation.passed
+                and self.warehouse_port is not None
+                and context.provenance.mode is ContextMode.LIVE
+            ):
                 await self.store.transition(
                     run.run_id,
                     RunState.VALIDATING_WAREHOUSE,

@@ -175,6 +175,7 @@ export interface WarehouseValidationResult {
   environment_label: string;
   operation: ChangeOperation;
   field: string;
+  aggregate_query_started: boolean | null;
   relation_fingerprint: string | null;
   started_at: string | null;
   completed_at: string | null;

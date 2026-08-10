@@ -14,6 +14,7 @@ from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import DEMO_TARGET_URN, golden_change
 from changesafe.domain import (
     ChangeRequest,
+    ContextMode,
     DataHubReceipt,
     RunState,
     SchemaCatalog,
@@ -71,6 +72,18 @@ class ClosableReplayContext:
         self.closed = True
 
 
+class LiveReplayContext(ClosableReplayContext):
+    async def load(self, change: ChangeRequest):
+        context = await super().load(change)
+        return context.model_copy(
+            update={
+                "provenance": context.provenance.model_copy(
+                    update={"mode": ContextMode.LIVE, "snapshot_hash": None}
+                )
+            }
+        )
+
+
 class LifecycleWarehousePort:
     def __init__(self) -> None:
         self.validation_completed = False
@@ -87,6 +100,7 @@ class LifecycleWarehousePort:
             environment_label="competition-non-production",
             operation=change.operation,
             field=change.field,
+            aggregate_query_started=True,
             relation_fingerprint=fingerprint_relation(
                 "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
             ),
@@ -607,7 +621,7 @@ async def test_app_lifespan_closes_warehouse_only_after_orchestrator_is_idle(
     )
     app = create_app(
         settings=settings,
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayContext(),
         warehouse_port=warehouse,
     )
 
@@ -635,7 +649,7 @@ async def test_lifespan_waits_for_cancelled_warehouse_cleanup_before_close(
             changesafe_data_path=tmp_path / "cancel-resistant-lifecycle.db",
             snowflake_target_relation_allowlist={DEMO_TARGET_URN: relation},
         ),
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayContext(),
         warehouse_port=warehouse,
     )
     app.state.orchestrator.warehouse_timeout_seconds = 0.01

@@ -331,3 +331,16 @@ def test_not_run_warehouse_result_cannot_claim_query_execution() -> None:
             field="order_status",
             query_ids=["query-id"],
         )
+
+
+def test_warehouse_counts_require_an_explicit_started_query() -> None:
+    with pytest.raises(ValidationError, match="counts require an aggregate query"):
+        WarehouseValidationResult(
+            status=WarehouseValidationStatus.BLOCKED,
+            mode=WarehouseValidationMode.AGGREGATE,
+            environment_label="competition-non-production",
+            operation=ChangeOperation.REMOVE,
+            field="order_status",
+            aggregate_query_started=False,
+            rows_evaluated=0,
+        )

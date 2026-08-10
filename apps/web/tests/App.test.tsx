@@ -614,6 +614,48 @@ describe("ChangeSafe workspace", () => {
     ).toBeVisible();
   });
 
+  it("never presents snapshot-carried aggregate evidence as checked values", async () => {
+    const user = userEvent.setup();
+    let current: RunView = {
+      ...goldenRun,
+      state: "created",
+      analysis: null,
+    };
+    const snapshotPassed: RunView = {
+      ...goldenRun,
+      analysis: {
+        ...goldenRun.analysis!,
+        warehouse_validation: passedWarehouseValidation,
+      },
+    };
+    const api: ChangeSafeApi = {
+      ...createGoldenApi(),
+      createRun: vi.fn(async () => current),
+      getRun: vi.fn(async () => current),
+      subscribe: (_runId, after, onEvent) => {
+        queueMicrotask(() => {
+          for (const event of goldenEvents) {
+            if (event.sequence <= after) continue;
+            if (event.state === "awaiting_approval") current = snapshotPassed;
+            onEvent(event);
+          }
+        });
+        return () => undefined;
+      },
+    };
+
+    render(<App api={api} />);
+    await user.click(await screen.findByRole("button", { name: "Analyze change" }));
+
+    expect(
+      await screen.findAllByText(
+        "Warehouse validation inconclusive · competition-non-production",
+      ),
+    ).not.toHaveLength(0);
+    expect(screen.getByText("Warehouse: inconclusive")).toBeVisible();
+    expect(screen.queryByText(/Warehouse values checked/)).not.toBeInTheDocument();
+  });
+
   it("renders live metadata and passed warehouse evidence as separate truths", async () => {
     const user = userEvent.setup();
     let current: RunView = {

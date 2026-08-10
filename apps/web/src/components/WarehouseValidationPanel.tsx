@@ -2,6 +2,7 @@ import { Check, Database, TriangleAlert, X } from "lucide-react";
 
 import type {
   ChangeOperation,
+  ContextBundle,
   WarehouseValidationResult,
 } from "../types";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../warehouseEvidence";
 
 interface WarehouseValidationPanelProps {
+  contextMode: ContextBundle["provenance"]["mode"];
   validation: WarehouseValidationResult;
 }
 
@@ -28,31 +30,45 @@ function countFacts(validation: WarehouseValidationResult) {
 }
 
 export function WarehouseValidationPanel({
+  contextMode,
   validation,
 }: WarehouseValidationPanelProps) {
   const facts = countFacts(validation).filter(([, value]) => value !== null);
   const passedAggregate =
-    validation.status === "passed" && validation.mode === "aggregate";
+    contextMode === "live" &&
+    validation.aggregate_query_started === true &&
+    validation.status === "passed" &&
+    validation.mode === "aggregate";
   const blockedBeforeQuery =
     blockedBeforeProductionQuery(validation);
-  const statusClaim = warehouseValidationClaim(validation);
+  const queryStatusUnknown = validation.aggregate_query_started === null;
+  const statusClaim = warehouseValidationClaim(validation, contextMode);
   const statusDetail = passedAggregate
     ? "Aggregate warehouse evidence passed every recorded warehouse check."
-    : validation.status === "not_run"
-      ? "No aggregate warehouse validation was run for this analysis."
-      : blockedBeforeQuery
-        ? "Warehouse validation was blocked before aggregate production-row evidence was returned."
-        : "Aggregate validation was inconclusive and approval remains blocked.";
+    : queryStatusUnknown
+      ? "Aggregate query status is unavailable for this legacy evidence; validation is inconclusive."
+      : contextMode === "snapshot" && validation.aggregate_query_started === true
+        ? "Recorded DataHub context cannot establish current warehouse values; validation is inconclusive."
+        : validation.status === "not_run"
+          ? "No aggregate warehouse validation was run for this analysis."
+          : blockedBeforeQuery
+            ? "Warehouse validation was blocked before aggregate production-row evidence was returned."
+            : "Aggregate validation was inconclusive and approval remains blocked.";
   const StatusIcon = passedAggregate
     ? Check
-    : validation.status === "blocked"
+    : validation.status === "blocked" || queryStatusUnknown || contextMode === "snapshot"
       ? TriangleAlert
       : Database;
+  const displayStatus = passedAggregate
+    ? "passed"
+    : validation.aggregate_query_started === false
+      ? "not_run"
+      : "blocked";
 
   return (
     <section
       aria-labelledby="warehouse-validation-heading"
-      className={`warehouse-validation-panel warehouse-status-${validation.status}`}
+      className={`warehouse-validation-panel warehouse-status-${displayStatus}`}
       id="warehouse-validation"
     >
       <h2 id="warehouse-validation-heading">Warehouse validation</h2>

@@ -118,9 +118,11 @@ class _AdapterFailure(WarehouseValidationError):
         *,
         retryable: bool,
         query_ids: Sequence[str] = (),
+        aggregate_query_started: bool = False,
     ) -> None:
         super().__init__(code, public_message, retryable=retryable)
         self.query_ids = tuple(query_ids)
+        self.aggregate_query_started = aggregate_query_started
 
 
 def _failure(
@@ -128,6 +130,7 @@ def _failure(
     *,
     retryable: bool,
     query_ids: Sequence[str] = (),
+    aggregate_query_started: bool = False,
 ) -> _AdapterFailure:
     messages = {
         "warehouse_authentication": "Warehouse authentication was not accepted.",
@@ -153,6 +156,7 @@ def _failure(
         messages[code],
         retryable=retryable,
         query_ids=query_ids,
+        aggregate_query_started=aggregate_query_started,
     )
 
 
@@ -277,16 +281,25 @@ def _connector_failure(
     error: Exception,
     phase: str,
     query_ids: Sequence[str],
+    aggregate_query_started: bool,
 ) -> _AdapterFailure:
     class_names = {item.__name__.casefold() for item in type(error).__mro__}
     if phase == "connect" and "forbiddenerror" in class_names:
         return _failure(
-            "warehouse_authentication", retryable=False, query_ids=query_ids
+            "warehouse_authentication",
+            retryable=False,
+            query_ids=query_ids,
+            aggregate_query_started=aggregate_query_started,
         )
     if isinstance(error, TimeoutError) or any(
         "timeout" in name for name in class_names
     ):
-        return _failure("warehouse_timeout", retryable=True, query_ids=query_ids)
+        return _failure(
+            "warehouse_timeout",
+            retryable=True,
+            query_ids=query_ids,
+            aggregate_query_started=aggregate_query_started,
+        )
     if (
         isinstance(error, (ConnectionError, OSError))
         or class_names & RETRYABLE_CONNECTOR_ERRORS
@@ -296,16 +309,39 @@ def _connector_failure(
             for marker in ("network", "operational", "unavailable")
         )
     ):
-        return _failure("warehouse_transport", retryable=True, query_ids=query_ids)
+        return _failure(
+            "warehouse_transport",
+            retryable=True,
+            query_ids=query_ids,
+            aggregate_query_started=aggregate_query_started,
+        )
     if any("auth" in name for name in class_names) or phase == "connect":
         return _failure(
-            "warehouse_authentication", retryable=False, query_ids=query_ids
+            "warehouse_authentication",
+            retryable=False,
+            query_ids=query_ids,
+            aggregate_query_started=aggregate_query_started,
         )
     if phase == "identity":
-        return _failure("warehouse_identity", retryable=False, query_ids=query_ids)
+        return _failure(
+            "warehouse_identity",
+            retryable=False,
+            query_ids=query_ids,
+            aggregate_query_started=aggregate_query_started,
+        )
     if phase in {"schema", "aggregate"}:
-        return _failure("warehouse_relation", retryable=False, query_ids=query_ids)
-    return _failure("warehouse_connector", retryable=False, query_ids=query_ids)
+        return _failure(
+            "warehouse_relation",
+            retryable=False,
+            query_ids=query_ids,
+            aggregate_query_started=aggregate_query_started,
+        )
+    return _failure(
+        "warehouse_connector",
+        retryable=False,
+        query_ids=query_ids,
+        aggregate_query_started=aggregate_query_started,
+    )
 
 
 class SnowflakeWarehouseValidator:
@@ -341,6 +377,7 @@ class SnowflakeWarehouseValidator:
         started_at = datetime.now(UTC)
         started_clock = perf_counter()
         plan: WarehouseValidationPlan | None = None
+        aggregate_query_started = False
         try:
             relation = self._settings.warehouse_target_map.get(change.asset_urn)
             if relation is None:
@@ -357,6 +394,7 @@ class SnowflakeWarehouseValidator:
             )
             try:
                 evidence = await asyncio.shield(worker)
+                aggregate_query_started = True
             except asyncio.CancelledError:
                 while not worker.done():
                     try:
@@ -396,6 +434,7 @@ class SnowflakeWarehouseValidator:
                 environment_label=self._settings.warehouse_environment_label,
                 operation=change.operation,
                 field=change.field,
+                aggregate_query_started=True,
                 relation_fingerprint=plan.relation_fingerprint,
                 started_at=started_at,
                 completed_at=datetime.now(UTC),
@@ -414,6 +453,9 @@ class SnowflakeWarehouseValidator:
                 environment_label=self._settings.warehouse_environment_label,
                 operation=change.operation,
                 field=change.field,
+                aggregate_query_started=(
+                    failure.aggregate_query_started or aggregate_query_started
+                ),
                 relation_fingerprint=(
                     plan.relation_fingerprint if plan is not None else None
                 ),
@@ -476,6 +518,7 @@ class SnowflakeWarehouseValidator:
         evidence: _ExecutionEvidence | None = None
         pending: BaseException | None = None
         query_ids: list[str] = []
+        aggregate_query_started = False
         phase = "connect"
         try:
             connector = self._connect or _default_connector()
@@ -498,6 +541,8 @@ class SnowflakeWarehouseValidator:
                     raise _failure(
                         "warehouse_query", retryable=False, query_ids=query_ids
                     ) from None
+                if query.code != "schema_probe":
+                    aggregate_query_started = True
                 cursor.execute(query.sql)
                 self._remember_query_id(cursor, query_ids)
                 if query.code == "schema_probe":
@@ -514,18 +559,38 @@ class SnowflakeWarehouseValidator:
         close_error = _close_resources(cursor, connection)
         if pending is not None:
             if isinstance(pending, _AdapterFailure):
-                raise pending
+                raise _failure(
+                    pending.code,
+                    retryable=pending.retryable,
+                    query_ids=query_ids,
+                    aggregate_query_started=aggregate_query_started,
+                ) from None
             if isinstance(pending, asyncio.CancelledError):
                 raise _failure(
-                    "warehouse_cancelled", retryable=True, query_ids=query_ids
+                    "warehouse_cancelled",
+                    retryable=True,
+                    query_ids=query_ids,
+                    aggregate_query_started=aggregate_query_started,
                 ) from None
             if isinstance(pending, Exception):
-                raise _connector_failure(pending, phase, query_ids) from None
+                raise _connector_failure(
+                    pending, phase, query_ids, aggregate_query_started
+                ) from None
             raise pending
         if close_error is not None:
-            raise _failure("warehouse_connector", retryable=False, query_ids=query_ids)
+            raise _failure(
+                "warehouse_connector",
+                retryable=False,
+                query_ids=query_ids,
+                aggregate_query_started=aggregate_query_started,
+            )
         if evidence is None:
-            raise _failure("warehouse_response", retryable=False, query_ids=query_ids)
+            raise _failure(
+                "warehouse_response",
+                retryable=False,
+                query_ids=query_ids,
+                aggregate_query_started=aggregate_query_started,
+            )
         return evidence
 
     def _verify_identity(self, rows: Sequence[Sequence[object]]) -> None:

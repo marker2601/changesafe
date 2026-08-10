@@ -7,13 +7,18 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import type { RunState, WarehouseValidationResult } from "../types";
+import type {
+  ContextBundle,
+  RunState,
+  WarehouseValidationResult,
+} from "../types";
 
 interface CommandRailProps {
   artifactCount: number;
   passedChecks: number;
   totalChecks: number;
   runState: RunState | null;
+  contextMode?: ContextBundle["provenance"]["mode"] | null;
   warehouseValidation?: WarehouseValidationResult | null;
 }
 
@@ -70,6 +75,7 @@ export function CommandRail({
   passedChecks,
   totalChecks,
   runState,
+  contextMode = null,
   warehouseValidation = null,
 }: CommandRailProps) {
   const progress = stageProgress(runState);
@@ -86,8 +92,19 @@ export function CommandRail({
               : stage.label === "Prove" && totalChecks
                 ? `${passedChecks} / ${totalChecks} static checks`
                 : stage.detail;
-          const warehouseDetail = warehouseValidation
-            ? `Warehouse: ${warehouseValidation.status.replace("_", " ")}`
+          const warehouseStatus = warehouseValidation
+            ? warehouseValidation.aggregate_query_started === false
+              ? "not run"
+              : warehouseValidation.aggregate_query_started === null
+                ? "unavailable"
+                : contextMode === "live" &&
+                    warehouseValidation.status === "passed" &&
+                    warehouseValidation.mode === "aggregate"
+                  ? "passed"
+                  : "inconclusive"
+            : null;
+          const warehouseDetail = warehouseStatus
+            ? `Warehouse: ${warehouseStatus}`
             : null;
           return (
             <li
@@ -101,7 +118,7 @@ export function CommandRail({
                   <strong>{stage.label}</strong>
                   <small>{detail}</small>
                   {stage.label === "Prove" && warehouseDetail ? (
-                    <small className={`warehouse-badge is-${warehouseValidation?.status}`}>
+                    <small className={`warehouse-badge is-${warehouseStatus?.replace(" ", "-")}`}>
                       {warehouseDetail}
                     </small>
                   ) : null}

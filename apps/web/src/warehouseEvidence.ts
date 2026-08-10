@@ -1,43 +1,30 @@
-import type { WarehouseValidationResult } from "./types";
-
-const BEFORE_PRODUCTION_QUERY_CODES = new Set([
-  "warehouse_authentication",
-  "warehouse_contract",
-  "warehouse_identity",
-  "warehouse_query",
-  "warehouse_relation",
-  "warehouse_schema",
-]);
+import type { ContextBundle, WarehouseValidationResult } from "./types";
 
 export function blockedBeforeProductionQuery(
   validation: WarehouseValidationResult,
 ): boolean {
-  const counts = [
-    validation.rows_evaluated,
-    validation.populated_row_count,
-    validation.unsafe_row_count,
-  ];
   return (
     validation.status === "blocked" &&
-    counts.every((value) => value === null) &&
-    validation.checks.length > 0 &&
-    validation.checks.every((check) =>
-      BEFORE_PRODUCTION_QUERY_CODES.has(check.code),
-    )
+    validation.aggregate_query_started === false
   );
 }
 
 export function warehouseValidationClaim(
   validation: WarehouseValidationResult,
+  contextMode: ContextBundle["provenance"]["mode"],
 ): string {
-  if (validation.status === "passed" && validation.mode === "aggregate") {
-    return `Warehouse values checked · ${validation.environment_label}`;
+  if (validation.aggregate_query_started === false) {
+    return "Production rows not queried";
+  }
+  if (validation.aggregate_query_started === null) {
+    return `Warehouse query status unavailable · ${validation.environment_label}`;
   }
   if (
-    validation.status === "not_run" ||
-    blockedBeforeProductionQuery(validation)
+    contextMode === "live" &&
+    validation.status === "passed" &&
+    validation.mode === "aggregate"
   ) {
-    return "Production rows not queried";
+    return `Warehouse values checked · ${validation.environment_label}`;
   }
   return `Warehouse validation inconclusive · ${validation.environment_label}`;
 }

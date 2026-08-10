@@ -11,7 +11,10 @@ import {
 describe("WarehouseValidationPanel", () => {
   it("claims warehouse values were checked only for passed aggregate evidence", () => {
     const { container } = render(
-      <WarehouseValidationPanel validation={passedWarehouseValidation} />,
+      <WarehouseValidationPanel
+        contextMode="live"
+        validation={passedWarehouseValidation}
+      />,
     );
 
     const panel = screen.getByRole("region", { name: "Warehouse validation" });
@@ -47,7 +50,12 @@ describe("WarehouseValidationPanel", () => {
   });
 
   it("says production rows were not queried when warehouse validation did not run", () => {
-    render(<WarehouseValidationPanel validation={notRunWarehouseValidation} />);
+    render(
+      <WarehouseValidationPanel
+        contextMode="snapshot"
+        validation={notRunWarehouseValidation}
+      />,
+    );
 
     expect(screen.getByText("Production rows not queried")).toBeVisible();
     expect(screen.queryByText(/Warehouse values checked/)).not.toBeInTheDocument();
@@ -75,7 +83,9 @@ describe("WarehouseValidationPanel", () => {
       ],
     };
 
-    render(<WarehouseValidationPanel validation={blockedBeforeQuery} />);
+    render(
+      <WarehouseValidationPanel contextMode="live" validation={blockedBeforeQuery} />,
+    );
 
     expect(screen.getByText("Production rows not queried")).toBeVisible();
     expect(screen.getByText(/blocked before aggregate production-row evidence/i)).toBeVisible();
@@ -101,7 +111,9 @@ describe("WarehouseValidationPanel", () => {
       ],
     };
 
-    render(<WarehouseValidationPanel validation={blockedAfterQuery} />);
+    render(
+      <WarehouseValidationPanel contextMode="live" validation={blockedAfterQuery} />,
+    );
 
     expect(
       screen.getByText(
@@ -110,6 +122,78 @@ describe("WarehouseValidationPanel", () => {
     ).toBeVisible();
     expect(screen.getByText("Rows evaluated").closest("div")).toHaveTextContent("0");
     expect(screen.getByText(/approval remains blocked/i)).toBeVisible();
+    expect(screen.queryByText(/Warehouse values checked/)).not.toBeInTheDocument();
+  });
+
+  it("uses the execution boundary for an aggregate-phase relation failure", () => {
+    const aggregateRelationFailure: WarehouseValidationResult = {
+      ...notRunWarehouseValidation,
+      status: "blocked",
+      mode: "aggregate",
+      aggregate_query_started: true,
+      started_at: "2026-08-08T20:00:00Z",
+      completed_at: "2026-08-08T20:00:00.004Z",
+      elapsed_ms: 4,
+      checks: [
+        {
+          code: "warehouse_relation",
+          label: "Warehouse relation",
+          passed: false,
+          retryable: false,
+          detail: "Warehouse relation validation failed.",
+          observed_count: null,
+        },
+      ],
+    };
+
+    render(
+      <WarehouseValidationPanel
+        contextMode="live"
+        validation={aggregateRelationFailure}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Warehouse validation inconclusive · competition-non-production",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Production rows not queried")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Warehouse values checked/)).not.toBeInTheDocument();
+  });
+
+  it("treats a missing legacy execution boundary as unknown", () => {
+    const legacyUnknown: WarehouseValidationResult = {
+      ...passedWarehouseValidation,
+      aggregate_query_started: null,
+    };
+
+    render(
+      <WarehouseValidationPanel contextMode="live" validation={legacyUnknown} />,
+    );
+
+    expect(
+      screen.getByText(
+        "Warehouse query status unavailable · competition-non-production",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Production rows not queried")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Warehouse values checked/)).not.toBeInTheDocument();
+  });
+
+  it("never calls snapshot evidence warehouse values checked", () => {
+    render(
+      <WarehouseValidationPanel
+        contextMode="snapshot"
+        validation={passedWarehouseValidation}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Warehouse validation inconclusive · competition-non-production",
+      ),
+    ).toBeVisible();
     expect(screen.queryByText(/Warehouse values checked/)).not.toBeInTheDocument();
   });
 });

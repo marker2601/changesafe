@@ -12,6 +12,7 @@ from changesafe.demo import golden_change
 from changesafe.domain import (
     ChangeOperation,
     ChangeRequest,
+    ContextMode,
     ImpactCategory,
     RunState,
     ValidationCheck,
@@ -63,6 +64,7 @@ def inconclusive_warehouse_result(
         environment_label="competition-non-production",
         operation=change.operation,
         field=change.field,
+        aggregate_query_started=True,
         relation_fingerprint=fingerprint_relation(WAREHOUSE_RELATION),
         started_at=now - timedelta(seconds=1),
         completed_at=now,
@@ -93,6 +95,7 @@ def passed_warehouse_result() -> WarehouseValidationResult:
         environment_label="competition-non-production",
         operation=change.operation,
         field=change.field,
+        aggregate_query_started=True,
         relation_fingerprint=fingerprint_relation(WAREHOUSE_RELATION),
         started_at=now - timedelta(seconds=1),
         completed_at=now,
@@ -120,6 +123,7 @@ def blocked_warehouse_result() -> WarehouseValidationResult:
         environment_label="competition-non-production",
         operation=change.operation,
         field=change.field,
+        aggregate_query_started=True,
         relation_fingerprint=fingerprint_relation(WAREHOUSE_RELATION),
         started_at=now - timedelta(seconds=1),
         completed_at=now,
@@ -143,6 +147,7 @@ def not_run_warehouse_result() -> WarehouseValidationResult:
         environment_label="competition-non-production",
         operation=change.operation,
         field=change.field,
+        aggregate_query_started=False,
     )
 
 
@@ -200,6 +205,23 @@ class UnavailableContext:
         raise ContextLoadError("live context unavailable")
 
 
+class LiveReplayDataHubContext:
+    """Replay fixtures with live provenance for warehouse-boundary tests."""
+
+    def __init__(self) -> None:
+        self.replay = ReplayDataHubContext.from_default()
+
+    async def load(self, change: ChangeRequest):
+        context = await self.replay.load(change)
+        return context.model_copy(
+            update={
+                "provenance": context.provenance.model_copy(
+                    update={"mode": ContextMode.LIVE, "snapshot_hash": None}
+                )
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_golden_pipeline_reaches_awaiting_approval(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs.db")
@@ -254,7 +276,7 @@ async def test_required_warehouse_pass_reaches_awaiting_approval(
     warehouse = FakeWarehousePort(passed_warehouse_result())
     orchestrator = ChangeSafeOrchestrator(
         store=store,
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayDataHubContext(),
         generator=ArtifactGenerationService(),
         warehouse_port=warehouse,
         require_warehouse=True,
@@ -280,6 +302,40 @@ async def test_required_warehouse_pass_reaches_awaiting_approval(
 
 
 @pytest.mark.asyncio
+async def test_snapshot_context_never_calls_configured_warehouse(
+    tmp_path: Path,
+) -> None:
+    store = RunStore(tmp_path / "snapshot-warehouse.db")
+    warehouse = FakeWarehousePort(passed_warehouse_result())
+    orchestrator = ChangeSafeOrchestrator(
+        store=store,
+        context_port=ReplayDataHubContext.from_default(),
+        generator=ArtifactGenerationService(),
+        warehouse_port=warehouse,
+        require_warehouse=True,
+        warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
+    )
+    run = await store.create(golden_change())
+
+    result = await orchestrator.analyze(run.run_id)
+
+    assert result.state is RunState.FAILED
+    assert result.analysis is not None
+    evidence = result.analysis.warehouse_validation
+    assert evidence.status is WarehouseValidationStatus.NOT_RUN
+    assert evidence.aggregate_query_started is False
+    assert evidence.operation is run.request.operation
+    assert evidence.field == run.request.field
+    assert [item.code for item in result.analysis.approval_blockers] == [
+        "WAREHOUSE_EVIDENCE_REQUIRED"
+    ]
+    assert warehouse.calls == 0
+    assert RunState.VALIDATING_WAREHOUSE not in {
+        event.state for event in await store.events(run.run_id)
+    }
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("operation", tuple(ChangeOperation))
 @pytest.mark.parametrize("boundary", ["empty_relation", "all_null_field"])
 async def test_required_inconclusive_aggregate_evidence_is_ineligible(
@@ -292,7 +348,7 @@ async def test_required_inconclusive_aggregate_evidence_is_ineligible(
     store = RunStore(tmp_path / f"required-{operation.value}-{boundary}.db")
     orchestrator = ChangeSafeOrchestrator(
         store=store,
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayDataHubContext(),
         generator=ArtifactGenerationService(),
         warehouse_port=warehouse,
         require_warehouse=True,
@@ -365,7 +421,7 @@ async def test_failed_warehouse_result_preserves_analysis_in_failed(
     warehouse = FakeWarehousePort(blocked_warehouse_result())
     orchestrator = ChangeSafeOrchestrator(
         store=store,
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayDataHubContext(),
         generator=ArtifactGenerationService(),
         warehouse_port=warehouse,
         warehouse_target_map={golden_change().asset_urn: WAREHOUSE_RELATION},
@@ -393,7 +449,7 @@ async def test_optional_called_port_not_run_is_retryable_blocked_evidence(
     warehouse = FakeWarehousePort(not_run_warehouse_result())
     orchestrator = ChangeSafeOrchestrator(
         store=store,
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayDataHubContext(),
         generator=ArtifactGenerationService(),
         warehouse_port=warehouse,
         require_warehouse=False,
@@ -434,7 +490,7 @@ async def test_warehouse_exception_becomes_blocked_evidence_instead_of_not_run(
     warehouse = FailingWarehousePort()
     orchestrator = ChangeSafeOrchestrator(
         store=store,
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayDataHubContext(),
         generator=ArtifactGenerationService(),
         warehouse_port=warehouse,
         require_warehouse=True,
@@ -464,7 +520,7 @@ async def test_orchestrator_timeout_becomes_retryable_blocked_evidence(
     warehouse = HangingWarehousePort()
     orchestrator = ChangeSafeOrchestrator(
         store=store,
-        context_port=ReplayDataHubContext.from_default(),
+        context_port=LiveReplayDataHubContext(),
         generator=ArtifactGenerationService(),
         warehouse_port=warehouse,
         require_warehouse=True,

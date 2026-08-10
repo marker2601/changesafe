@@ -311,6 +311,7 @@ class WarehouseValidationResult(StrictModel):
     environment_label: str = Field(min_length=1, max_length=80)
     operation: ChangeOperation
     field: str = Field(min_length=1, max_length=128)
+    aggregate_query_started: bool | None = None
     relation_fingerprint: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$"
     )
@@ -330,8 +331,23 @@ class WarehouseValidationResult(StrictModel):
                 raise ValueError("passed warehouse evidence must be aggregate")
             if not self.checks or any(not check.passed for check in self.checks):
                 raise ValueError("passed warehouse evidence requires passed checks")
+            if self.aggregate_query_started is False:
+                raise ValueError(
+                    "passed warehouse evidence requires an aggregate query"
+                )
+        if self.aggregate_query_started is False and any(
+            count is not None
+            for count in (
+                self.rows_evaluated,
+                self.populated_row_count,
+                self.unsafe_row_count,
+            )
+        ):
+            raise ValueError("warehouse counts require an aggregate query")
         if self.status is WarehouseValidationStatus.NOT_RUN and (
-            self.started_at is not None or self.query_ids
+            self.started_at is not None
+            or self.query_ids
+            or self.aggregate_query_started is True
         ):
             raise ValueError("not-run evidence cannot claim execution")
         return self

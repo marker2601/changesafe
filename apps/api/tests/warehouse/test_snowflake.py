@@ -285,6 +285,7 @@ async def test_executes_only_identity_and_registered_selects_with_bounded_sessio
     result, connection, connect = await validate_with(success_responses())
 
     assert result.status is WarehouseValidationStatus.PASSED
+    assert result.aggregate_query_started is True
     assert result.rows_evaluated == 12
     assert result.populated_row_count == 10
     assert result.unsafe_row_count is None
@@ -342,6 +343,7 @@ async def test_identity_mismatch_blocks_before_relation_query(
     result, connection, _ = await validate_with(success_responses(identity=identity))
 
     assert result.status is WarehouseValidationStatus.BLOCKED
+    assert result.aggregate_query_started is False
     assert result.checks[-1].code == "warehouse_identity"
     assert result.checks[-1].retryable is False
     assert connection.executed == [IDENTITY_SQL]
@@ -635,6 +637,7 @@ async def test_empty_and_all_null_aggregates_are_blocked_inconclusive_evidence(
     )
 
     assert result.status is WarehouseValidationStatus.BLOCKED
+    assert result.aggregate_query_started is True
     assert result.rows_evaluated == counts[0]
     assert result.populated_row_count == counts[1]
     assert result.unsafe_row_count == (counts[2] if len(counts) == 3 else None)
@@ -844,6 +847,7 @@ async def test_relation_exception_closes_and_never_exposes_message_or_rows(
 
     assert result.status is WarehouseValidationStatus.BLOCKED
     assert result.checks[-1].code == "warehouse_relation"
+    assert result.aggregate_query_started is True
     assert result.checks[-1].retryable is False
     assert secret not in result.model_dump_json()
     assert secret not in caplog.text
@@ -1002,6 +1006,7 @@ async def test_missing_target_relation_is_nonretryable_without_connecting() -> N
 
     assert result.status is WarehouseValidationStatus.BLOCKED
     assert result.checks[-1].code == "warehouse_relation"
+    assert result.aggregate_query_started is False
     assert result.checks[-1].retryable is False
     assert connect.calls == []
 

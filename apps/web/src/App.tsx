@@ -87,7 +87,7 @@ export function App({ api = browserApi }: AppProps) {
         : "Schema unavailable";
   const warehouse = analysis?.warehouse_validation ?? null;
   const heroWarehouseTruth = warehouse
-    ? warehouseValidationClaim(warehouse)
+    ? warehouseValidationClaim(warehouse, analysis!.context.provenance.mode)
     : run?.state === "validating_warehouse"
       ? "Warehouse validation in progress"
       : "Production rows not queried";
@@ -278,6 +278,7 @@ export function App({ api = browserApi }: AppProps) {
           passedChecks={blocking.filter((check) => check.passed).length}
           runState={run?.state ?? null}
           totalChecks={blocking.length}
+          contextMode={analysis?.context.provenance.mode ?? null}
           warehouseValidation={warehouse}
         />
 
@@ -290,6 +291,7 @@ export function App({ api = browserApi }: AppProps) {
             <aside className="governance-rail">
               <ValidationPanel validation={analysis.validation} />
               <WarehouseValidationPanel
+                contextMode={analysis.context.provenance.mode}
                 validation={analysis.warehouse_validation}
               />
               <ApprovalPanel

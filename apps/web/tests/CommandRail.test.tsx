@@ -44,6 +44,7 @@ describe("CommandRail", () => {
         passedChecks={12}
         runState="awaiting_approval"
         totalChecks={12}
+        contextMode="live"
         warehouseValidation={passedWarehouseValidation}
       />,
     );
@@ -52,5 +53,22 @@ describe("CommandRail", () => {
     expect(prove).toHaveTextContent("12 / 12 static checks");
     expect(prove).toHaveTextContent("Warehouse: passed");
     expect(prove).not.toHaveTextContent("13 / 13");
+  });
+
+  it("does not badge snapshot-carried aggregate evidence as passed", () => {
+    render(
+      <CommandRail
+        artifactCount={7}
+        contextMode="snapshot"
+        passedChecks={12}
+        runState="awaiting_approval"
+        totalChecks={12}
+        warehouseValidation={passedWarehouseValidation}
+      />,
+    );
+
+    const prove = screen.getByRole("link", { name: /Prove/ });
+    expect(prove).toHaveTextContent("Warehouse: inconclusive");
+    expect(prove).not.toHaveTextContent("Warehouse: passed");
   });
 });

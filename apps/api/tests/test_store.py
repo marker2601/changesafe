@@ -49,6 +49,7 @@ def passed_warehouse_result() -> WarehouseValidationResult:
         environment_label="competition-non-production",
         operation=ChangeOperation.RENAME,
         field="customer_email",
+        aggregate_query_started=True,
         relation_fingerprint="a" * 64,
         rows_evaluated=20,
         populated_row_count=20,
@@ -286,6 +287,7 @@ async def test_store_round_trips_warehouse_result_and_blockers(
 
     assert restored is not None
     assert restored.analysis == analysis
+    assert restored.analysis.warehouse_validation.aggregate_query_started is True
     assert restored.analysis.approval_blockers == [
         ApprovalBlocker(
             code="WAREHOUSE_EVIDENCE_REVIEW",
@@ -324,6 +326,34 @@ async def test_store_restores_pre_upgrade_analysis_with_warehouse_defaults(
         WarehouseValidationStatus.NOT_RUN
     )
     assert restored.analysis.approval_blockers == []
+
+
+@pytest.mark.asyncio
+async def test_store_restores_legacy_warehouse_result_with_unknown_query_boundary(
+    tmp_path: Path,
+) -> None:
+    import aiosqlite
+
+    database = tmp_path / "runs.db"
+    store = RunStore(database)
+    run = await store.create(golden_change())
+    analysis = analysis_result()
+    await advance_to_awaiting_approval(store, run.run_id, analysis)
+    legacy_analysis = analysis.model_dump(mode="json")
+    legacy_analysis["warehouse_validation"].pop("aggregate_query_started")
+
+    async with aiosqlite.connect(database) as connection:
+        await connection.execute(
+            "UPDATE runs SET analysis_json = ? WHERE run_id = ?",
+            (json.dumps(legacy_analysis), str(run.run_id)),
+        )
+        await connection.commit()
+
+    restored = await RunStore(database).get(run.run_id)
+
+    assert restored is not None
+    assert restored.analysis is not None
+    assert restored.analysis.warehouse_validation.aggregate_query_started is None
 
 
 @pytest.mark.asyncio
