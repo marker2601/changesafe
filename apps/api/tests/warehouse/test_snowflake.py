@@ -110,12 +110,14 @@ class FakeConnection:
         self.executed: list[str] = []
         self.cursor_instance = FakeCursor(responses, self.executed)
         self.closed = False
+        self.close_event = Event()
 
     def cursor(self) -> FakeCursor:
         return self.cursor_instance
 
     def close(self) -> None:
         self.closed = True
+        self.close_event.set()
 
 
 class ConnectSpy:
@@ -466,6 +468,8 @@ async def test_type_aggregate_requires_one_unsafe_count_column(
         metadata("IGNORED", 0, internal_size=None, precision=38, scale=1),
         metadata("IGNORED", 0, internal_size=0, precision=38, scale=0),
         Metadata("IGNORED", 0, None, "malformed", 38, 0, False),
+        Metadata("IGNORED", "FIXED", None, None, 38, 0, False),
+        Metadata("IGNORED", True, None, None, 38, 0, False),
     ],
 )
 async def test_each_type_aggregate_alias_requires_fixed_integer_metadata(
@@ -839,12 +843,20 @@ async def test_task_cancellation_propagates_after_worker_resource_cleanup() -> N
     assert await asyncio.to_thread(entered.wait, 2)
 
     task.cancel()
-    await asyncio.sleep(0)
-    assert not task.done()
+    for _ in range(3):
+        await asyncio.sleep(0)
+    pending_after_first_cancel = not task.done()
+    task.cancel()
+    for _ in range(3):
+        await asyncio.sleep(0)
+    pending_after_second_cancel = not task.done()
     release.set()
 
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(asyncio.shield(task), timeout=2)
+    assert await asyncio.to_thread(connection.close_event.wait, 2)
+    assert pending_after_first_cancel
+    assert pending_after_second_cancel
     assert task.cancelled()
     assert connection.cursor_instance.closed
     assert connection.closed

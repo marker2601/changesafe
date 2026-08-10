@@ -196,8 +196,6 @@ def _optional_int(column: object, name: str, position: int) -> int | None:
 
 def _snowflake_type_name(column: object) -> str:
     raw_type = _metadata_value(column, "type_code", 1)
-    if isinstance(raw_type, str):
-        return raw_type.upper()
     if type(raw_type) is int and 0 <= raw_type < len(SNOWFLAKE_TYPES):
         return SNOWFLAKE_TYPES[raw_type]
     raise ValueError("unsupported cursor type code")
@@ -360,8 +358,15 @@ class SnowflakeWarehouseValidator:
             try:
                 evidence = await asyncio.shield(worker)
             except asyncio.CancelledError:
+                while not worker.done():
+                    try:
+                        await asyncio.shield(worker)
+                    except asyncio.CancelledError:
+                        continue
+                    except BaseException:
+                        break
                 with suppress(BaseException):
-                    await worker
+                    worker.result()
                 raise
 
             checks = [
