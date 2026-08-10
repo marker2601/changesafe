@@ -470,6 +470,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .schema-error { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 7px; padding: 9px; border: 1px solid rgb(255 102 95 / 55%); border-radius: 5px; color: #ffc4c0; background: #2b1014; font-size: 9px; line-height: 1.4; }
 .schema-error > span { flex: 1 1 100%; }
 .schema-error .button { min-height: 32px; padding: 0 9px; font-size: 9px; }
+.field-validation-error { color: #ffc4c0; font-size: 9px; line-height: 1.4; }
 .operation-destination {
   display: flex;
   min-height: 40px;

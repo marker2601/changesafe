@@ -32,6 +32,7 @@ export default defineConfig({
     env: {
       CHANGESAFE_MODE: "replay",
       CHANGESAFE_DATA_PATH: "data/e2e/changesafe.db",
+      CHANGESAFE_RUNS_PER_MINUTE: "1000",
     },
   },
 });

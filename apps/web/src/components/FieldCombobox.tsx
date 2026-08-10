@@ -7,6 +7,7 @@ interface FieldComboboxProps {
   fields: SchemaField[];
   id?: string;
   onChange: (field: SchemaField) => void;
+  onSelectionCommitChange?: (committed: boolean) => void;
   value: string;
 }
 
@@ -15,6 +16,7 @@ export function FieldCombobox({
   fields,
   id,
   onChange,
+  onSelectionCommitChange,
   value,
 }: FieldComboboxProps) {
   const listId = useId();
@@ -45,14 +47,18 @@ export function FieldCombobox({
     }
   }, [active, open]);
 
-  const close = () => {
+  const close = (
+    committed = query.trim().toLowerCase() === value.toLowerCase(),
+  ) => {
     setOpen(false);
     setRequestedActiveIndex(0);
+    onSelectionCommitChange?.(committed);
   };
   const select = (field: SchemaField) => {
     onChange(field);
     setOpen(false);
     setRequestedActiveIndex(0);
+    onSelectionCommitChange?.(true);
   };
 
   return (
@@ -67,11 +73,12 @@ export function FieldCombobox({
         autoComplete="off"
         disabled={disabled}
         id={id}
-        onBlur={close}
+        onBlur={() => close()}
         onChange={(event) => {
           setQuery(event.target.value);
           setOpen(true);
           setRequestedActiveIndex(0);
+          onSelectionCommitChange?.(false);
         }}
         onClick={() => {
           if (open) return;
@@ -87,7 +94,8 @@ export function FieldCombobox({
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
-            close();
+            setQuery(value);
+            close(true);
           } else if (event.key === "ArrowDown") {
             event.preventDefault();
             setOpen(true);

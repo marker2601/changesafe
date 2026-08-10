@@ -14,84 +14,101 @@ Small schema edits cause disproportionate outages because code review rarely inc
 
 ## What it does
 
-ChangeSafe starts with an allowlisted DataHub schema, so a reviewer selects the field to change rather than typing an email-only demo value. It then retrieves field-scoped context through DataHub's Agent Context Kit, classifies six business and technical impact areas, computes an immutable risk score, generates a conservative seven-file dbt/SQL migration package, and runs twelve blocking validations. A reviewer can follow directional lineage signals, trace each impact finding to its evidence, inspect exact artifact bytes and explanations, review rollback guidance, and see the accountable approval stop.
+ChangeSafe starts with an allowlisted DataHub schema, so a reviewer selects any returned field instead of typing an email-only demo value. It retrieves field-scoped context through DataHub's Agent Context Kit, traces exact metadata routes, classifies six impact areas, computes a deterministic factor score, generates a conservative seven-file dbt/SQL compatibility package, and verifies twelve blocking properties against the exact bytes. When configured, a separate read-only validator checks aggregate non-production warehouse safety. The workflow always pauses for the accountable owner.
 
-The golden demonstration uses the organizer-provided `showcase-ecommerce` datapack. Its checksummed replay catalog contains all 55 supported `Order Entry Analytics.order_details` fields. The default `cust_email` to `primary_email` rename has six upstream and 25 downstream captured relationships, plus ownership, high query usage, executive/reporting exposure, and cross-domain evidence. `order_total` (six upstream, 31 downstream) and `order_status` (six upstream, 27 downstream) are separately captured non-email examples.
+The organizer-provided `showcase-ecommerce` catalog exposes exactly 55 concrete `Order Entry Analytics.order_details` fields. The judge flows are:
 
-Routes are truthful about their precision: exact field routes name both returned endpoint columns; endpoint-only multi-hop routes name known endpoints and disclose that an intermediate column mapping was not returned; dataset-level relationships never receive an invented field name. Captured governance is also field-scoped: ChangeSafe does not claim `cust_email` is PII simply because it looks like an email address when the captured field policy is absent.
+- Rename `cust_email` to `primary_email`: six upstream and 25 downstream relationships.
+- Remove `order_status`: six upstream and 27 downstream relationships.
+- Change `order_total` to `VARCHAR(320)`: six upstream and 31 downstream relationships.
 
-The credential-free mode replays a SHA-256-verified snapshot through the same API, persistence, event stream, policy, generation, verification, and approval pipeline. The UI calls this **Recorded DataHub evidence**, reports measured server-event timing, labels its output `NOT WRITTEN — SNAPSHOT MODE`, and produces a downloadable patch. Owner-enabled live mode can create a GitHub pull request and write an idempotent decision document, structured properties, and a deprecation tag to an allowlisted DataHub target.
+Every operation uses the actual keyboard-accessible field combobox. The selected field binds the request, context, risk factors, route labels, generated paths, manifest, and warehouse policy evidence. The score is derived from the factor ledger; it is not a field-name branch.
+
+Routes are truthful about their precision. Exact field routes name both returned endpoint columns. Endpoint-only multi-hop routes disclose that an intermediate mapping was not returned. Dataset-level relationships never receive an invented field name. ChangeSafe also does not infer a personal-data label from a name such as `cust_email` when the field-scoped governance evidence is absent.
+
+Credential-free mode replays a SHA-256-verified DataHub snapshot through the same API, persistence, event stream, policy, generation, verification, approval, and patch-download pipeline. The UI calls this **Recorded DataHub evidence checked**, labels the receipt `NOT WRITTEN — SNAPSHOT MODE`, and says **Production rows not queried**. Replay proves deterministic application behavior; it does not prove current DataHub state or warehouse values.
+
+Owner-enabled live mode can create one GitHub pull request and write an idempotent decision record to the allowlisted DataHub target. Publication is bound to the request, destinations, exact artifact hash, durable checkpoints, and an explicit owner approval.
+
+## Warehouse and data boundary
+
+The Snowflake path is deliberately narrow. Reviewed query plans return aggregate counts only. Raw rows, raw values, relation names, query text, credentials, and private service URLs do not enter the browser or public smoke summary. The adapter validates read-only identity and an allowlisted relation before the aggregate phase.
+
+A timeout, missing field, unsafe conversion, empty/all-null result, stale evidence, relation drift, or required validation that was not run blocks approval. **Warehouse values checked** appears only for current request-bound aggregate evidence with live DataHub provenance that passed every policy check.
+
+No Snowflake credentials were supplied for the final public proof. **Production rows not queried**, and no live warehouse pass is claimed.
 
 ## Why it is different
 
-DataHub already helps people discover metadata. ChangeSafe turns that context into a fail-closed pre-merge decision and a directly reviewable code package. It does not merely summarize a catalog or generate unverified SQL. It binds evidence, deterministic policy, exact artifact hashes, human authorization, crash-safe publication checkpoints, and durable receipts into one workflow.
+DataHub already helps people discover metadata. ChangeSafe turns that context into a fail-closed pre-merge decision and a directly reviewable code package. It does not merely summarize a catalog or generate unverified SQL. It binds evidence, deterministic policy, exact artifact hashes, optional aggregate value proof, human authorization, crash-safe publication checkpoints, and durable receipts into one workflow.
 
 ## How we built it
 
 - React 19, TypeScript, Vite, semantic HTML, Lucide icons, and a responsive command-center interface.
 - FastAPI, Pydantic, SQLite, UUIDv7 run IDs, and resumable server-sent events.
-- `datahub-agent-context` for live schema discovery plus field-scoped governance, ownership, query, and lineage context, with a checksummed contract-compatible replay catalog.
-- A deterministic risk engine, evidence-led six-category impact classifier, and reviewed templates for every generated migration artifact.
-- `sqlglot`, safe YAML parsing, semantic SQL type validation, path confinement, and SHA-256 manifests.
-- GitHub Git Data API publication with artifact/tree reconciliation and a destination-bound durable idempotency ledger.
+- `datahub-agent-context` for live schema discovery and field-scoped governance, ownership, usage, and lineage context.
+- A SHA-256-checked replay adapter with the same strict context contract.
+- A deterministic risk engine, six-category impact classifier, and reviewed templates for every generated artifact.
+- `sqlglot`, safe YAML parsing, semantic SQL type validation, path confinement, SHA-256 manifests, and dbt materialization tests.
+- A read-only Snowflake adapter with identity checks, allowlisted aggregate plans, deadlines, and count-only evidence.
+- GitHub Git Data API publication plus idempotent DataHub writeback and durable side-effect reconciliation.
 - Playwright, Vitest, pytest, Ruff, mypy, dbt, Docker, and GitHub Actions.
 
 ## Challenges
 
-The hardest part was preserving truth across live and replay modes. A polished demo is not useful if it implies that recorded evidence or preview writes happened live. We use one strict context contract, prominent evidence provenance and checksums, measured event timing, safe catalog links, and unambiguous receipts.
+The hardest part was preserving truth across live and replay modes. A polished demo is harmful if it implies that recorded evidence, preview writes, or warehouse checks happened live. The UI separates DataHub provenance, static artifact proof, warehouse execution status, and publication mode.
 
-The second challenge was avoiding made-up column lineage. Real catalogs can return an endpoint or asset path without an intermediate mapping, so the interface and drawer carry explicit precision labels instead of guessing from matching field names.
+The second challenge was incomplete lineage. Real catalogs can return an endpoint or asset path without every intermediate column mapping. The graph, accessible list, and drawer share one route model and carry explicit precision labels instead of guessing.
 
-The third challenge was safe partial publication. A GitHub PR can succeed before a DataHub writeback fails, or a service can restart between checkpoints. ChangeSafe persists immutable intent, destinations, artifact identity, and each side effect, then resumes only the missing step for the original run.
+The third challenge was safe partial publication. A GitHub PR can succeed before a DataHub writeback fails, or a process can restart between checkpoints. ChangeSafe persists immutable intent, destinations, artifact identity, and each side effect, then resumes only the missing step for the original run.
 
-The fourth challenge was explaining impact without inventing facts. Each impact category names its evidence confidence and URNs. Financial exposure is marked `Potentially high, not quantified`; no unsupported dollar estimate is shown.
+The fourth challenge was recovery at browser boundaries. Refresh during `validating_warehouse`, terminal SSE EOF, and a lost approval response all reconcile from durable server state. Progress is event-driven; there are no fake percentages or timed UI stages.
 
 ## Accomplishments
 
-- The replay selector exposes 55 supported official schema fields with native type and nullability, and blocks analysis if schema discovery is unavailable.
-- The official `cust_email` rename deterministically evaluates six upstream and 25 downstream relationships and scores 85/Critical; `order_total` and `order_status` replay with their own field-scoped contexts at 75/High.
-- Exact, endpoint-only, and dataset-level lineage are rendered distinctly in the graph, evidence drawer, and accessible dependency list.
-- Six impact categories translate metadata into language a nontechnical reviewer can understand.
-- Seven generated files pass twelve blocking SQL, YAML, compatibility-shim, path, rollback, relation, collision, context, and manifest checks.
-- Reviewers can complete the workflow without credentials on desktop or mobile while persisted backend events update the page.
-- A private, owner-token-protected view shows hashed anonymous review sessions without storing identity or IP data.
-- Replay, live DataHub 1.7 mapping, crash/retry publication, hostile rendering, hard cost accounting, and browser recovery are automated.
+- Exactly 55 official schema fields with native type/nullability and keyboard selection.
+- Three operation-specific judge flows with six upstream routes and 25/27/31 downstream relationships.
+- Case-insensitive rename collision blocking and protection against submitting a stale selection after an unknown field query.
+- Exact, endpoint-only, and dataset-level lineage rendered consistently across graph, drawer, and accessible list.
+- Six evidence-led impact categories and a deterministic factor ledger.
+- Seven exact generated artifacts and twelve blocking static checks.
+- Optional aggregate-only warehouse validation with request identity, freshness, and approval policy binding.
+- Durable browser recovery, approval reconciliation, no-mutation preview receipts, and patch download.
+- Responsive 1440 px and 430 px acceptance with no page-level horizontal overflow, keyboard drawer/focus return, reduced-motion support, and clean console/page-error arrays.
+- A final local live DataHub smoke with 55-field discovery, live provenance, no mutation, seven artifacts, and 12 / 12 static checks for every operation; warehouse status remained `not_run`.
 
 ## What we learned
 
-Metadata becomes more valuable when it is executable decision context rather than a passive catalog. A trustworthy agent needs explicit provenance, bounded authority, deterministic policy, semantic validation, human approval, and durable receipts as much as it needs generation quality.
+Metadata becomes more valuable when it is executable decision context rather than a passive catalog. A trustworthy agent needs explicit provenance, bounded authority, deterministic policy, semantic validation, human approval, durable receipts, and honest uncertainty as much as it needs generation quality.
 
 ## What's next
 
-- Run the final owner-controlled live proof against a DataHub instance loaded with `showcase-ecommerce`.
+- Add stable judge hosting under the owner's deployment account or custom tunnel domain; the anonymous QA tunnel is intentionally temporary.
+- Supply owner-controlled read-only Snowflake credentials to produce a real aggregate warehouse pass.
 - Add organization authentication and move jobs/ledger storage to shared infrastructure for multi-replica hosting.
-- Add additional catalog-backed policy profiles for contracts, quality assertions, and production ML changes.
-- Contribute generalized Agent Context Kit envelope fixtures and documentation back to the DataHub ecosystem.
+- Add more catalog-backed policy profiles for contracts, quality assertions, and production ML changes.
 
 ## Technologies
 
-DataHub Agent Context Kit, official `showcase-ecommerce` datapack, Python, FastAPI, Pydantic, SQLite, React, TypeScript, Vite, sqlglot, PyYAML, httpx, Playwright, Vitest, pytest, Ruff, mypy, dbt, Docker, Docker Compose, and GitHub Actions.
+DataHub Agent Context Kit, official `showcase-ecommerce` datapack, Snowflake connector, Python, FastAPI, Pydantic, SQLite, React, TypeScript, Vite, sqlglot, PyYAML, httpx, Playwright, Vitest, pytest, Ruff, mypy, dbt, Docker, Docker Compose, and GitHub Actions.
 
 ## Testing instructions
 
-1. Run `docker compose up --build` from a clean clone.
-2. Open `http://localhost:8000`.
-3. Confirm **Recorded DataHub evidence**, **Preview only**, and **Official DataHub showcase-ecommerce**.
-4. Open **Current field**, select `cust_email`, and confirm its native type/nullability are shown from recorded schema evidence.
-5. Click **Analyze change**. Confirm 85/Critical, six impact categories, six upstream and 25 downstream relationships, seven files, and 12/12 validations.
-6. Open a direct route, a multi-hop route, and a dataset-level route to confirm the different precision labels; inspect the drawer and its evidence link behavior.
-7. Start a new analysis, select `order_total`, enter `preferred_order_total`, and confirm the changed request, route, generated package, 75/High result, and 12/12 validations.
-8. Read an artifact explanation, then click **Approve preview**.
-9. Confirm `NOT WRITTEN — SNAPSHOT MODE` and download the patch.
+1. Run `docker compose up --build` from a clean clone and open `http://localhost:8000`.
+2. Confirm **Recorded DataHub schema**, **Preview only**, the `order_details` dataset, and **Production rows not queried**.
+3. Select `cust_email` with the keyboard, keep **Rename field**, enter `primary_email`, and analyze. Confirm six upstream / 25 downstream relationships, seven files, and 12 / 12 static checks.
+4. Open a direct route, a multi-hop route, and a dataset-level route. Confirm the different precision labels, close the drawer with Escape, and verify focus returns.
+5. Start a new analysis, select `order_status`, choose **Remove field**, and confirm six upstream / 27 downstream evidence plus the retained-field compatibility test.
+6. Start a third analysis, select `order_total`, choose **Change type**, enter `VARCHAR(320)`, and confirm six upstream / 31 downstream evidence plus the operation-specific cast bytes.
+7. Try `ORDER_TOTAL` as a rename destination and an unknown Current field. Confirm both are blocked before submission.
+8. Read an artifact explanation, choose **Approve preview**, confirm `NOT WRITTEN — SNAPSHOT MODE`, and download the patch.
 
-No DataHub token is needed for these judging steps. A token is needed only for an operator-controlled live DataHub run.
+No DataHub token is needed for replay. A token is needed only for an operator-controlled live DataHub run. Snowflake credentials are needed only for aggregate warehouse validation; none were available for this proof.
 
 ## Submission links
 
-- Hosted app: `PENDING_HOSTED_URL`
+- Hosted app: stable hosting blocked pending the owner's hosting account or custom tunnel domain
 - Source repository: `https://github.com/marker2601/changesafe`
-- Demo video: `PENDING_VIDEO_URL`
-- Live GitHub pull request: `PENDING_SAMPLE_PR_URL`
-- Live DataHub decision evidence: `PENDING_DATAHUB_EVIDENCE_URL`
-
-Do not replace a remaining placeholder until the external artifact exists and has been verified.
+- Demo video: pending external recording
+- Live GitHub pull request: not created; mutation flags remained disabled
+- Live DataHub decision evidence: not written; mutation flags remained disabled

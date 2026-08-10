@@ -27,6 +27,34 @@ async function anchorInViewport(page: Page, target: Locator) {
   await expectHorizontallyContained(page, target);
 }
 
+function collectBrowserErrors(page: Page) {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  return { consoleErrors, pageErrors };
+}
+
+async function selectFieldByKeyboard(page: Page, field: string) {
+  const combobox = page.getByRole("combobox", { name: "Current field" });
+  await combobox.fill(field);
+  await expect(
+    page.getByRole("option", { name: new RegExp(`^${field}\\b`, "i") }),
+  ).toBeVisible();
+  await combobox.press("Enter");
+  await expect(combobox).toHaveValue(field);
+}
+
+async function expectNoPageOverflow(page: Page) {
+  const dimensions = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
+}
+
 test.skip(
   process.env.CHANGESAFE_CAPTURE_SCREENSHOTS !== "1",
   "Run explicitly when refreshing checked-in proof images.",
@@ -38,13 +66,9 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
     deviceScaleFactor: 1,
   });
   const desktop = await desktopContext.newPage();
+  const desktopErrors = collectBrowserErrors(desktop);
   await desktop.goto("/");
-  const desktopField = desktop.getByRole("combobox", { name: "Current field" });
-  await desktopField.fill("cust_email");
-  await expect(
-    desktop.getByRole("option", { name: /cust_email.*text.*required/i }),
-  ).toBeVisible();
-  await desktopField.press("Enter");
+  await selectFieldByKeyboard(desktop, "cust_email");
   await expectHorizontallyContained(desktop, desktop.locator(".field-combobox"));
   await desktop.getByRole("button", { name: "Analyze change" }).click();
   await expect(desktop.getByText(/^Completed in /)).toBeVisible();
@@ -56,6 +80,8 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
   await expect(desktop.getByTestId("impact-category")).toHaveCount(6);
   await expect(desktop.getByTestId("artifact-file")).toHaveCount(7);
   await expect(desktop.getByText("12 / 12", { exact: true })).toBeVisible();
+  await expect(desktop.getByText("Production rows not queried").first()).toBeVisible();
+  await expectNoPageOverflow(desktop);
   await desktop.evaluate(() => window.scrollTo(0, 0));
   await expectHorizontallyContained(desktop, desktop.locator(".product-hero"));
   await expectHorizontallyContained(desktop, desktop.locator(".command-center"));
@@ -73,6 +99,8 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
     path: screenshotPath("changesafe-desktop-proof.png"),
     fullPage: false,
   });
+  expect(desktopErrors.consoleErrors).toEqual([]);
+  expect(desktopErrors.pageErrors).toEqual([]);
   await desktopContext.close();
 
   const mobileContext = await browser.newContext({
@@ -80,14 +108,11 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
     deviceScaleFactor: 1,
   });
   const mobile = await mobileContext.newPage();
+  const mobileErrors = collectBrowserErrors(mobile);
   await mobile.goto("/");
-  const mobileField = mobile.getByRole("combobox", { name: "Current field" });
-  await mobileField.fill("order_total");
-  await expect(
-    mobile.getByRole("option", { name: /order_total.*float.*required/i }),
-  ).toBeVisible();
-  await mobileField.press("Enter");
-  await mobile.getByLabel("New field").fill("preferred_order_total");
+  await selectFieldByKeyboard(mobile, "order_total");
+  await mobile.getByLabel("Operation").selectOption("type_change");
+  await mobile.getByLabel("New type").fill("VARCHAR(320)");
   await expectHorizontallyContained(mobile, mobile.locator(".field-combobox"));
   await mobile.getByRole("button", { name: "Analyze change" }).click();
   await expect(mobile.getByText(/^Completed in /)).toBeVisible();
@@ -96,8 +121,10 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
       name: /^order_details\.order_total.*ORDER_DETAILS\.order_total, direct field route/i,
     }),
   ).toBeVisible();
-  await expect(mobile.getByText("High technical risk", { exact: true })).toBeVisible();
+  await expect(mobile.getByText("Critical technical risk", { exact: true })).toBeVisible();
   await expect(mobile.getByText("12 / 12", { exact: true })).toBeVisible();
+  await expect(mobile.getByText("Production rows not queried").first()).toBeVisible();
+  await expectNoPageOverflow(mobile);
   await anchorInViewport(mobile, mobile.locator(".target-node"));
   await expectHorizontallyContained(mobile, mobile.locator(".product-hero"));
   await expectHorizontallyContained(mobile, mobile.locator(".command-center"));
@@ -114,5 +141,7 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
     path: screenshotPath("changesafe-mobile-proof.png"),
     fullPage: false,
   });
+  expect(mobileErrors.consoleErrors).toEqual([]);
+  expect(mobileErrors.pageErrors).toEqual([]);
   await mobileContext.close();
 });

@@ -1,73 +1,65 @@
-# ChangeSafe demo script (about 2 minutes 35 seconds)
+# ChangeSafe judge demo (about 3 minutes)
 
-## 0:00–0:20 — Frame the problem
+## 0:00–0:25 — Establish the evidence boundary
 
-Open ChangeSafe at the shared review URL.
+Open the temporary review URL and point to the two separate truth labels in the hero.
 
-> A field rename can pass code review and still damage reports, operations, privacy controls, and trust in decisions. ChangeSafe asks DataHub what the selected field means and who depends on it before any code can be published.
+> ChangeSafe lets a reviewer select any field returned by the allowlisted DataHub schema. It traces exact metadata routes, computes a deterministic factor score, generates a compatibility shim, verifies the exact bytes, optionally checks aggregate non-production warehouse safety, and pauses for the accountable owner.
 
-Point to **Recorded DataHub evidence**, **Preview only**, the evidence ID, and the reproducibility note.
+For the credential-free walkthrough, show **Recorded DataHub evidence checked**, **Preview only**, and **Production rows not queried**.
 
-> Reviewers need no accounts or API keys. This run uses a checksummed DataHub evidence catalog and labels that provenance clearly. The same request plus the same evidence produces the same verified result.
+> This replay uses a SHA-256-verified recording of DataHub metadata. It exercises the real API, event store, policy, generator, verifier, approval, and patch download, but it is not a current DataHub read and it does not prove warehouse values. No raw production values or query text enter the browser.
 
-## 0:20–0:40 — Select a real schema field
+## 0:25–1:10 — Rename `cust_email` to `primary_email`
 
-Point to **Official DataHub showcase-ecommerce**, the `Order Entry Analytics` product, and **Current field**. Open the field picker, show `cust_email` with its native type and nullability, and select it. Point out that the recorded catalog offers all 55 supported `order_details` fields.
+Focus **Current field**, type `cust_email`, and press Enter. Confirm the returned native type and nullability, leave **Rename field** selected, enter `primary_email`, and choose **Analyze change**.
 
-> This is not an email-only mock. The selector comes from the active allowlisted schema. Live mode refreshes that field context at analysis time; recorded mode uses checksummed field-scoped context so reviewers can reproduce the same result without credentials.
+> The active catalog contains exactly 55 concrete `order_details` fields. The selected field—not a hard-coded email branch—binds the request, context, risk factors, routes, generated paths, and warehouse policy record.
 
-Keep the proposed rename `cust_email` to `primary_email`, then click **Analyze change**.
+Follow the persisted process events. Show the six upstream routes, the 25 downstream routes, and the factor ledger. Open a direct route with the keyboard, close the evidence drawer with Escape, and show that focus returns to the same route.
 
-## 0:40–1:10 — Watch the evidence-backed process
+> Exact routes name both endpoints. Multi-hop routes disclose when DataHub did not return an intermediate column mapping. Dataset-level relationships never receive an invented field suffix.
 
-Follow the **Change process** rail as server events arrive: read the contract, find dependencies, classify impact, prepare the migration, prove it safe, and stop for the owner.
+Inspect the seven-file package and the **12 / 12** static validation result.
 
-> These are persisted backend events, not a pre-timed animation. The sequence number and relative time come from the server. A local recorded run can complete in a fraction of a second because it has no catalog network wait; refreshing the browser restores the run and rebuilds its history.
+> The generated dbt model is a separately named phase-one compatibility shim. The base `order_details` model stays unchanged while old and new fields coexist. Every displayed file is the exact hashed byte sequence that approval would publish.
 
-Point to the score and impact cards.
+## 1:10–1:45 — Remove `order_status`
 
-> For this captured `cust_email` rename, ChangeSafe reports 85/Critical from the operation, 25 recorded downstream relationships, executive/reporting exposure, high usage, and cross-domain evidence. The privacy card says its evidence is unavailable here: ChangeSafe does not infer a personal-data label from the field name.
+Choose **New analysis**. Select `order_status` with the keyboard, choose **Remove field**, and analyze.
 
-## 1:10–1:30 — Explain exactly what the lineage says
+> Remove does not drop the field immediately. The generated package retains it during phase one, adds an operation-specific compatibility test, and requires every recorded consumer to migrate before final removal.
 
-Follow the moving lineage signal from upstream inputs through `order_details.cust_email` to its consumers. Open the direct `order_details.cust_email → ORDER_DETAILS.cust_email` route, then point to a multi-hop card and a dataset-only card.
+Show the six upstream and 27 downstream field-scoped relationships, the deterministic factor ledger, seven artifacts, 12 / 12 static checks, and **Production rows not queried**.
 
-> Direct routes name both returned endpoint fields. A multi-hop route can name the known endpoints but says `intermediate column mapping not returned by DataHub` when the catalog did not supply it. A dataset-level relationship names the asset but does not invent a field suffix. The drawer shows the returned URNs, path, precision, retrieval time, and a DataHub link only when the operator configured a safe catalog origin.
+## 1:45–2:15 — Change `order_total` to `VARCHAR(320)`
 
-Click **Trace supporting evidence** on an impact finding and show the accessible dependency list.
+Choose **New analysis**. Select `order_total` with the keyboard, choose **Change type**, enter `VARCHAR(320)`, and analyze.
 
-> The six impact areas explain data integrity, privacy and compliance, operations, decision trust, financial exposure, and organizational impact. They distinguish direct evidence, inference, and unavailable evidence. Financial harm remains `Potentially high, not quantified` because metadata cannot prove a dollar amount.
+> ChangeSafe generates a temporary casted compatibility field and a comparison test. Metadata and static SQL validation can prove the package structure; only configured read-only aggregate warehouse validation can establish current value compatibility.
 
-## 1:30–1:50 — Inspect the generated compatibility package
+Show the six upstream and 31 downstream relationships and the operation-specific `cast(order_total as VARCHAR(320))` bytes.
 
-Show the SQL file, YAML, compatibility test, rollback guide, migration note, PR body, and manifest. Point to **What this file does** and **Failure this prevents**.
+## 2:15–2:35 — Show fail-closed invalid cases
 
-> Phase one leaves the governed `order_details` base model unchanged and creates a separately named compatibility shim. Consumers move through that shim while `cust_email` and `primary_email` coexist. Every generated file is bound to this selected field and has an exact SHA-256 hash.
+Start a rename and enter the existing destination `ORDER_TOTAL`.
 
-Expand validation.
+> Destination checks are case-insensitive. A collision is rejected before a run starts.
 
-> Twelve blocking checks compare the request to DataHub, reject duplicate outputs, parse SQL, validate dbt YAML, prove the shim references the governed model, verify compatibility and rollback order, and recompute the manifest. One failure keeps publication locked.
+Type a field that is not in the returned catalog without committing a selection.
 
-## 1:50–2:10 — Prove it is not only an email scenario
+> Analyze remains disabled; ChangeSafe cannot silently submit the previously selected field.
 
-Click **New analysis**, select `order_total`, enter `preferred_order_total`, and click **Analyze change**. Point to the new change summary, the changed field routes, generated bytes, and validation summary.
+Explain the automated acceptance cases: an unsafe type aggregate result, a warehouse timeout, or required warehouse evidence that was not run all preserve inspectable evidence but block approval. In `auto` mode, a live DataHub outage pauses at **Live DataHub is unavailable** and continues with recorded evidence only after **Continue with labeled snapshot** is chosen.
 
-> The recorded `order_total` rename has its own six-upstream, 31-downstream context and reaches 75/High. Its routes and artifact bytes are not copied from `cust_email`. A third recorded example, `order_status`, also has its own six-upstream, 27-downstream context and scores 75/High for its captured evidence. Equal scores are evidence results, not preset field categories.
+## 2:35–2:55 — Approve the replay truthfully
 
-## 2:10–2:25 — Approve without pretending to publish
+Return to a passing replay result and choose **Approve preview**. Show **Preview ready**, **NOT WRITTEN — SNAPSHOT MODE**, and download the patch.
 
-Click **Approve preview**.
+> Approval is enabled only for a persisted policy pass. Replay approval creates a downloadable patch and no external mutation. A lost approval response is reconciled from the durable receipt instead of repeating the side effect.
 
-> Replay approval produces the exact patch but makes no external write.
+## 2:55–3:00 — State the live proof precisely
 
-Point to **Preview ready** and **NOT WRITTEN — SNAPSHOT MODE**, then download the patch.
+> The final local smoke read the live 55-field DataHub schema and completed three no-mutation preview operations with live provenance, seven artifacts, and 12 / 12 static checks. Snowflake credentials were not supplied: **Production rows not queried**. The public address is a temporary rotating QA tunnel, not stable judge hosting.
 
-> With owner-enabled live settings, the same verified bytes can create one GitHub pull request and write an idempotent decision record to the allowlisted DataHub asset. Crash-safe checkpoints prevent duplicate or mixed publication.
-
-## 2:25–2:35 — Close with accountability
-
-If the private operator control is enabled, open **Review activity** without exposing the token on screen.
-
-> The operator can see privacy-limited anonymous review sessions and current states. ChangeSafe stores no reviewer identity, IP address, or browser fingerprint. The repository includes the field-scoped recorded catalog, sample artifacts, tests, Docker image, CI, architecture, and this credential-free workflow.
-
-If live credentials are available, show only already-verified live receipts. Never describe a replay receipt as a DataHub or GitHub write.
+Never show a token, private service URL, raw row, query text, relation name, or warehouse identifier. Never call a replay receipt a live DataHub or warehouse pass.

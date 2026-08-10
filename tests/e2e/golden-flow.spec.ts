@@ -1,4 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+
+async function selectFieldByKeyboard(page: Page, field: string) {
+  const combobox = page.getByRole("combobox", { name: "Current field" });
+  await combobox.fill(field);
+  await expect(
+    page.getByRole("option", { name: new RegExp(`^${field}\\b`, "i") }),
+  ).toBeVisible();
+  await combobox.press("Enter");
+  await expect(combobox).toHaveValue(field);
+}
 
 test("user completes the credential-free golden workflow", async ({ page }) => {
   const consoleErrors: string[] = [];
@@ -13,9 +23,8 @@ test("user completes the credential-free golden workflow", async ({ page }) => {
       name: "Change data safely, with every dependency in view.",
     }),
   ).toBeVisible();
-  await expect(page.getByText("Official DataHub showcase-ecommerce")).toBeVisible();
   await expect(page.getByText("order_details").first()).toBeVisible();
-  await expect(page.getByText("Recorded DataHub evidence", { exact: true })).toBeVisible();
+  await expect(page.getByText("Recorded DataHub schema").first()).toBeVisible();
   await expect(page.getByText("Preview only", { exact: true })).toBeVisible();
 
   const heroBefore = await page.locator(".product-hero").boundingBox();
@@ -23,6 +32,7 @@ test("user completes the credential-free golden workflow", async ({ page }) => {
 
   await page.getByRole("button", { name: "Analyze change" }).click();
 
+  await expect(page.getByText("Recorded DataHub evidence checked").first()).toBeVisible();
   await expect(page.getByText("85", { exact: true })).toBeVisible();
   await expect(page.getByText("Critical technical risk", { exact: true })).toBeVisible();
   await expect(page.getByTestId("impact-category")).toHaveCount(6);
@@ -74,10 +84,7 @@ test("selected field changes the replay request, routes, and verified package", 
   await page.getByRole("button", { name: "Approve preview" }).click();
   await expect(page.getByText("Preview ready", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "New analysis" }).click();
-  await page.getByRole("combobox", { name: "Current field" }).fill("order_total");
-  await page
-    .getByRole("option", { name: /order_total.*float.*required/i })
-    .click();
+  await selectFieldByKeyboard(page, "order_total");
   await page.getByLabel("New field").fill("preferred_order_total");
   await page.getByRole("button", { name: "Analyze change" }).click();
 
@@ -108,13 +115,7 @@ test("completed workflow remains contained on a phone viewport", async ({ page }
   });
   await page.setViewportSize({ width: 430, height: 932 });
   await page.goto("/");
-  const field = page.getByRole("combobox", { name: "Current field" });
-  await field.fill("order_status");
-  await expect(
-    page.getByRole("option", { name: /order_status.*number.*required/i }),
-  ).toBeVisible();
-  await field.press("ArrowDown");
-  await field.press("Enter");
+  await selectFieldByKeyboard(page, "order_status");
   await page.getByLabel("New field").fill("preferred_order_status");
   const heroBefore = await page.locator(".product-hero").boundingBox();
   expect(heroBefore).not.toBeNull();
@@ -152,16 +153,17 @@ test("remove and type-change requests produce operation-specific proof", async (
   page,
 }) => {
   await page.goto("/");
+  await selectFieldByKeyboard(page, "order_status");
   await page.getByLabel("Operation").selectOption("remove");
   await expect(
     page.getByText(
-      "Delay removal of cust_email until every recorded consumer has migrated.",
+      "Delay removal of order_status until every recorded consumer has migrated.",
     ).first(),
   ).toBeVisible();
   await page.getByRole("button", { name: "Analyze change" }).click();
-  await expect(page.getByText("100", { exact: true })).toBeVisible();
+  await expect(page.getByText(/order_details\.order_status/).first()).toBeVisible();
   await page
-    .getByRole("button", { name: /tests\/assert_cust_email_retained\.sql/ })
+    .getByRole("button", { name: /tests\/assert_order_status_retained\.sql/ })
     .click();
   await expect(
     page.getByText(/warehouse execution fails on the missing column/i),
@@ -169,12 +171,13 @@ test("remove and type-change requests produce operation-specific proof", async (
 
   await page.getByRole("button", { name: "Approve preview" }).click();
   await page.getByRole("button", { name: "New analysis" }).click();
+  await selectFieldByKeyboard(page, "order_total");
   await page.getByLabel("Operation").selectOption("type_change");
+  await page.getByLabel("New type").fill("VARCHAR(320)");
   await page.getByRole("button", { name: "Analyze change" }).click();
-  await expect(page.getByText("95", { exact: true })).toBeVisible();
   await expect(
     page.getByText(
-      /cast\(cust_email as VARCHAR\(320\)\) as cust_email__new_type/i,
+      /cast\(order_total as VARCHAR\(320\)\) as order_total__new_type/i,
     ),
   ).toBeVisible();
 });

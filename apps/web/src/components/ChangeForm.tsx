@@ -1,5 +1,5 @@
 import { ArrowRight, Database, Network, Play, ShieldCheck } from "lucide-react";
-import { useId, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 
 import {
   changeSummary,
@@ -60,6 +60,7 @@ export function ChangeForm({
   onCurrentFieldChange,
 }: ChangeFormProps) {
   const currentFieldId = useId();
+  const [fieldSelectionCommitted, setFieldSelectionCommitted] = useState(true);
   const submitted = submittedRequest !== null;
   const displayed = submittedRequest ?? draft;
   const official = isOfficialScenario(displayed);
@@ -73,8 +74,22 @@ export function ChangeForm({
       : draft.operation === "type_change"
         ? Boolean(draft.new_type.trim())
         : true;
+  const renameCollision =
+    draft.operation === "rename" &&
+    Boolean(
+      schema.catalog?.schema_fields.some(
+        (field) =>
+          field.name.toLowerCase() === draft.new_field.trim().toLowerCase(),
+      ),
+    );
   const canAnalyze =
-    !busy && !schema.loading && !schema.error && Boolean(selectedField) && operationComplete;
+    !busy &&
+    !schema.loading &&
+    !schema.error &&
+    Boolean(selectedField) &&
+    fieldSelectionCommitted &&
+    operationComplete &&
+    !renameCollision;
   const facts = context
     ? {
         dataset: context.target_name,
@@ -181,6 +196,7 @@ export function ChangeForm({
                 fields={schema.catalog.schema_fields}
                 id={currentFieldId}
                 onChange={onCurrentFieldChange}
+                onSelectionCommitChange={setFieldSelectionCommitted}
                 value={draft.field}
               />
             ) : (
@@ -212,6 +228,11 @@ export function ChangeForm({
                     onDraftChange({ ...draft, new_field: event.target.value })
                   }
                 />
+                {renameCollision ? (
+                  <span className="field-validation-error" role="alert">
+                    A field named {draft.new_field.trim()} already exists in this schema.
+                  </span>
+                ) : null}
               </label>
             ) : (
               <span className="operation-destination">

@@ -17,6 +17,7 @@ flowchart TD
     ORCH --> IMPACT["Evidence-led impact classifier"]
     ORCH --> GEN["Reviewed deterministic generator"]
     ORCH --> VERIFY["Artifact verifier"]
+    ORCH -.->|"enabled, live context only"| WH["Read-only aggregate warehouse validator"]
     API --> PUB["Idempotent publication service"]
     PUB -.->|"owner enabled"| GH["GitHub Git Data API"]
     PUB -.->|"owner enabled"| LIVE
@@ -31,6 +32,7 @@ sequenceDiagram
     participant O as Orchestrator
     participant C as Context port
     participant V as Verifier
+    participant WH as Warehouse validator
     participant P as Publication
 
     UI->>API: GET /api/schema-fields
@@ -48,6 +50,10 @@ sequenceDiagram
     O->>O: generate seven artifacts
     O->>V: validate artifacts and exact hashes
     V-->>O: blocking report
+    opt Live context and warehouse validation enabled
+        O->>WH: validate allowlisted relation with aggregate queries
+        WH-->>O: counts, typed checks, timing, opaque query IDs
+    end
     O-->>UI: awaiting_approval event
     UI->>API: POST /approve
     API->>P: artifact-bound idempotent approval
@@ -71,7 +77,10 @@ stateDiagram-v2
     loading_context --> scoring_risk
     scoring_risk --> generating
     generating --> validating
-    validating --> awaiting_approval: all blocking checks pass
+    validating --> validating_warehouse: static checks pass and live warehouse validation is enabled
+    validating_warehouse --> awaiting_approval: aggregate checks and policy pass
+    validating_warehouse --> failed: timeout, unsafe, inconclusive, or required failure
+    validating --> awaiting_approval: static checks pass and warehouse validation is disabled
     validating --> failed: validation fails
     awaiting_approval --> preparing_preview: replay or writes disabled
     preparing_preview --> completed
@@ -84,6 +93,8 @@ stateDiagram-v2
 Every transition is validated and written to `run_events` before it is streamed. Clients resume with the last sequence number. Terminal streams close only after all stored events are delivered.
 
 The browser also stores the current opaque run ID in session storage. On refresh it reloads the durable run and replays events from sequence zero so the visible timeline is reconstructed rather than guessed. A recovered `publishing` or `preparing_preview` run exposes an explicit resume action because no in-process task survives a service restart.
+
+Event progress is state-derived. The UI never synthesizes a percentage or advances on a timer. A terminal SSE end triggers a durable GET reconciliation; a lost approval response is resolved from the stored publication state and receipt.
 
 ## Context adapters
 
@@ -108,6 +119,8 @@ Each rendered dependency is one directional route shared by the graph, accessibl
 
 Matching names are never treated as a column mapping. Missing field-level detail is a disclosed evidence limitation, not an inferred route.
 
+The combobox has a separate committed-selection state. Typing an unknown value disables analysis instead of retaining a hidden previous field, and rename destinations are checked case-insensitively against the returned schema before a run can start. Server validation remains authoritative.
+
 ## Impact classification
 
 The deterministic risk score answers whether the requested operation can proceed. A separate evidence-led classifier explains what kind of harm is supported by DataHub context:
@@ -126,6 +139,18 @@ Each result includes severity, direct/inferred/unavailable confidence, a plain-l
 Reviewed operation-specific templates derive the seven paths from the selected field and target model and define safety invariants for rename, removal, and type-change requests. Where a phase-one compatibility layer is required, the generated `models/marts/order_details__changesafe.sql` shim reads from the governed base `ref('order_details')`; consumers migrate through that shim while the base model remains unchanged. The migration note, PR body, rollback guide, manifest, YAML, and tests are all bound to the selected field. Release generation uses only these reviewed deterministic templates; no runtime planning capability is wired into the public or operator workflow. The generator cannot change the risk score, remove a required file, introduce a relation, or bypass validation.
 
 The verifier operates on in-memory bytes and blocks publication on any failed mandatory check. Generated code is parsed but never executed.
+
+## Optional warehouse validation
+
+Warehouse validation is a separate proof from DataHub metadata. It is available only for live context and a fully configured read-only Snowflake identity. The adapter verifies the configured account, user, role, warehouse, database, and schema before it reaches an allowlisted three-part relation. It then executes reviewed aggregate-only plans: counts for rename/remove existence and count-only conversion evidence for type changes. It returns no raw rows, raw values, query text, relation name, or credential material to the run API.
+
+Timeout, identity mismatch, missing field, unsafe conversion, empty/all-null evidence, stale evidence, relation drift, or a required-but-not-run result fails closed. A blocked result remains inspectable but cannot enable approval. The UI uses three distinct claims:
+
+- **Production rows not queried** when the aggregate query did not run;
+- **Warehouse validation inconclusive** when a query began but did not establish a pass; and
+- **Warehouse values checked** only for current, request-bound, live-context aggregate evidence that passed every policy check.
+
+The checked-in public screenshots show replay only because no Snowflake credentials were supplied. They are not warehouse-validation evidence.
 
 ## Publication and idempotency
 
