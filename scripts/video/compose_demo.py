@@ -8,8 +8,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-import imageio_ffmpeg
-
 from scripts.video.narration import VideoProductionError
 from scripts.video.storyboard import default_output_dir
 
@@ -245,6 +243,12 @@ def compose_and_verify(
     capture_report: Path,
     verification: Path,
 ) -> MediaProbe:
+    try:
+        import imageio_ffmpeg
+    except ImportError as error:
+        raise VideoProductionError(
+            "Video requirements are not installed; run the guarded video runner."
+        ) from error
     ffmpeg = Path(imageio_ffmpeg.get_ffmpeg_exe()).resolve()
     encoder_result = subprocess.run(
         [str(ffmpeg), "-hide_banner", "-encoders"],
