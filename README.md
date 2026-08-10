@@ -46,6 +46,9 @@ event, preview-approval, and patch paths against checksum-pinned
 Recorded DataHub evidence. It does not query production rows or enable external
 mutations.
 
+[Open the permanent ChangeSafe competition demo](https://changesafe-competition.onrender.com).
+The first request may take about a minute when Render wakes the free service.
+
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/marker2601/changesafe)
 
 The free service can sleep after inactivity and may take extra time on its first

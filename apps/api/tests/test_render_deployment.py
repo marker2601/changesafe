@@ -10,6 +10,7 @@ DEPLOY_URL = (
     "https://render.com/deploy?repo="
     "https://github.com/marker2601/changesafe"
 )
+HOSTED_URL = "https://changesafe-competition.onrender.com"
 
 EXPECTED_ENV = {
     "CHANGESAFE_DATA_PATH": "/data/changesafe.db",
@@ -63,6 +64,7 @@ def test_render_blueprint_contains_only_public_safe_environment() -> None:
 
 def test_readme_exposes_truthful_render_deployment() -> None:
     readme = README.read_text(encoding="utf-8")
+    assert HOSTED_URL in readme
     assert DEPLOY_URL in readme
     assert "competition-ready pilot" in readme
     assert "Recorded DataHub evidence" in readme
