@@ -16,6 +16,7 @@ import {
   goldenEvents,
   goldenRun,
   goldenSchemaCatalog,
+  passedWarehouseValidation,
   previewReceipt,
   RUN_ID,
 } from "./fixtures";
@@ -49,7 +50,7 @@ describe("ChangeSafe workspace", () => {
 
     expect(screen.getByText("Custom change request")).toBeVisible();
     expect(screen.getAllByText("order_details")).toHaveLength(2);
-    expect(screen.getByText("Official DataHub showcase-ecommerce")).toBeVisible();
+    expect(screen.getAllByText("Recorded DataHub schema").length).toBeGreaterThan(0);
     expect(screen.getByText("Official ecommerce evidence")).toBeVisible();
     expect(screen.getByRole("heading", { name: "order_details" })).toBeVisible();
   });
@@ -216,6 +217,10 @@ describe("ChangeSafe workspace", () => {
         datahub_writeback_available: true,
         owner_activity_available: true,
         openai_model: "gpt-5.6-luna",
+        live_evidence_required: false,
+        warehouse_validation_available: false,
+        warehouse_validation_required: false,
+        warehouse_environment_label: "competition-non-production",
       })),
       getSchemaCatalog: vi.fn(async () => goldenSchemaCatalog),
       getOwnerActivity: vi.fn(async () => []),
@@ -381,6 +386,10 @@ describe("ChangeSafe workspace", () => {
         datahub_writeback_available: true,
         owner_activity_available: true,
         openai_model: "gpt-5.6-luna",
+        live_evidence_required: false,
+        warehouse_validation_available: false,
+        warehouse_validation_required: false,
+        warehouse_environment_label: "competition-non-production",
       })),
       getSchemaCatalog: vi.fn(async () => goldenSchemaCatalog),
       getOwnerActivity: vi.fn(async () => []),
@@ -480,7 +489,9 @@ describe("ChangeSafe workspace", () => {
 
     expect(await screen.findByText("Event 08 · +700 ms")).toBeVisible();
     expect(screen.getByText("Completed in 0.70 seconds")).toBeVisible();
-    expect(screen.getByText("Recorded evidence after live fallback")).toBeVisible();
+    expect(
+      screen.getAllByText("Recorded DataHub evidence checked").length,
+    ).toBeGreaterThan(0);
   });
 
   it("labels a returned custom live context without the showcase badge", async () => {
@@ -530,8 +541,8 @@ describe("ChangeSafe workspace", () => {
     render(<App api={api} />);
 
     expect(
-      await screen.findByText("Live DataHub evidence · payments_daily"),
-    ).toBeVisible();
+      await screen.findAllByText("Live DataHub metadata checked"),
+    ).not.toHaveLength(0);
     expect(
       screen.queryByText("Official DataHub showcase-ecommerce"),
     ).not.toBeInTheDocument();
@@ -548,7 +559,9 @@ describe("ChangeSafe workspace", () => {
         name: "Change data safely, with every dependency in view.",
       }),
     ).toBeVisible();
-    expect(screen.getByText("Official DataHub showcase-ecommerce")).toBeVisible();
+    expect(
+      screen.getAllByText("Recorded DataHub evidence checked").length,
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText("order_details").length).toBeGreaterThan(0);
     expect(screen.getAllByText("cust_email").length).toBeGreaterThan(0);
     expect(screen.getAllByText("primary_email").length).toBeGreaterThan(0);
@@ -570,7 +583,8 @@ describe("ChangeSafe workspace", () => {
     expect(screen.getByText("What this file does")).toBeVisible();
     expect(screen.getByText("Failure this prevents")).toBeVisible();
     expect(screen.getByText("12 / 12")).toBeVisible();
-    expect(screen.getByText("Recorded DataHub evidence")).toBeVisible();
+    expect(screen.getAllByText("Recorded DataHub evidence checked").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Production rows not queried").length).toBeGreaterThan(0);
     expect(screen.getByText("Preview only")).toBeVisible();
     expect(screen.getByText(/^Completed in /)).toBeVisible();
     await user.click(screen.getByText("About this run"));
@@ -598,6 +612,88 @@ describe("ChangeSafe workspace", () => {
     expect(
       screen.getByText("No external systems were changed."),
     ).toBeVisible();
+  });
+
+  it("renders live metadata and passed warehouse evidence as separate truths", async () => {
+    const user = userEvent.setup();
+    let current: RunView = {
+      ...goldenRun,
+      state: "created",
+      analysis: null,
+    };
+    const livePassed: RunView = {
+      ...goldenRun,
+      analysis: {
+        ...goldenRun.analysis!,
+        context: {
+          ...goldenRun.analysis!.context,
+          provenance: {
+            ...goldenRun.analysis!.context.provenance,
+            mode: "live",
+            snapshot_hash: null,
+          },
+        },
+        warehouse_validation: passedWarehouseValidation,
+      },
+    };
+    const api: ChangeSafeApi = {
+      ...createGoldenApi(),
+      getPublicConfig: vi.fn(async (): Promise<PublicConfig> => ({
+        mode: "live",
+        live_context_available: true,
+        datahub_ui_url: "https://datahub.example.test",
+        llm_available: false,
+        github_publication_available: false,
+        datahub_writeback_available: false,
+        owner_activity_available: false,
+        openai_model: "gpt-5.6-luna",
+        live_evidence_required: true,
+        warehouse_validation_available: true,
+        warehouse_validation_required: true,
+        warehouse_environment_label: "competition-non-production",
+      })),
+      createRun: vi.fn(async () => current),
+      getRun: vi.fn(async () => current),
+      subscribe: (_runId, after, onEvent) => {
+        const warehouseEvent: RunEvent = {
+          ...goldenEvents.at(-1)!,
+          sequence: 6,
+          state: "validating_warehouse",
+          public_message: "Validating aggregate warehouse evidence",
+        };
+        const approvalEvent: RunEvent = {
+          ...goldenEvents.at(-1)!,
+          sequence: 7,
+        };
+        queueMicrotask(() => {
+          for (const event of [
+            ...goldenEvents.slice(0, -1),
+            warehouseEvent,
+            approvalEvent,
+          ]) {
+            if (event.sequence <= after) continue;
+            if (event.state === "awaiting_approval") current = livePassed;
+            onEvent(event);
+          }
+        });
+        return () => undefined;
+      },
+    };
+
+    render(<App api={api} />);
+    await user.click(await screen.findByRole("button", { name: "Analyze change" }));
+
+    expect(
+      await screen.findAllByText("Live DataHub metadata checked"),
+    ).not.toHaveLength(0);
+    expect(
+      screen.getAllByText(
+        "Warehouse values checked · competition-non-production",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("12 / 12 static checks")).toBeVisible();
+    expect(screen.getByText("Warehouse: passed")).toBeVisible();
+    expect(screen.queryByText("Production rows not queried")).not.toBeInTheDocument();
   });
 
   it("treats terminal event-stream closure as completion, not disconnection", async () => {
@@ -770,6 +866,10 @@ describe("ChangeSafe workspace", () => {
         datahub_writeback_available: true,
         owner_activity_available: true,
         openai_model: "gpt-5.6-luna",
+        live_evidence_required: false,
+        warehouse_validation_available: false,
+        warehouse_validation_required: false,
+        warehouse_environment_label: "competition-non-production",
       })),
       getSchemaCatalog: vi.fn(async () => goldenSchemaCatalog),
       getOwnerActivity: vi.fn(async () => []),
@@ -843,6 +943,13 @@ describe("ChangeSafe workspace", () => {
       analysis: {
         ...goldenRun.analysis!,
         publication_eligible: false,
+        approval_blockers: [
+          {
+            code: "VERIFICATION_FAILED",
+            message: "Generated artifacts did not pass safety checks.",
+            retryable: false,
+          },
+        ],
         validation: {
           passed: false,
           checks: goldenRun.analysis!.validation.checks.map((check, index) =>
@@ -883,6 +990,13 @@ describe("ChangeSafe workspace", () => {
 
     expect(await screen.findByText("Change package blocked")).toBeVisible();
     expect(screen.getByText("11 / 12")).toBeVisible();
+    expect(screen.getAllByTestId("artifact-file")).toHaveLength(7);
+    expect(
+      screen.getAllByText("Production rows not queried").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByText("Generated artifacts did not pass safety checks."),
+    ).toBeVisible();
     await user.click(screen.getByRole("button", { name: "New analysis" }));
     expect(
       screen.getByRole("button", { name: "Analyze change" }),
@@ -959,6 +1073,10 @@ describe("ChangeSafe workspace", () => {
         datahub_writeback_available: false,
         owner_activity_available: false,
         openai_model: "gpt-5.6-luna",
+        live_evidence_required: false,
+        warehouse_validation_available: false,
+        warehouse_validation_required: false,
+        warehouse_environment_label: "competition-non-production",
       })),
       getSchemaCatalog: vi.fn(async () => goldenSchemaCatalog),
       getOwnerActivity: vi.fn(async () => []),

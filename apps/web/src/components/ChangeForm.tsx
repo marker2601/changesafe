@@ -111,6 +111,17 @@ export function ChangeForm({
       : displayed.operation === "remove"
         ? "retain through phase one"
         : `${displayed.new_type} compatibility field`;
+  const schemaProvenance = context
+    ? context.provenance.mode === "live"
+      ? "Live DataHub metadata checked"
+      : "Recorded DataHub evidence checked"
+    : schema.catalog
+      ? schema.catalog.provenance.mode === "live"
+        ? "Live DataHub schema"
+        : "Recorded DataHub schema"
+      : schema.loading
+        ? "Loading DataHub schema"
+        : "Schema unavailable";
 
   return (
     <form
@@ -133,6 +144,8 @@ export function ChangeForm({
             : changeSummary(draft)}
         </p>
       </header>
+
+      <p className="schema-source">{schemaProvenance}</p>
 
       {!submitted ? (
         <label>
@@ -174,13 +187,6 @@ export function ChangeForm({
               <input aria-label="Current field" disabled id={currentFieldId} value="Schema unavailable" />
             )}
           </div>
-          {schema.catalog ? (
-            <p className="schema-source">
-              {schema.catalog.provenance.mode === "live"
-                ? "Reading schema from Live DataHub"
-                : "Reading checksum-verified recorded schema"}
-            </p>
-          ) : null}
           {schema.error ? (
             <div className="schema-error" role="alert">
               <span>{schema.error}</span>

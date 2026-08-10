@@ -30,6 +30,7 @@ const ACTIVE_ANALYSIS_STATES = new Set<RunState>([
   "scoring_risk",
   "generating",
   "validating",
+  "validating_warehouse",
 ]);
 
 const ANALYSIS_END_STATES = new Set<RunState>([
@@ -118,22 +119,14 @@ export function RunProvenance({
   const snapshotHash = provenance?.snapshot_hash;
   const evidenceLabel =
     provenance?.mode === "live"
-      ? "Live DataHub metadata"
-      : replay && fallbackAttempted
-        ? "Recorded evidence after live fallback"
-        : replay
-          ? "Recorded DataHub evidence"
+      ? "Live DataHub metadata checked"
+      : replay
+        ? "Recorded DataHub evidence checked"
           : fallbackAttempted
             ? "Live DataHub unavailable"
             : config === null
               ? "Loading configuration…"
-              : config.mode === "replay"
-                ? "Recorded DataHub evidence"
-                : config.mode === "live"
-                  ? "Live DataHub metadata"
-                  : config.live_context_available
-                    ? "Live DataHub when available"
-                    : "Recorded fallback available";
+              : "Metadata not checked";
   const publicationLabel =
     publicationMode === "live"
       ? "Owner-gated publishing"

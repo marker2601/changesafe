@@ -34,6 +34,11 @@ export function ApprovalPanel({
         (config?.github_publication_available ||
           config?.datahub_writeback_available)),
   );
+  const blockers = run.analysis?.approval_blockers ?? [];
+  const firstBlocker = blockers[0]?.message ?? null;
+  const publicationEligible = Boolean(
+    run.analysis?.publication_eligible && blockers.length === 0,
+  );
 
   if (run.state === "completed" && run.publication) {
     const preview = run.publication.mode === "preview";
@@ -47,9 +52,11 @@ export function ApprovalPanel({
           </div>
         </div>
         <p>
-          {preview
-            ? "No external systems were changed."
-            : "Verified artifacts and the decision receipt are published."}
+          {firstBlocker
+            ? firstBlocker
+            : preview
+              ? "No external systems were changed."
+              : "Verified artifacts and the decision receipt are published."}
         </p>
         <a className="button button-primary" download href={patchUrl}>
           <Download aria-hidden="true" />
@@ -84,7 +91,11 @@ export function ApprovalPanel({
     return (
       <section className="approval-panel failure-panel" id="approval" aria-live="assertive">
         <h2>Publication needs attention</h2>
-        <p>{run.error?.message ?? "A partial publication is ready to retry."}</p>
+        <p>
+          {firstBlocker ??
+            run.error?.message ??
+            "A partial publication is ready to retry."}
+        </p>
         {run.publication?.pull_request_url ? (
           <a href={run.publication.pull_request_url}>The pull request was created</a>
         ) : null}
@@ -101,14 +112,14 @@ export function ApprovalPanel({
         ) : null}
         <button
           className="button button-primary"
-          disabled={busy || !retryable}
+          disabled={busy || !retryable || !publicationEligible}
           onClick={() => void onApprove(adminToken || undefined)}
           type="button"
         >
           <RotateCcw aria-hidden="true" />
           {retryable ? "Retry missing step" : "Operator action required"}
         </button>
-        {!retryable ? (
+        {!retryable || !publicationEligible ? (
           <p>Retry is disabled until the configuration or conflict is resolved.</p>
         ) : null}
       </section>
@@ -124,7 +135,8 @@ export function ApprovalPanel({
       >
         <h2>Change package blocked</h2>
         <p>
-          {run.error?.message ??
+          {firstBlocker ??
+            run.error?.message ??
             "The generated change did not pass every blocking check."}
         </p>
         <p>The recorded validation evidence remains available for inspection.</p>
@@ -145,7 +157,9 @@ export function ApprovalPanel({
       <section className="approval-panel" id="approval" aria-live="polite">
         <h2>{busy ? activeHeading : "Durable publication checkpoint"}</h2>
         <p>
-          {busy
+          {firstBlocker
+            ? firstBlocker
+            : busy
             ? "Persisted checkpoints update as each authorized step completes."
             : "ChangeSafe can resume the saved publication without repeating completed steps."}
         </p>
@@ -162,7 +176,7 @@ export function ApprovalPanel({
         ) : null}
         <button
           className="button button-primary"
-          disabled={busy}
+          disabled={busy || !publicationEligible}
           onClick={() => void onApprove(adminToken || undefined)}
           type="button"
         >
@@ -179,7 +193,7 @@ export function ApprovalPanel({
     );
   }
 
-  const ready = run.state === "awaiting_approval";
+  const ready = run.state === "awaiting_approval" && publicationEligible;
   return (
     <section className="approval-panel" id="approval" aria-labelledby="approval-heading">
       <h2 id="approval-heading">Approval actions</h2>
@@ -205,9 +219,12 @@ export function ApprovalPanel({
       </button>
       <p className="approval-note">
         <LockKeyhole aria-hidden="true" />
-        {ready
-          ? "No changes will be applied until approved."
-          : "Approval unlocks only after every blocking check passes."}
+        {firstBlocker ??
+          (run.analysis && !run.analysis.publication_eligible
+            ? "Approval is blocked by persisted policy."
+            : ready
+              ? "No changes will be applied until approved."
+              : "Approval is unavailable for this persisted run state.")}
       </p>
     </section>
   );

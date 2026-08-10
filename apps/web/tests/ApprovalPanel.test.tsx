@@ -39,6 +39,10 @@ describe("ApprovalPanel", () => {
       datahub_writeback_available: true,
       owner_activity_available: true,
       openai_model: "gpt-5.6-luna",
+      live_evidence_required: true,
+      warehouse_validation_available: true,
+      warehouse_validation_required: true,
+      warehouse_environment_label: "competition-non-production",
     };
 
     render(
@@ -135,5 +139,75 @@ describe("ApprovalPanel", () => {
     expect(screen.getByText("Change package blocked")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "New analysis" }));
     expect(onReset).toHaveBeenCalledOnce();
+  });
+
+  it("disables approval and shows the first persisted policy blocker", () => {
+    const run: RunView = {
+      ...goldenRun,
+      analysis: {
+        ...goldenRun.analysis!,
+        publication_eligible: false,
+        approval_blockers: [
+          {
+            code: "LIVE_EVIDENCE_REQUIRED",
+            message: "Live metadata evidence is required for approval.",
+            retryable: true,
+          },
+          {
+            code: "WAREHOUSE_EVIDENCE_REQUIRED",
+            message: "Warehouse validation evidence is required for approval.",
+            retryable: true,
+          },
+        ],
+      },
+    };
+
+    render(
+      <ApprovalPanel
+        busy={false}
+        config={null}
+        onApprove={vi.fn()}
+        onReset={vi.fn()}
+        patchUrl="#"
+        run={run}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Approve preview" })).toBeDisabled();
+    expect(
+      screen.getByText("Live metadata evidence is required for approval."),
+    ).toBeVisible();
+    expect(screen.queryByText(/every blocking check passes/i)).not.toBeInTheDocument();
+  });
+
+  it("does not recover approval eligibility from a completed state alone", () => {
+    render(
+      <ApprovalPanel
+        busy={false}
+        config={null}
+        onApprove={vi.fn()}
+        onReset={vi.fn()}
+        patchUrl="#"
+        run={{
+          ...goldenRun,
+          state: "completed",
+          publication: null,
+          analysis: {
+            ...goldenRun.analysis!,
+            publication_eligible: false,
+            approval_blockers: [
+              {
+                code: "WAREHOUSE_VALIDATION_FAILED",
+                message: "Warehouse validation did not pass.",
+                retryable: false,
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Approve preview" })).toBeDisabled();
+    expect(screen.getByText("Warehouse validation did not pass.")).toBeVisible();
   });
 });

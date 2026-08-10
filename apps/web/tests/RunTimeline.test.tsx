@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import { RunTimeline } from "../src/components/RunTimeline";
 import type { RunEvent } from "../src/types";
-import { goldenEvents, RUN_ID } from "./fixtures";
+import {
+  goldenEvents,
+  passedWarehouseValidation,
+  RUN_ID,
+} from "./fixtures";
 
 const loadingEvent: RunEvent = {
   run_id: RUN_ID,
@@ -188,5 +192,55 @@ describe("RunTimeline", () => {
     expect(
       screen.getByText("Proving the generated change is safe").closest("li"),
     ).toHaveTextContent("Pending");
+  });
+
+  it("adds a persisted warehouse phase when policy requires it", () => {
+    const warehouseEvent: RunEvent = {
+      ...loadingEvent,
+      sequence: 6,
+      state: "validating_warehouse",
+      public_message: "Validating aggregate warehouse evidence",
+    };
+
+    render(
+      <RunTimeline
+        events={[...goldenEvents.slice(0, -1), warehouseEvent]}
+        field="account_status"
+        runState="validating_warehouse"
+        warehouseValidationRequired
+      />,
+    );
+
+    expect(screen.getAllByTestId("process-step")).toHaveLength(8);
+    expect(
+      screen.getByText("Validating aggregate warehouse evidence").closest("li"),
+    ).toHaveTextContent("In progress");
+    expect(
+      screen.getByText("Finding everything that depends on account_status"),
+    ).toBeVisible();
+  });
+
+  it("interrupts a failed warehouse phase and keeps its event metadata", () => {
+    const warehouseEvent: RunEvent = {
+      ...loadingEvent,
+      sequence: 6,
+      state: "validating_warehouse",
+      public_message: "Validating aggregate warehouse evidence",
+    };
+
+    render(
+      <RunTimeline
+        events={[...goldenEvents.slice(0, -1), warehouseEvent]}
+        field="cust_email"
+        runState="failed"
+        warehouseValidation={passedWarehouseValidation}
+      />,
+    );
+
+    const warehouseStep = screen
+      .getByText("Validating aggregate warehouse evidence")
+      .closest("li");
+    expect(warehouseStep).toHaveTextContent("Interrupted");
+    expect(warehouseStep).toHaveTextContent("Event 06");
   });
 });

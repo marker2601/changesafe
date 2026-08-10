@@ -9,12 +9,54 @@ import type {
   RunEvent,
   RunView,
   SchemaCatalog,
+  WarehouseValidationResult,
 } from "../src/types";
 
 const NOW = "2026-08-08T20:00:00Z";
 export const RUN_ID = "0198f000-0000-7000-8000-000000000000";
 export const OFFICIAL_TARGET =
   "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)";
+
+export const notRunWarehouseValidation = {
+  status: "not_run",
+  mode: "none",
+  environment_label: "competition-non-production",
+  operation: "rename",
+  field: "cust_email",
+  relation_fingerprint: null,
+  started_at: null,
+  completed_at: null,
+  rows_evaluated: null,
+  populated_row_count: null,
+  unsafe_row_count: null,
+  query_ids: [],
+  elapsed_ms: null,
+  checks: [],
+} satisfies WarehouseValidationResult;
+
+export const passedWarehouseValidation = {
+  ...notRunWarehouseValidation,
+  status: "passed",
+  mode: "aggregate",
+  relation_fingerprint: "f".repeat(64),
+  started_at: "2026-08-08T20:00:00Z",
+  completed_at: "2026-08-08T20:00:00.018Z",
+  rows_evaluated: 20,
+  populated_row_count: 20,
+  unsafe_row_count: 0,
+  query_ids: ["warehouse-query-01"],
+  elapsed_ms: 18,
+  checks: [
+    {
+      code: "aggregate_validation",
+      label: "Aggregate validation",
+      passed: true,
+      retryable: false,
+      detail: "Aggregate checks passed.",
+      observed_count: 0,
+    },
+  ],
+} satisfies WarehouseValidationResult;
 
 export const schemaFields = [
   { name: "order_id", data_type: "NUMBER", nullable: false },
@@ -324,6 +366,8 @@ export const goldenRun: RunView = {
       })),
     },
     publication_eligible: true,
+    warehouse_validation: notRunWarehouseValidation,
+    approval_blockers: [],
     impacts,
   },
   publication: null,
@@ -391,6 +435,10 @@ export function createGoldenApi(): ChangeSafeApi {
     datahub_writeback_available: false,
     owner_activity_available: false,
     openai_model: "gpt-5.6-luna",
+    live_evidence_required: false,
+    warehouse_validation_available: false,
+    warehouse_validation_required: false,
+    warehouse_environment_label: "competition-non-production",
   };
   return {
     getPublicConfig: vi.fn(async () => publicConfig),

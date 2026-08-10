@@ -1,6 +1,11 @@
 import { Check, Circle, CircleDot, TriangleAlert } from "lucide-react";
 
-import type { PublicationReceipt, RunEvent, RunState } from "../types";
+import type {
+  PublicationReceipt,
+  RunEvent,
+  RunState,
+  WarehouseValidationResult,
+} from "../types";
 
 const STEPS = [
   {
@@ -9,7 +14,7 @@ const STEPS = [
     eventState: "loading_context",
   },
   {
-    label: "Finding everything that depends on cust_email",
+    label: "Finding everything that depends on the requested field",
     detail: "Models, semantic layers, reports, and teams.",
     eventState: "scoring_risk",
   },
@@ -45,45 +50,65 @@ interface RunTimelineProps {
   field: string;
   publicationMode?: PublicationReceipt["mode"] | null;
   runState: RunState | null;
+  warehouseValidation?: WarehouseValidationResult | null;
+  warehouseValidationRequired?: boolean;
 }
 
-function activeIndex(state: RunState | null): number {
+function activeIndex(state: RunState | null, warehouseStage: boolean): number {
+  const approvalIndex = warehouseStage ? 6 : 5;
+  const finalIndex = approvalIndex + 1;
   if (state === "scoring_risk") return 2;
   if (state === "generating") return 3;
   if (state === "validating") return 4;
-  if (state === "awaiting_approval") return 5;
-  if (state === "preparing_preview" || state === "publishing") return 6;
-  if (state === "completed") return STEPS.length;
-  if (state === "publication_failed") return 6;
+  if (state === "validating_warehouse") return warehouseStage ? 5 : 4;
+  if (state === "awaiting_approval") return approvalIndex;
+  if (state === "preparing_preview" || state === "publishing") return finalIndex;
+  if (state === "completed") return finalIndex + 1;
+  if (state === "publication_failed") return finalIndex;
   if (state === "created" || state === "loading_context") return 0;
   return -1;
 }
 
-function phaseIndex(state: RunState): number | null {
+function phaseIndex(state: RunState, warehouseStage: boolean): number | null {
+  const approvalIndex = warehouseStage ? 6 : 5;
   if (state === "created" || state === "loading_context") return 0;
   if (state === "scoring_risk") return 2;
   if (state === "generating") return 3;
   if (state === "validating") return 4;
-  if (state === "awaiting_approval") return 5;
-  if (state === "preparing_preview" || state === "publishing") return 6;
+  if (state === "validating_warehouse") return warehouseStage ? 5 : 4;
+  if (state === "awaiting_approval") return approvalIndex;
+  if (state === "preparing_preview" || state === "publishing") {
+    return approvalIndex + 1;
+  }
   return null;
 }
 
-function latestPersistedPhase(events: RunEvent[], fallback: number): number {
+function latestPersistedPhase(
+  events: RunEvent[],
+  fallback: number,
+  warehouseStage: boolean,
+): number {
   const ordered = [...events].sort((left, right) => right.sequence - left.sequence);
   for (const event of ordered) {
-    const index = phaseIndex(event.state);
+    const index = phaseIndex(event.state, warehouseStage);
     if (index !== null) return index;
   }
   return fallback;
 }
 
-function interruptedIndex(state: RunState | null, events: RunEvent[]): number | null {
+function interruptedIndex(
+  state: RunState | null,
+  events: RunEvent[],
+  warehouseStage: boolean,
+): number | null {
+  const finalIndex = warehouseStage ? 7 : 6;
   if (state === "context_fallback_required") {
-    return latestPersistedPhase(events, 0);
+    return latestPersistedPhase(events, 0, warehouseStage);
   }
-  if (state === "failed") return latestPersistedPhase(events, 0);
-  if (state === "publication_failed") return latestPersistedPhase(events, 6);
+  if (state === "failed") return latestPersistedPhase(events, 0, warehouseStage);
+  if (state === "publication_failed") {
+    return latestPersistedPhase(events, finalIndex, warehouseStage);
+  }
   return null;
 }
 
@@ -108,6 +133,8 @@ export function RunTimeline({
   field,
   publicationMode = null,
   runState,
+  warehouseValidation = null,
+  warehouseValidationRequired = false,
 }: RunTimelineProps) {
   const durableMode =
     runState === "preparing_preview"
@@ -115,8 +142,19 @@ export function RunTimeline({
       : runState === "publishing" || runState === "publication_failed"
         ? "live"
         : publicationMode;
-  const interruption = interruptedIndex(runState, events);
-  const progress = interruption ?? activeIndex(runState);
+  const warehouseResultExists = Boolean(
+    warehouseValidation && warehouseValidation.status !== "not_run",
+  );
+  const warehouseStage = Boolean(
+    warehouseValidationRequired ||
+      warehouseResultExists ||
+      events.some((event) => event.state === "validating_warehouse"),
+  );
+  const interruption =
+    runState === "failed" && warehouseValidation?.status === "blocked"
+      ? 5
+      : interruptedIndex(runState, events, warehouseStage);
+  const progress = interruption ?? activeIndex(runState, warehouseStage);
   const finalStep =
     durableMode === "preview"
       ? {
@@ -131,11 +169,23 @@ export function RunTimeline({
             eventState: "publishing",
           }
         : STEPS.at(-1)!;
-  const steps = STEPS.map((step, index) => {
+  const baseSteps = warehouseStage
+    ? [
+        ...STEPS.slice(0, 5),
+        {
+          label: "Validating aggregate warehouse evidence",
+          detail: "Aggregate counts only; no source values leave the warehouse.",
+          eventState: "validating_warehouse",
+        },
+        ...STEPS.slice(5),
+      ]
+    : [...STEPS];
+  const approvalIndex = warehouseStage ? 6 : 5;
+  const steps = baseSteps.map((step, index) => {
     if (index === 1) {
       return { ...step, label: `Finding everything that depends on ${field}` };
     }
-    if (index === 5) {
+    if (index === approvalIndex) {
       const detail =
         durableMode === "live"
           ? "Nothing publishes without authorization."
@@ -144,7 +194,7 @@ export function RunTimeline({
             : step.detail;
       return { ...step, detail };
     }
-    return index === STEPS.length - 1 ? finalStep : step;
+    return index === baseSteps.length - 1 ? finalStep : step;
   });
   return (
     <aside className="timeline-panel" aria-labelledby="progress-heading">
@@ -194,7 +244,8 @@ export function RunTimeline({
               </span>
               <span className="timeline-content">
                 <small>
-                  {eventMetadata(events, step.eventState) ?? `Step 0${index + 1}`}
+                  {eventMetadata(events, step.eventState) ??
+                    `Step ${String(index + 1).padStart(2, "0")}`}
                 </small>
                 <strong>{step.label}</strong>
                 <p>{step.detail}</p>

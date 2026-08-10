@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CommandRail } from "../src/components/CommandRail";
+import { passedWarehouseValidation } from "./fixtures";
 
 describe("CommandRail", () => {
   it("links every completed safety gate to inspectable evidence", () => {
@@ -34,5 +35,22 @@ describe("CommandRail", () => {
       "href",
       "#approval",
     );
+  });
+
+  it("keeps static checks separate from warehouse evidence", () => {
+    render(
+      <CommandRail
+        artifactCount={7}
+        passedChecks={12}
+        runState="awaiting_approval"
+        totalChecks={12}
+        warehouseValidation={passedWarehouseValidation}
+      />,
+    );
+
+    const prove = screen.getByRole("link", { name: /Prove/ });
+    expect(prove).toHaveTextContent("12 / 12 static checks");
+    expect(prove).toHaveTextContent("Warehouse: passed");
+    expect(prove).not.toHaveTextContent("13 / 13");
   });
 });

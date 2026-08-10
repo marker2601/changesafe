@@ -6,6 +6,7 @@ export type RunState =
   | "scoring_risk"
   | "generating"
   | "validating"
+  | "validating_warehouse"
   | "awaiting_approval"
   | "preparing_preview"
   | "publishing"
@@ -156,6 +157,41 @@ export interface ValidationReport {
   checks: ValidationCheck[];
 }
 
+export type WarehouseValidationStatus = "not_run" | "passed" | "blocked";
+export type WarehouseValidationMode = "none" | "aggregate";
+
+export interface WarehouseCheck {
+  code: string;
+  label: string;
+  passed: boolean;
+  retryable: boolean;
+  detail: string;
+  observed_count: number | null;
+}
+
+export interface WarehouseValidationResult {
+  status: WarehouseValidationStatus;
+  mode: WarehouseValidationMode;
+  environment_label: string;
+  operation: ChangeOperation;
+  field: string;
+  relation_fingerprint: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  rows_evaluated: number | null;
+  populated_row_count: number | null;
+  unsafe_row_count: number | null;
+  query_ids: string[];
+  elapsed_ms: number | null;
+  checks: WarehouseCheck[];
+}
+
+export interface ApprovalBlocker {
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+
 export interface DataHubReceipt {
   mode: "live" | "preview";
   label: string;
@@ -182,6 +218,8 @@ export interface AnalysisResult {
   validation: ValidationReport;
   publication_eligible: boolean;
   impacts: ImpactAssessment[];
+  warehouse_validation: WarehouseValidationResult;
+  approval_blockers: ApprovalBlocker[];
 }
 
 export interface PublicError {
@@ -219,6 +257,10 @@ export interface PublicConfig {
   datahub_writeback_available: boolean;
   owner_activity_available: boolean;
   openai_model: string;
+  live_evidence_required: boolean;
+  warehouse_validation_available: boolean;
+  warehouse_validation_required: boolean;
+  warehouse_environment_label: string;
 }
 
 export interface ReviewActivity {

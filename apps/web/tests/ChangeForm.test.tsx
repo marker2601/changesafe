@@ -205,6 +205,53 @@ describe("ChangeForm", () => {
     expect(screen.queryByRole("button", { name: "Use recorded fields" })).not.toBeInTheDocument();
   });
 
+  it("labels schema provenance from the schema hook without implying row validation", () => {
+    const { rerender } = renderForm();
+    expect(screen.getByText("Recorded DataHub schema")).toBeVisible();
+    expect(screen.queryByText(/values checked/i)).not.toBeInTheDocument();
+
+    rerender(
+      <ChangeForm
+        busy={false}
+        draft={DEFAULT_CHANGE_DRAFT}
+        onDraftChange={vi.fn()}
+        onCurrentFieldChange={vi.fn()}
+        onSubmit={vi.fn()}
+        schema={{ ...loadedSchema, catalog: null, loading: true }}
+      />,
+    );
+    expect(screen.getByText("Loading DataHub schema")).toBeVisible();
+
+    rerender(
+      <ChangeForm
+        busy={false}
+        draft={DEFAULT_CHANGE_DRAFT}
+        onDraftChange={vi.fn()}
+        onCurrentFieldChange={vi.fn()}
+        onSubmit={vi.fn()}
+        schema={{ ...loadedSchema, catalog: null, loading: false, error: "Unavailable" }}
+      />,
+    );
+    expect(screen.getByText("Schema unavailable")).toBeVisible();
+  });
+
+  it("uses persisted context provenance after submission", () => {
+    renderForm(DEFAULT_CHANGE_DRAFT, {
+      submittedRequest: goldenRun.request,
+      context: {
+        ...goldenRun.analysis!.context,
+        provenance: {
+          ...goldenRun.analysis!.context.provenance,
+          mode: "live",
+          snapshot_hash: null,
+        },
+      },
+    });
+
+    expect(screen.getByText("Live DataHub metadata checked")).toBeVisible();
+    expect(screen.queryByText("Recorded DataHub schema")).not.toBeInTheDocument();
+  });
+
   it.each(["order_total", "order_status"]) (
     "keeps %s field policy pending until field-scoped context is analyzed",
     (field) => {

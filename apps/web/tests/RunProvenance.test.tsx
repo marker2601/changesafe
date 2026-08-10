@@ -16,6 +16,10 @@ const replayConfig: PublicConfig = {
   datahub_writeback_available: false,
   owner_activity_available: false,
   openai_model: "gpt-5.6-luna",
+  live_evidence_required: false,
+  warehouse_validation_available: false,
+  warehouse_validation_required: false,
+  warehouse_environment_label: "competition-non-production",
 };
 
 describe("RunProvenance", () => {
@@ -35,7 +39,7 @@ describe("RunProvenance", () => {
       <RunProvenance config={replayConfig} events={timedEvents} run={run} />,
     );
 
-    const evidence = screen.getByText("Recorded DataHub evidence");
+    const evidence = screen.getByText("Recorded DataHub evidence checked");
     expect(evidence).toBeVisible();
     expect(evidence.closest("button")).toBeNull();
     expect(screen.getByText("Preview only")).toBeVisible();
@@ -69,7 +73,9 @@ describe("RunProvenance", () => {
     render(<RunProvenance config={null} run={null} />);
 
     expect(screen.getAllByText("Loading configuration…")).toHaveLength(2);
-    expect(screen.queryByText("Recorded DataHub evidence")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Recorded DataHub evidence checked"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("Preview only")).not.toBeInTheDocument();
     expect(
       screen.getByText("Every completed run records its evidence identity."),
@@ -105,7 +111,7 @@ describe("RunProvenance", () => {
 
     render(<RunProvenance config={liveConfig} run={liveRun} />);
 
-    expect(screen.getByText("Live DataHub metadata")).toBeVisible();
+    expect(screen.getByText("Live DataHub metadata checked")).toBeVisible();
     expect(screen.getByText("Live retrieval")).toBeVisible();
     expect(screen.queryByText("Pending")).not.toBeInTheDocument();
     expect(
@@ -137,7 +143,9 @@ describe("RunProvenance", () => {
       />,
     );
 
-    expect(screen.getByText("Recorded evidence after live fallback")).toBeVisible();
+    expect(screen.getByText("Recorded DataHub evidence checked")).toBeVisible();
+    expect(screen.getByText(/^bbbbbbbb/)).toBeVisible();
+    expect(screen.getByText("2026-08-08 20:00:00 UTC")).toBeVisible();
     await user.click(screen.getByText("About this run"));
     expect(screen.getByText(/a live DataHub read was attempted/i)).toBeVisible();
     expect(
@@ -185,7 +193,7 @@ describe("RunProvenance", () => {
     );
 
     expect(screen.getByText("Completed in 0.70 seconds")).toBeVisible();
-    expect(screen.getByText("Recorded evidence after live fallback")).toBeVisible();
+    expect(screen.getByText("Recorded DataHub evidence checked")).toBeVisible();
   });
 
   it("keeps a durable preview receipt authoritative over changed sink config", () => {

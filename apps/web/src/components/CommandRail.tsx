@@ -7,13 +7,14 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import type { RunState } from "../types";
+import type { RunState, WarehouseValidationResult } from "../types";
 
 interface CommandRailProps {
   artifactCount: number;
   passedChecks: number;
   totalChecks: number;
   runState: RunState | null;
+  warehouseValidation?: WarehouseValidationResult | null;
 }
 
 const STAGES = [
@@ -52,7 +53,7 @@ const STAGES = [
 function stageProgress(state: RunState | null): number {
   if (state === "scoring_risk") return 1;
   if (state === "generating") return 2;
-  if (state === "validating") return 3;
+  if (state === "validating" || state === "validating_warehouse") return 3;
   if (state === "awaiting_approval") return 4;
   if (
     state === "preparing_preview" ||
@@ -69,6 +70,7 @@ export function CommandRail({
   passedChecks,
   totalChecks,
   runState,
+  warehouseValidation = null,
 }: CommandRailProps) {
   const progress = stageProgress(runState);
   return (
@@ -82,8 +84,11 @@ export function CommandRail({
             stage.label === "Prepare" && artifactCount
               ? `${artifactCount} verified files`
               : stage.label === "Prove" && totalChecks
-                ? `${passedChecks} / ${totalChecks} blocking checks`
+                ? `${passedChecks} / ${totalChecks} static checks`
                 : stage.detail;
+          const warehouseDetail = warehouseValidation
+            ? `Warehouse: ${warehouseValidation.status.replace("_", " ")}`
+            : null;
           return (
             <li
               className={complete ? "is-complete" : active ? "is-active" : ""}
@@ -95,6 +100,11 @@ export function CommandRail({
                 <span>
                   <strong>{stage.label}</strong>
                   <small>{detail}</small>
+                  {stage.label === "Prove" && warehouseDetail ? (
+                    <small className={`warehouse-badge is-${warehouseValidation?.status}`}>
+                      {warehouseDetail}
+                    </small>
+                  ) : null}
                 </span>
                 {complete ? <Check aria-hidden="true" /> : null}
               </a>

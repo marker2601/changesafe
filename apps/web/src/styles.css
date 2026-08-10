@@ -244,6 +244,9 @@ button { color: inherit; }
   font-weight: 700;
 }
 .official-badge svg { width: 17px; height: 17px; color: var(--lime); }
+.hero-truth-row { display: flex; height: 76px; flex-wrap: wrap; gap: 8px; align-content: flex-start; margin-top: 18px; }
+.hero-truth-row span { display: inline-flex; min-width: 0; min-height: 34px; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; color: #d8e7e9; background: rgb(6 24 33 / 72%); font-size: 10px; font-weight: 800; line-height: 1.35; }
+.hero-truth-row svg { width: 16px; height: 16px; flex: 0 0 auto; color: var(--cyan); }
 .run-provenance {
   padding: 18px;
   border: 1px solid var(--line);
@@ -844,10 +847,13 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .command-rail li > a > span:nth-of-type(2) { display: flex; flex-direction: column; gap: 3px; }
 .command-rail strong { color: inherit; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 .command-rail small { color: var(--muted); font-size: 8px; }
+.command-rail .warehouse-badge { width: fit-content; padding: 3px 5px; border: 1px solid var(--line); border-radius: 3px; color: var(--quiet); text-transform: uppercase; }
+.command-rail .warehouse-badge.is-passed { color: var(--cyan); border-color: rgb(62 228 208 / 45%); }
+.command-rail .warehouse-badge.is-blocked { color: var(--red); border-color: rgb(255 102 95 / 55%); }
 .command-rail .is-complete { color: var(--cyan); }
 .command-rail .is-active { color: var(--lime); background: #17210e; box-shadow: inset 0 0 0 1px var(--lime); }
 
-#artifacts, #validation, #approval, #dependency-heading, #impact-heading { scroll-margin-top: 86px; }
+#artifacts, #validation, #warehouse-validation, #approval, #dependency-heading, #impact-heading { scroll-margin-top: 86px; }
 
 .delivery-workspace { display: grid; grid-template-columns: minmax(620px, 1fr) 320px; gap: 12px; padding-top: 12px; }
 .artifact-explorer { display: grid; min-width: 0; min-height: 430px; grid-template-columns: 270px minmax(350px, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
@@ -876,7 +882,38 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 .code-inspector footer code { overflow: hidden; color: #aabdc1; font-size: 8px; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
 
 .governance-rail { display: flex; flex-direction: column; gap: 10px; }
-.validation-panel, .approval-panel { padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+.validation-panel, .warehouse-validation-panel, .approval-panel { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+.warehouse-validation-panel h2 { margin: 0; font-size: 14px; }
+.warehouse-status { display: grid; min-width: 0; grid-template-columns: 36px minmax(0, 1fr); gap: 9px; align-items: start; margin-top: 13px; }
+.warehouse-status > span { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid currentcolor; border-radius: 50%; }
+.warehouse-status svg { width: 18px; }
+.warehouse-status strong { display: block; overflow-wrap: anywhere; color: var(--text); font-size: 11px; line-height: 1.45; }
+.warehouse-status p { margin: 3px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.warehouse-status-passed .warehouse-status { color: var(--cyan); }
+.warehouse-status-blocked .warehouse-status { color: var(--red); }
+.warehouse-status-not_run .warehouse-status { color: var(--amber); }
+.warehouse-scope, .warehouse-counts { display: grid; min-width: 0; gap: 7px; margin: 12px 0 0; }
+.warehouse-scope { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.warehouse-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.warehouse-scope div, .warehouse-counts div { min-width: 0; padding: 8px; border: 1px solid var(--line); background: #06131b; }
+.warehouse-scope dt, .warehouse-counts dt { color: var(--quiet); font-size: 7px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.warehouse-scope dd, .warehouse-counts dd { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--text); font-size: 10px; font-variant-numeric: tabular-nums; }
+.warehouse-checks { margin-top: 13px; }
+.warehouse-checks h3 { margin: 0; color: var(--muted); font-size: 9px; letter-spacing: .07em; text-transform: uppercase; }
+.warehouse-checks ol { display: grid; gap: 8px; margin: 8px 0 0; padding: 9px 0 0 18px; border-top: 1px solid var(--line); }
+.warehouse-checks li { padding-left: 2px; color: var(--muted); font-size: 9px; }
+.warehouse-checks li::marker { color: var(--quiet); font-variant-numeric: tabular-nums; }
+.warehouse-checks li > svg { width: 13px; height: 13px; float: left; margin-right: 6px; }
+.warehouse-checks li.is-passed > svg { color: var(--cyan); }
+.warehouse-checks li.is-blocked > svg { color: var(--red); }
+.warehouse-checks li span { display: grid; min-width: 0; gap: 2px; }
+.warehouse-checks li strong { overflow-wrap: anywhere; color: var(--text); }
+.warehouse-checks li small { overflow-wrap: anywhere; line-height: 1.4; }
+.warehouse-checks li em { color: var(--amber); font-size: 8px; font-style: normal; }
+.warehouse-audit-identifiers { margin-top: 12px; border-top: 1px solid var(--line); }
+.warehouse-audit-identifiers summary { min-height: 36px; padding-top: 9px; color: var(--cyan); font-size: 9px; font-weight: 800; cursor: pointer; }
+.warehouse-audit-identifiers ul { display: grid; gap: 5px; margin: 5px 0 0; padding-left: 18px; }
+.warehouse-audit-identifiers code { overflow-wrap: anywhere; color: #c9d5d7; font-size: 8px; }
 .validation-score { display: grid; grid-template-columns: 42px 1fr; margin-top: 13px; }
 .validation-score > span { display: grid; width: 36px; height: 36px; grid-row: 1 / 3; place-items: center; border: 1px solid currentcolor; border-radius: 50%; }
 .validation-score svg { width: 20px; }
@@ -913,7 +950,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   .product-hero { grid-template-columns: minmax(0, 1fr) minmax(350px, .75fr); }
   .command-center { grid-template-columns: 290px minmax(520px, 1fr); }
   .timeline-panel { grid-column: 1 / -1; border-top: 1px solid var(--line); border-left: 0; }
-  .timeline-panel ol { grid-template-columns: repeat(7, minmax(140px, 1fr)); margin-left: 0; padding: 0; overflow-x: auto; border-left: 0; }
+  .timeline-panel ol { grid-auto-flow: column; grid-auto-columns: minmax(140px, 1fr); grid-template-columns: none; margin-left: 0; padding: 0; overflow-x: auto; border-left: 0; }
   .timeline-panel li { min-height: 108px; padding: 0 9px 0 36px; border-right: 1px solid var(--line); }
   .timeline-icon { left: 1px; }
   .timeline-content { display: flex; flex-direction: column; }
@@ -970,7 +1007,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   .asset-column button { min-height: 0; }
   .analysis-stage, .scenario-ready { min-height: 430px; padding: 24px; }
   .timeline-panel { overflow: hidden; }
-  .timeline-panel ol { display: grid; min-width: 0; grid-template-columns: 1fr; overflow: visible; }
+  .timeline-panel ol { display: grid; min-width: 0; grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: 1fr; overflow: visible; }
   .timeline-panel li { min-height: 76px; border-right: 0; }
   .command-rail ol { grid-template-columns: 1fr; overflow: visible; }
   .command-rail li { min-height: 74px; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -998,6 +1035,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
 @media (max-width: 430px) {
   .product-hero h1 { font-size: 39px; }
   .official-badge { font-size: 10px; }
+  .hero-truth-row { display: grid; grid-template-columns: 1fr; }
+  .hero-truth-row span { width: 100%; }
   .active-impact-filter { align-items: flex-start; flex-direction: column; }
   .change-form input, .change-form select, .approval-panel input { min-height: 44px; }
   .button, .impact-trace, .text-action { min-height: 44px; }
@@ -1008,7 +1047,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 18px 20px; }
   }
   .run-fact-evidence-id dd { min-height: 44px; }
   .advanced-change-fields summary, .accessible-dependencies summary,
-  .validation-panel summary { min-height: 44px; align-items: center; }
+  .validation-panel summary, .warehouse-audit-identifiers summary { min-height: 44px; align-items: center; }
+  .warehouse-scope, .warehouse-counts { grid-template-columns: 1fr; }
   .file-rail button { min-height: 48px; }
   .rename-pair { grid-template-columns: 18px minmax(0, 1fr); }
   .field-combobox-list { max-height: 210px; }

@@ -19,9 +19,11 @@ import { OwnerActivity } from "./components/OwnerActivity";
 import { RiskCard } from "./components/RiskCard";
 import { RunProvenance } from "./components/RunProvenance";
 import { ValidationPanel } from "./components/ValidationPanel";
+import { WarehouseValidationPanel } from "./components/WarehouseValidationPanel";
 import { useRun } from "./hooks/useRun";
 import { useSchemaCatalog } from "./hooks/useSchemaCatalog";
 import type { ChangeSafeApi, ImpactAssessment, SchemaField } from "./types";
+import { warehouseValidationClaim } from "./warehouseEvidence";
 
 interface AppProps {
   api?: ChangeSafeApi;
@@ -72,17 +74,23 @@ export function App({ api = browserApi }: AppProps) {
     analysis?.validation.checks.filter((check) => check.blocking) ?? [];
   const displayedChange = run?.request ?? draft;
   const officialDataset = isOfficialDataset(displayedChange);
-  const heroEvidenceBadge = analysis
+  const heroMetadataTruth = analysis
     ? analysis.context.provenance.mode === "live"
-      ? `Live DataHub evidence · ${analysis.context.target_name}`
-      : officialDataset
-        ? "Official DataHub showcase-ecommerce"
-        : `Recorded DataHub evidence · ${analysis.context.target_name}`
-    : officialDataset
-      ? "Official DataHub showcase-ecommerce"
-      : run
-        ? "DataHub context pending"
-        : "Dataset verified during analysis";
+      ? "Live DataHub metadata checked"
+      : "Recorded DataHub evidence checked"
+    : schema.catalog
+      ? schema.catalog.provenance.mode === "live"
+        ? "Live DataHub schema"
+        : "Recorded DataHub schema"
+      : schema.loading
+        ? "Loading DataHub schema"
+        : "Schema unavailable";
+  const warehouse = analysis?.warehouse_validation ?? null;
+  const heroWarehouseTruth = warehouse
+    ? warehouseValidationClaim(warehouse)
+    : run?.state === "validating_warehouse"
+      ? "Warehouse validation in progress"
+      : "Production rows not queried";
   const resetAnalysis = () => {
     setSelectedImpact(null);
     reset();
@@ -122,10 +130,16 @@ export function App({ api = browserApi }: AppProps) {
             prepare a compatible migration, verify every generated file, and pause
             before anything is published.
           </p>
-          <span className="official-badge">
-            <ShieldCheck aria-hidden="true" />
-            {heroEvidenceBadge}
-          </span>
+          <div className="hero-truth-row" aria-label="Evidence status for this view">
+            <span>
+              <ShieldCheck aria-hidden="true" />
+              {heroMetadataTruth}
+            </span>
+            <span>
+              <Database aria-hidden="true" />
+              {heroWarehouseTruth}
+            </span>
+          </div>
         </div>
         <RunProvenance config={config} events={events} run={run} />
       </section>
@@ -252,6 +266,10 @@ export function App({ api = browserApi }: AppProps) {
             field={displayedChange.field}
             publicationMode={timelinePublicationMode}
             runState={run?.state ?? null}
+            warehouseValidation={warehouse}
+            warehouseValidationRequired={Boolean(
+              config?.warehouse_validation_required,
+            )}
           />
         </div>
 
@@ -260,6 +278,7 @@ export function App({ api = browserApi }: AppProps) {
           passedChecks={blocking.filter((check) => check.passed).length}
           runState={run?.state ?? null}
           totalChecks={blocking.length}
+          warehouseValidation={warehouse}
         />
 
         {analysis ? (
@@ -270,6 +289,9 @@ export function App({ api = browserApi }: AppProps) {
             <ArtifactExplorer key={run.run_id} artifacts={analysis.artifacts} />
             <aside className="governance-rail">
               <ValidationPanel validation={analysis.validation} />
+              <WarehouseValidationPanel
+                validation={analysis.warehouse_validation}
+              />
               <ApprovalPanel
                 busy={busy}
                 config={config}
