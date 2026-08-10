@@ -30,6 +30,7 @@ const scenarios = [
     field: "order_status",
     operation: "Remove",
     viewport: { width: 430, height: 932 },
+    reducedMotion: true,
   },
   {
     field: "order_total",
@@ -533,6 +534,7 @@ test("warehouse timeout and required-not-run evidence remain non-approvable", as
   await expect(
     page.getByText("Warehouse validation evidence is required for approval."),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: /Approve|Publish/ })).toHaveCount(0);
 });
 
 test("refresh in warehouse validation keeps approval disabled until a pass", async ({ page }) => {

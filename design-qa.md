@@ -53,10 +53,10 @@ The explicit capture run passed **1 / 1** and the four PNG files were opened at 
 
 | File | Dimensions | Captured (America/Chicago) | Visible truth |
 | --- | ---: | --- | --- |
-| `docs/screenshots/changesafe-desktop-replay.png` | 1440 × 1024 | 2026-08-10 01:56:48.102 -05:00 | Recorded DataHub evidence; Rename `cust_email`; production rows not queried |
-| `docs/screenshots/changesafe-desktop-proof.png` | 1440 × 1024 | 2026-08-10 01:56:48.544 -05:00 | Seven exact artifacts; 12 / 12; preview receipt; production rows not queried |
-| `docs/screenshots/changesafe-mobile-replay.png` | 430 × 932 | 2026-08-10 01:56:50.103 -05:00 | Recorded `order_total` type-change lineage without horizontal clipping |
-| `docs/screenshots/changesafe-mobile-proof.png` | 430 × 932 | 2026-08-10 01:56:50.552 -05:00 | 12 / 12; type-change scope; preview receipt; production rows not queried |
+| `docs/screenshots/changesafe-desktop-replay.png` | 1440 × 1024 | 2026-08-10 02:17:27.352 -05:00 | Recorded DataHub evidence; Rename `cust_email`; production rows not queried |
+| `docs/screenshots/changesafe-desktop-proof.png` | 1440 × 1024 | 2026-08-10 02:17:27.856 -05:00 | Seven exact artifacts; 12 / 12; preview receipt; production rows not queried |
+| `docs/screenshots/changesafe-mobile-replay.png` | 430 × 932 | 2026-08-10 02:17:30.102 -05:00 | Page-top mobile overview with product identity, replay provenance, and production rows not queried |
+| `docs/screenshots/changesafe-mobile-proof.png` | 430 × 932 | 2026-08-10 02:17:30.530 -05:00 | 12 / 12; type-change scope; preview receipt; production rows not queried |
 
 `changesafe-desktop-live-validation.png` and `changesafe-mobile-live-validation.png` were deliberately not created. Without passed Snowflake evidence, those filenames would imply a warehouse validation result that does not exist.
 

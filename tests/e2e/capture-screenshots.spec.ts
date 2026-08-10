@@ -125,7 +125,8 @@ test("capture current desktop and mobile replay evidence", async ({ browser }) =
   await expect(mobile.getByText("12 / 12", { exact: true })).toBeVisible();
   await expect(mobile.getByText("Production rows not queried").first()).toBeVisible();
   await expectNoPageOverflow(mobile);
-  await anchorInViewport(mobile, mobile.locator(".target-node"));
+  await mobile.evaluate(() => window.scrollTo(0, 0));
+  await expect.poll(() => mobile.evaluate(() => window.scrollY)).toBe(0);
   await expectHorizontallyContained(mobile, mobile.locator(".product-hero"));
   await expectHorizontallyContained(mobile, mobile.locator(".command-center"));
   await expectHorizontallyContained(mobile, mobile.locator("#dependency-evidence-map"));
