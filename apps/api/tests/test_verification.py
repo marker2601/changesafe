@@ -582,13 +582,23 @@ def test_source_relations_rejects_an_aliased_or_prefixed_shim_ref(source: str) -
     assert report.check("source_relations").passed is False
 
 
-def test_manifest_hashes_reject_a_hashed_semantic_context_spoof() -> None:
+@pytest.mark.parametrize(
+    ("section", "key", "spoofed_value"),
+    [
+        ("change", "field", "not_the_real_field"),
+        ("context", "target_urn", "urn:li:dataset:(wrong,target,PROD)"),
+        ("context", "field", "not_the_real_field"),
+        ("context", "field_type", "NUMBER(38,0)"),
+        ("risk", "score", 0),
+    ],
+)
+def test_manifest_hashes_reject_a_hashed_semantic_context_spoof(
+    section: str, key: str, spoofed_value: object
+) -> None:
     change, context, bundle = golden_inputs()
     files = dict(bundle.files)
     manifest = json.loads(files["changesafe-manifest.json"].content)
-    manifest["change"]["field"] = "not_the_real_field"
-    manifest["context"]["target_urn"] = "urn:li:dataset:(wrong,target,PROD)"
-    manifest["risk"]["score"] = 0
+    manifest[section][key] = spoofed_value
     files["changesafe-manifest.json"] = ArtifactFile(
         path="changesafe-manifest.json",
         content=json.dumps(manifest, indent=2, sort_keys=True) + "\n",

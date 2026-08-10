@@ -469,6 +469,8 @@ def generate_artifacts(
             "mode": context.provenance.mode.value,
             "snapshot_hash": context.provenance.snapshot_hash,
             "target_urn": context.target_urn,
+            "field": context.field,
+            "field_type": context.field_type,
         },
         "risk": risk.model_dump(mode="json"),
         "deprecation_status": "phase_one",

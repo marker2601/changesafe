@@ -10,6 +10,8 @@
     "source_commit": "showcase-ecommerce-safe-rename"
   },
   "context": {
+    "field": "cust_email",
+    "field_type": "TEXT",
     "mode": "snapshot",
     "snapshot_hash": "02ef4be4a1a31759c841996456b533126633c35aefe7d69c1a65abafa5816834",
     "target_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"

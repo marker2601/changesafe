@@ -14,6 +14,7 @@ from changesafe.context.base import (
     DecisionWriteback,
 )
 from changesafe.context.live import AgentContextToolRunner, LiveDataHubContext
+from changesafe.context.replay import ReplayDataHubContext
 from changesafe.domain import (
     ChangeOperation,
     ChangeRequest,
@@ -1111,6 +1112,181 @@ async def test_seeded_live_lineage_fails_closed_when_page_is_partial() -> None:
         await LiveDataHubContext(runner=runner, allowlist={TARGET}).load(
             golden_change()
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page_fault", ["empty", "repeated", "changed_total"])
+async def test_live_adapter_fails_closed_on_nonprogressing_lineage_pages(
+    page_fault: str,
+) -> None:
+    endpoint = "urn:li:dashboard:(looker,customer_health)"
+
+    def lineage_page(parameters: dict[str, Any]) -> dict[str, Any]:
+        direction = "upstreams" if parameters["upstream"] else "downstreams"
+        if parameters["upstream"] or parameters["column"] is not None:
+            return {
+                direction: {
+                    "searchResults": [],
+                    "total": 0,
+                    "returned": 0,
+                    "hasMore": False,
+                    "offset": 0,
+                }
+            }
+        if parameters["offset"] == 0:
+            return {
+                direction: {
+                    "searchResults": [
+                        {
+                            "entity": {
+                                "urn": endpoint,
+                                "name": "customer_health",
+                                "type": "DASHBOARD",
+                            },
+                            "degree": 1,
+                        }
+                    ],
+                    "total": 2,
+                    "returned": 1,
+                    "hasMore": True,
+                    "offset": 0,
+                }
+            }
+        results = [] if page_fault == "empty" else [
+            {
+                "entity": {
+                    "urn": endpoint,
+                    "name": "customer_health",
+                    "type": "DASHBOARD",
+                },
+                "degree": 1,
+            }
+        ]
+        return {
+            direction: {
+                "searchResults": results,
+                "total": 3 if page_fault == "changed_total" else 2,
+                "returned": len(results),
+                "hasMore": False,
+                "offset": 1,
+            }
+        }
+
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                "urn": TARGET,
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+            "get_lineage": lineage_page,
+            "get_dataset_queries": {"queries": []},
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match="lineage"):
+        await LiveDataHubContext(runner, {TARGET}).load(golden_change())
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_rejects_lineage_endpoint_without_an_urn() -> None:
+    def lineage_result(parameters: dict[str, Any]) -> dict[str, Any]:
+        direction = "upstreams" if parameters["upstream"] else "downstreams"
+        results = []
+        if not parameters["upstream"] and parameters["column"] is not None:
+            results = [{"entity": {"name": "missing_urn"}, "degree": 1}]
+        return {
+            direction: {
+                "searchResults": results,
+                "total": len(results),
+                "returned": len(results),
+                "hasMore": False,
+            }
+        }
+
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+            "get_lineage": lineage_result,
+            "get_dataset_queries": {"queries": []},
+        }
+    )
+
+    with pytest.raises(ContextLoadError, match="missing its URN"):
+        await LiveDataHubContext(runner, {TARGET}).load(golden_change())
+
+
+@pytest.mark.asyncio
+async def test_missing_optional_live_evidence_remains_explicit_and_conservative(
+) -> None:
+    runner = FakeRunner(
+        {
+            "get_entities": [{"urn": TARGET, "name": "dim_customers"}],
+            "list_schema_fields": {
+                "fields": [
+                    {"fieldPath": "customer_email", "nativeDataType": "STRING"}
+                ],
+                "totalFields": 1,
+                "returned": 1,
+                "remainingCount": 0,
+            },
+            "get_lineage": {"relationships": []},
+            "get_dataset_queries": {"queries": []},
+        }
+    )
+
+    context = await LiveDataHubContext(runner, {TARGET}).load(golden_change())
+    risk = score_change(golden_change(), context)
+
+    assert context.owners == []
+    assert context.field_tags == []
+    assert context.glossary_terms == []
+    assert context.queries == []
+    assert context.usage_tier == "none"
+    assert [factor.code for factor in risk.factors] == [
+        "base_rename",
+        "missing_accountable_owner",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_context_is_used_only_after_explicit_fallback() -> None:
+    live = LiveDataHubContext(
+        FailureRunner(ConnectionError("private live endpoint")),
+        {TARGET},
+        retry_count=0,
+    )
+
+    with pytest.raises(ContextTransportError):
+        await live.load(golden_change())
+
+    replay_change = golden_change().model_copy(
+        update={
+            "asset_urn": (
+                "urn:li:dataset:(urn:li:dataPlatform:dbt,"
+                "b2fd91.ORDER_ENTRY_DB.analytics.order_details,PROD)"
+            ),
+            "field": "cust_email",
+            "new_field": "primary_email",
+        }
+    )
+    snapshot = await ReplayDataHubContext.from_default().load(replay_change)
+
+    assert snapshot.provenance.mode is ContextMode.SNAPSHOT
+    assert snapshot.provenance.snapshot_hash is not None
 
 
 @pytest.mark.asyncio

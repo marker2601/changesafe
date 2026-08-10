@@ -15,6 +15,7 @@ from changesafe.domain import (
     RiskBand,
 )
 from changesafe.risk import band_for, score_change
+from changesafe.sql_types import canonical_sql_type
 
 TARGET = "urn:li:dataset:(urn:li:dataPlatform:dbt,analytics.dim_customers,PROD)"
 
@@ -284,3 +285,44 @@ def test_snowflake_type_alias_no_ops_are_rejected(
 )
 def test_risk_band_boundaries(score: int, expected: RiskBand) -> None:
     assert band_for(score) is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("NUMBER(1,0)", ("NUMBER", (1, 0))),
+        ("NUMBER(38,37)", ("NUMBER", (38, 37))),
+        ("VARCHAR(1)", ("VARCHAR", (1,))),
+        ("VARCHAR(134217728)", ("VARCHAR", (134_217_728,))),
+        ("BINARY(1)", ("BINARY", (1,))),
+        ("BINARY(67108864)", ("BINARY", (67_108_864,))),
+        ("TIMESTAMP_NTZ(0)", ("TIMESTAMP_NTZ", (0,))),
+        ("TIMESTAMP_NTZ(9)", ("TIMESTAMP_NTZ", (9,))),
+    ],
+)
+def test_canonical_sql_type_accepts_every_documented_parameter_boundary(
+    value: str, expected: tuple[str, tuple[int, ...]]
+) -> None:
+    assert canonical_sql_type(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "NUMBER(0,0)",
+        "NUMBER(39,0)",
+        "NUMBER(1,2)",
+        "NUMBER(38,38)",
+        "VARCHAR(0)",
+        "VARCHAR(134217729)",
+        "BINARY(0)",
+        "BINARY(67108865)",
+        "TIMESTAMP_NTZ(10)",
+        "BOOLEAN(1)",
+    ],
+)
+def test_canonical_sql_type_rejects_values_outside_every_documented_bound(
+    value: str,
+) -> None:
+    with pytest.raises(ValueError):
+        canonical_sql_type(value)

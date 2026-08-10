@@ -7,6 +7,7 @@ from changesafe.config import Mode, Settings
 from changesafe.demo import DEMO_TARGET_URN
 from changesafe.domain import (
     ApprovalBlocker,
+    ChangeOperation,
     WarehouseCheck,
     WarehouseValidationMode,
     WarehouseValidationResult,
@@ -17,6 +18,7 @@ from changesafe.publication.service import (
     PublicationService,
     PublicationStateError,
 )
+from changesafe.store import RunStore
 from changesafe.warehouse.queries import fingerprint_relation
 
 from .helpers import analyzed_run
@@ -262,3 +264,103 @@ async def test_completed_receipt_reuse_rechecks_warehouse_freshness(
     persisted = await store.get(run.run_id)
     assert persisted is not None
     assert persisted.publication == first
+
+
+def warehouse_boundary_result(run, boundary: str) -> WarehouseValidationResult:
+    now = datetime.now(UTC)
+    if boundary == "not_run":
+        return WarehouseValidationResult(
+            status=WarehouseValidationStatus.NOT_RUN,
+            mode=WarehouseValidationMode.NONE,
+            environment_label="competition-non-production",
+            operation=run.request.operation,
+            field=run.request.field,
+        )
+    if boundary in {"blocked_permanent", "blocked_retryable"}:
+        retryable = boundary == "blocked_retryable"
+        return WarehouseValidationResult(
+            status=WarehouseValidationStatus.BLOCKED,
+            mode=WarehouseValidationMode.AGGREGATE,
+            environment_label="competition-non-production",
+            operation=run.request.operation,
+            field=run.request.field,
+            relation_fingerprint=fingerprint_relation(RELATION),
+            started_at=now - timedelta(seconds=1),
+            completed_at=now,
+            checks=[
+                WarehouseCheck(
+                    code=("warehouse_timeout" if retryable else "unsafe_conversion"),
+                    label="Warehouse validation",
+                    passed=False,
+                    retryable=retryable,
+                    detail="Warehouse evidence did not pass.",
+                )
+            ],
+        )
+
+    passed = warehouse_result(run, completed_at=now)
+    if boundary == "wrong_relation":
+        return passed.model_copy(
+            update={"relation_fingerprint": fingerprint_relation("OTHER.DB.TABLE")}
+        )
+    if boundary == "wrong_field":
+        return passed.model_copy(update={"field": "another_field"})
+    if boundary == "wrong_operation":
+        return passed.model_copy(update={"operation": ChangeOperation.REMOVE})
+    if boundary == "stale":
+        return passed.model_copy(
+            update={
+                "started_at": now - timedelta(days=2, seconds=1),
+                "completed_at": now - timedelta(days=2),
+            }
+        )
+    raise AssertionError(boundary)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "not_run",
+        "blocked_permanent",
+        "blocked_retryable",
+        "wrong_relation",
+        "wrong_field",
+        "wrong_operation",
+        "stale",
+    ],
+)
+async def test_required_warehouse_failure_survives_duplicate_approval_and_restart(
+    boundary: str,
+    tmp_path: Path,
+) -> None:
+    context = FlakyWritebackContext()
+    store, _, run = await analyzed_run(tmp_path, context_port=context)
+    assert run.analysis is not None
+    analysis = run.analysis.model_copy(
+        update={
+            "warehouse_validation": warehouse_boundary_result(run, boundary),
+            "approval_blockers": [],
+            "publication_eligible": True,
+        }
+    )
+    await persist_analysis(store, run.run_id, analysis)
+    publisher = CountingGitHubPublisher()
+    artifact_hash = analysis.artifacts.manifest_hash
+    assert artifact_hash is not None
+    key = publication_key(run.request, run.request.source_commit, artifact_hash)
+
+    for _ in range(2):
+        reopened = RunStore(store.database)
+        service = PublicationService(
+            store=reopened,
+            settings=live_warehouse_settings(tmp_path),
+            context_port=context,
+            github_publisher=publisher,
+        )
+        with pytest.raises(PublicationStateError, match="current safety policy"):
+            await service.approve(run.run_id, supplied_admin_token=ADMIN_TOKEN)
+        assert await reopened.get_publication(key) is None
+
+    assert publisher.calls == 0
+    assert context.calls == 0

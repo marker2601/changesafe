@@ -299,6 +299,8 @@ def _manifest_matches(
         "mode": context.provenance.mode.value,
         "snapshot_hash": context.provenance.snapshot_hash,
         "target_urn": context.target_urn,
+        "field": context.field,
+        "field_type": context.field_type,
     }
     if (
         set(manifest)
