@@ -46,6 +46,8 @@ from changesafe.publication.service import (
     PublicationStateError,
 )
 from changesafe.store import LlmBudgetExceeded, RunStore
+from changesafe.warehouse.base import WarehouseValidationPort
+from changesafe.warehouse.factory import build_warehouse_port
 
 STREAM_END_STATES = {
     RunState.AWAITING_APPROVAL,
@@ -174,6 +176,7 @@ def create_app(
     settings: Settings | None = None,
     context_port: DataHubContextPort | None = None,
     generator: ArtifactGenerationService | None = None,
+    warehouse_port: WarehouseValidationPort | None = None,
     web_dist: Path | None = None,
 ) -> FastAPI:
     active_settings = settings or Settings()
@@ -191,11 +194,25 @@ def create_app(
         else None
     )
     active_generator = generator or ArtifactGenerationService()
+    active_warehouse = (
+        warehouse_port
+        if warehouse_port is not None
+        else build_warehouse_port(active_settings)
+    )
     orchestrator = ChangeSafeOrchestrator(
         store=store,
         context_port=active_context,
         generator=active_generator,
         snapshot_context_port=snapshot_context,
+        warehouse_port=active_warehouse,
+        require_live_evidence=active_settings.live_evidence_required,
+        require_warehouse=active_settings.warehouse_validation_required,
+        warehouse_max_age_seconds=(
+            active_settings.warehouse_evidence_max_age_seconds
+        ),
+        warehouse_timeout_seconds=active_settings.warehouse_timeout_seconds,
+        warehouse_environment_label=active_settings.warehouse_environment_label,
+        warehouse_target_map=active_settings.warehouse_target_map,
         llm_reservation_usd=Decimal(0),
         llm_budget_usd=None,
     )
@@ -211,11 +228,15 @@ def create_app(
             yield
         finally:
             await orchestrator.wait_for_idle()
-            close = getattr(active_context, "close", None)
-            if callable(close):
-                result = close()
-                if isawaitable(result):
-                    await result
+            try:
+                if active_warehouse is not None:
+                    await active_warehouse.close()
+            finally:
+                close = getattr(active_context, "close", None)
+                if callable(close):
+                    result = close()
+                    if isawaitable(result):
+                        await result
 
     app = FastAPI(title="ChangeSafe API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -225,6 +246,7 @@ def create_app(
     app.state.settings = active_settings
     app.state.store = store
     app.state.orchestrator = orchestrator
+    app.state.warehouse_port = active_warehouse
     app.state.publication_service = publication_service
     run_rate_limiter = RunRateLimiter(active_settings.changesafe_runs_per_minute)
     app.state.run_rate_limiter = run_rate_limiter

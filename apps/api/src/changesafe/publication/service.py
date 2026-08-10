@@ -25,12 +25,14 @@ from changesafe.domain import (
     RunView,
 )
 from changesafe.impact import classify_impacts
+from changesafe.policy import evaluate_approval_policy
 from changesafe.publication.base import GitHubPublisherPort, publication_key
 from changesafe.publication.github import GitHubPublicationError, GitHubPublisher
 from changesafe.publication.preview import build_unified_patch
 from changesafe.risk import score_change
 from changesafe.store import RunStore
 from changesafe.verification import verify_artifacts
+from changesafe.warehouse.queries import fingerprint_relation
 
 
 class ApprovalDenied(PermissionError):
@@ -78,8 +80,7 @@ class PublicationService:
             base_branch=self.settings.github_base_branch,
         )
 
-    @staticmethod
-    def _require_current_policy(run: RunView) -> None:
+    def _require_current_policy(self, run: RunView) -> None:
         assert run.analysis is not None
         try:
             current_risk = score_change(run.request, run.analysis.context)
@@ -91,6 +92,23 @@ class PublicationService:
                 run.request,
                 run.analysis.context,
             )
+            relation = self.settings.warehouse_target_map.get(run.request.asset_urn)
+            expected_relation_fingerprint = (
+                fingerprint_relation(relation) if relation is not None else None
+            )
+            current_blockers = evaluate_approval_policy(
+                change=run.request,
+                context=run.analysis.context,
+                validation=current_validation,
+                warehouse=run.analysis.warehouse_validation,
+                require_live_evidence=self.settings.live_evidence_required,
+                require_warehouse=self.settings.warehouse_validation_required,
+                warehouse_max_age_seconds=(
+                    self.settings.warehouse_evidence_max_age_seconds
+                ),
+                expected_relation_fingerprint=expected_relation_fingerprint,
+                now=_now(),
+            )
         except Exception as exc:
             raise PublicationStateError(
                 "Run does not satisfy the current safety policy; submit a new analysis."
@@ -100,7 +118,9 @@ class PublicationService:
             or current_risk != run.analysis.risk
             or current_impacts != run.analysis.impacts
             or current_validation != run.analysis.validation
-            or run.analysis.publication_eligible != current_validation.passed
+            or current_blockers != run.analysis.approval_blockers
+            or bool(current_blockers)
+            or not run.analysis.publication_eligible
         ):
             raise PublicationStateError(
                 "Run does not satisfy the current safety policy; submit a new analysis."

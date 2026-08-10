@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -11,8 +12,18 @@ from changesafe.config import Mode, Settings
 from changesafe.context.base import ContextTransportError, DecisionWriteback
 from changesafe.context.replay import ReplayDataHubContext
 from changesafe.demo import DEMO_TARGET_URN, golden_change
-from changesafe.domain import ChangeRequest, DataHubReceipt, RunState, SchemaCatalog
+from changesafe.domain import (
+    ChangeRequest,
+    DataHubReceipt,
+    RunState,
+    SchemaCatalog,
+    WarehouseCheck,
+    WarehouseValidationMode,
+    WarehouseValidationResult,
+    WarehouseValidationStatus,
+)
 from changesafe.publication.service import PublicationFailure
+from changesafe.warehouse.queries import fingerprint_relation
 
 GOLDEN_CHANGE = golden_change().model_dump(mode="json")
 
@@ -57,6 +68,44 @@ class ClosableReplayContext:
         return await self.delegate.writeback(decision, **kwargs)
 
     def close(self) -> None:
+        self.closed = True
+
+
+class LifecycleWarehousePort:
+    def __init__(self) -> None:
+        self.validation_completed = False
+        self.closed = False
+
+    async def validate(self, change: ChangeRequest, context):
+        assert context.field == change.field
+        await asyncio.sleep(0.01)
+        self.validation_completed = True
+        completed_at = datetime.now(UTC)
+        return WarehouseValidationResult(
+            status=WarehouseValidationStatus.PASSED,
+            mode=WarehouseValidationMode.AGGREGATE,
+            environment_label="competition-non-production",
+            operation=change.operation,
+            field=change.field,
+            relation_fingerprint=fingerprint_relation(
+                "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
+            ),
+            started_at=completed_at,
+            completed_at=completed_at,
+            rows_evaluated=20,
+            populated_row_count=20,
+            checks=[
+                WarehouseCheck(
+                    code="aggregate_validation",
+                    label="Aggregate validation",
+                    passed=True,
+                    detail="Aggregate checks passed.",
+                )
+            ],
+        )
+
+    async def close(self) -> None:
+        assert self.validation_completed is True
         self.closed = True
 
 
@@ -493,6 +542,98 @@ async def test_app_lifespan_closes_the_context_adapter(tmp_path: Path) -> None:
         assert context.closed is False
 
     assert context.closed is True
+
+
+def test_create_app_builds_and_exposes_the_configured_warehouse_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    warehouse = LifecycleWarehousePort()
+    observed: list[Settings] = []
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "runs.db",
+    )
+
+    def build(active_settings: Settings):
+        observed.append(active_settings)
+        return warehouse
+
+    monkeypatch.setattr(api_module, "build_warehouse_port", build)
+
+    app = create_app(settings=settings)
+
+    assert observed == [settings]
+    assert app.state.warehouse_port is warehouse
+    assert app.state.orchestrator.warehouse_port is warehouse
+
+
+@pytest.mark.asyncio
+async def test_app_lifespan_closes_warehouse_only_after_orchestrator_is_idle(
+    tmp_path: Path,
+) -> None:
+    warehouse = LifecycleWarehousePort()
+    relation = "SAFE_DB.SAFE_SCHEMA.ORDER_DETAILS"
+    settings = Settings(
+        _env_file=None,
+        mode=Mode.REPLAY,
+        changesafe_data_path=tmp_path / "warehouse-lifecycle.db",
+        snowflake_target_relation_allowlist={DEMO_TARGET_URN: relation},
+    )
+    app = create_app(
+        settings=settings,
+        context_port=ReplayDataHubContext.from_default(),
+        warehouse_port=warehouse,
+    )
+
+    async with app.router.lifespan_context(app):
+        run = await app.state.orchestrator.start(golden_change())
+        assert warehouse.closed is False
+
+    persisted = await app.state.store.get(run.run_id)
+    assert persisted is not None
+    assert persisted.state is RunState.AWAITING_APPROVAL
+    assert warehouse.validation_completed is True
+    assert warehouse.closed is True
+
+
+@pytest.mark.asyncio
+async def test_public_config_omits_warehouse_credentials_and_relation(
+    tmp_path: Path,
+) -> None:
+    private_values = {
+        "snowflake_account": "account-private",
+        "snowflake_user": "user-private",
+        "snowflake_authenticator": "SNOWFLAKE_JWT",
+        "snowflake_private_key_path": tmp_path / "key-private.p8",
+        "snowflake_warehouse": "warehouse-private",
+        "snowflake_database": "database-private",
+        "snowflake_schema": "schema-private",
+        "snowflake_role": "role-private",
+        "snowflake_target_relation_allowlist": {
+            DEMO_TARGET_URN: "PRIVATE_DB.PRIVATE_SCHEMA.PRIVATE_RELATION"
+        },
+    }
+    app = create_app(
+        settings=Settings(
+            _env_file=None,
+            mode=Mode.REPLAY,
+            changesafe_data_path=tmp_path / "public-config.db",
+            **private_values,
+        ),
+        context_port=ReplayDataHubContext.from_default(),
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/public-config")
+
+    assert response.status_code == 200
+    serialized = response.text.casefold()
+    assert "private" not in serialized
+    assert "snowflake" not in serialized
+    assert "target_relation" not in serialized
 
 
 @pytest.mark.asyncio

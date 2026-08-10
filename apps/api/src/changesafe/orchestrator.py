@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -10,15 +13,28 @@ from changesafe.context.base import ContextLoadError, DataHubContextPort
 from changesafe.domain import (
     AnalysisResult,
     ChangeRequest,
+    ContextBundle,
     PublicError,
     RunState,
     RunView,
+    WarehouseCheck,
+    WarehouseValidationMode,
+    WarehouseValidationResult,
+    WarehouseValidationStatus,
 )
 from changesafe.generation.service import ArtifactGenerationService
 from changesafe.impact import classify_impacts
+from changesafe.policy import evaluate_approval_policy
 from changesafe.risk import score_change
 from changesafe.store import RunStore
 from changesafe.verification import verify_artifacts
+from changesafe.warehouse.base import (
+    WarehouseValidationError,
+    WarehouseValidationPort,
+)
+from changesafe.warehouse.queries import fingerprint_relation
+
+WAREHOUSE_CHECK_CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class ChangeSafeOrchestrator:
@@ -29,6 +45,13 @@ class ChangeSafeOrchestrator:
         context_port: DataHubContextPort,
         generator: ArtifactGenerationService,
         snapshot_context_port: DataHubContextPort | None = None,
+        warehouse_port: WarehouseValidationPort | None = None,
+        require_live_evidence: bool = False,
+        require_warehouse: bool = False,
+        warehouse_max_age_seconds: int = 900,
+        warehouse_timeout_seconds: float = 20,
+        warehouse_environment_label: str = "not configured",
+        warehouse_target_map: Mapping[str, str] | None = None,
         llm_reservation_usd: Decimal = Decimal(0),
         llm_budget_usd: Decimal | None = None,
     ) -> None:
@@ -36,6 +59,13 @@ class ChangeSafeOrchestrator:
         self.context_port = context_port
         self.generator = generator
         self.snapshot_context_port = snapshot_context_port
+        self.warehouse_port = warehouse_port
+        self.require_live_evidence = require_live_evidence
+        self.require_warehouse = require_warehouse
+        self.warehouse_max_age_seconds = warehouse_max_age_seconds
+        self.warehouse_timeout_seconds = warehouse_timeout_seconds
+        self.warehouse_environment_label = warehouse_environment_label
+        self.warehouse_target_map = dict(warehouse_target_map or {})
         self.llm_reservation_usd = llm_reservation_usd
         self.llm_budget_usd = llm_budget_usd
         self._tasks: set[asyncio.Task[RunView]] = set()
@@ -50,6 +80,89 @@ class ChangeSafeOrchestrator:
 
         while self._tasks:
             await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
+    def _expected_relation_fingerprint(self, change: ChangeRequest) -> str | None:
+        relation = self.warehouse_target_map.get(change.asset_urn)
+        return fingerprint_relation(relation) if relation is not None else None
+
+    def _not_run_result(self, change: ChangeRequest) -> WarehouseValidationResult:
+        return WarehouseValidationResult(
+            status=WarehouseValidationStatus.NOT_RUN,
+            mode=WarehouseValidationMode.NONE,
+            environment_label=self.warehouse_environment_label,
+            operation=change.operation,
+            field=change.field,
+        )
+
+    def _blocked_result(
+        self,
+        change: ChangeRequest,
+        *,
+        started_at: datetime,
+        code: str,
+        message: str,
+        retryable: bool,
+    ) -> WarehouseValidationResult:
+        safe_code = code if WAREHOUSE_CHECK_CODE.fullmatch(code) else "warehouse_error"
+        completed_at = datetime.now(UTC)
+        return WarehouseValidationResult(
+            status=WarehouseValidationStatus.BLOCKED,
+            mode=WarehouseValidationMode.AGGREGATE,
+            environment_label=self.warehouse_environment_label,
+            operation=change.operation,
+            field=change.field,
+            relation_fingerprint=self._expected_relation_fingerprint(change),
+            started_at=started_at,
+            completed_at=completed_at,
+            elapsed_ms=max(0, int((completed_at - started_at).total_seconds() * 1000)),
+            checks=[
+                WarehouseCheck(
+                    code=safe_code,
+                    label="Warehouse validation",
+                    passed=False,
+                    retryable=retryable,
+                    detail=message,
+                )
+            ],
+        )
+
+    async def _validate_warehouse(
+        self,
+        change: ChangeRequest,
+        context: ContextBundle,
+    ) -> WarehouseValidationResult:
+        assert self.warehouse_port is not None
+        started_at = datetime.now(UTC)
+        try:
+            result = await asyncio.wait_for(
+                self.warehouse_port.validate(change, context),
+                timeout=self.warehouse_timeout_seconds,
+            )
+            return WarehouseValidationResult.model_validate(result)
+        except WarehouseValidationError as exc:
+            return self._blocked_result(
+                change,
+                started_at=started_at,
+                code=exc.code,
+                message=exc.public_message,
+                retryable=exc.retryable,
+            )
+        except TimeoutError:
+            return self._blocked_result(
+                change,
+                started_at=started_at,
+                code="warehouse_timeout",
+                message="Warehouse validation timed out.",
+                retryable=True,
+            )
+        except Exception:
+            return self._blocked_result(
+                change,
+                started_at=started_at,
+                code="warehouse_error",
+                message="Warehouse validation did not complete.",
+                retryable=True,
+            )
 
     async def start(
         self, change: ChangeRequest, *, session_id: str | None = None
@@ -143,23 +256,52 @@ class ChangeSafeOrchestrator:
                 public_message="Proving the generated change is safe",
             )
             validation = verify_artifacts(artifacts, run.request, context)
+            warehouse = self._not_run_result(run.request)
+            expected_relation_fingerprint = self._expected_relation_fingerprint(
+                run.request
+            )
+            if validation.passed and self.warehouse_port is not None:
+                await self.store.transition(
+                    run.run_id,
+                    RunState.VALIDATING_WAREHOUSE,
+                    public_message="Validating aggregate warehouse evidence",
+                )
+                warehouse = await self._validate_warehouse(run.request, context)
+            blockers = evaluate_approval_policy(
+                change=run.request,
+                context=context,
+                validation=validation,
+                warehouse=warehouse,
+                require_live_evidence=self.require_live_evidence,
+                require_warehouse=self.require_warehouse,
+                warehouse_max_age_seconds=self.warehouse_max_age_seconds,
+                expected_relation_fingerprint=expected_relation_fingerprint,
+            )
             analysis = AnalysisResult(
                 context=context,
                 risk=risk,
                 artifacts=artifacts,
                 validation=validation,
-                publication_eligible=validation.passed,
+                publication_eligible=validation.passed and not blockers,
                 impacts=impacts,
+                warehouse_validation=warehouse,
+                approval_blockers=blockers,
             )
-            if not validation.passed:
+            if blockers:
+                first_blocker = blockers[0]
                 return await self.store.transition(
                     run.run_id,
                     RunState.FAILED,
-                    public_message="Artifact validation failed",
+                    public_message=(
+                        "Artifact validation failed"
+                        if first_blocker.code == "VERIFICATION_FAILED"
+                        else "Approval policy blocked the analysis"
+                    ),
                     analysis=analysis,
                     error=PublicError(
-                        code="VERIFICATION_FAILED",
-                        message="Generated artifacts did not pass safety checks.",
+                        code=first_blocker.code,
+                        message=first_blocker.message,
+                        retryable=first_blocker.retryable,
                     ),
                 )
             return await self.store.transition(
